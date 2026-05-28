@@ -6,3 +6,9 @@
 export const USERNAME_EMAIL_MAP: Record<string, string> = {
   murakami: 'muranokami30@gmail.com',
 }
+
+/** メールアドレスからアカウント名を逆引き */
+export function emailToUsername(email: string): string | null {
+  const entry = Object.entries(USERNAME_EMAIL_MAP).find(([, e]) => e === email)
+  return entry ? entry[0] : null
+}

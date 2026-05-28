@@ -13,7 +13,7 @@ const NAV_LINKS = [
   { href: '/settings', label: '設定' },
 ]
 
-export default function NavBar() {
+export default function NavBar({ username }: { username: string | null }) {
   const pathname = usePathname()
   const router   = useRouter()
 
@@ -60,14 +60,21 @@ export default function NavBar() {
           })}
         </nav>
 
-        {/* ログアウト */}
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="shrink-0 text-xs text-gray-400 hover:text-gray-700 transition-colors px-2 py-1 rounded"
-        >
-          ログアウト
-        </button>
+        {/* ログイン中ユーザー名 ＋ ログアウト */}
+        <div className="shrink-0 flex items-center gap-2">
+          {username && (
+            <span className="text-xs text-gray-500">
+              ログイン中：{username}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="text-xs text-gray-400 hover:text-gray-700 transition-colors px-2 py-1 rounded"
+          >
+            ログアウト
+          </button>
+        </div>
       </div>
     </header>
   )
