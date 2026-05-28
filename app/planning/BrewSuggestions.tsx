@@ -536,6 +536,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [editingPlan,     setEditingPlan]     = useState<string | null>(null)
   const [editDateValue,   setEditDateValue]   = useState<string>('')
   const cancelEditRef = useRef(false)
+  const locationInitializedRef = useRef(false)
   const [savedKeys,  setSavedKeys]  = useState<Set<string>>(
     () => new Set(existingBrewPlanKeys ?? [])
   )
@@ -553,38 +554,37 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const weatherAvgValues = Object.values(weatherAvg ?? {})
 
   useEffect(() => {
+    locationInitializedRef.current = false
     const savedStocks:     Record<string, string> = {}
     const savedLocations:  Record<string, string> = {}
     for (const r of recipes) {
       savedStocks[r.name] = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
-      const stored = localStorage.getItem(`planning_location_${r.name}`)
-      if (stored && locationOptions.includes(stored)) {
-        savedLocations[r.name] = stored
-      } else {
-        // localStorage未保存: 1回目推奨仕込み日の月から季節を推定（循環依存を避けるため暖房ベースで概算）
-        const stockKg    = apiStockByType?.[r.name]
-          ?? (parseFloat(localStorage.getItem(`planning_stock_${r.name}`) ?? '0') || 0)
-        const typeData   = shipmentMap[r.name] ?? {}
-        const monthlyEst =
-          (sarimaxForecast?.[r.name]?.forecast[0] ?? null)
-          ?? get3YearAvg(typeData, today.getMonth() + 1, today.getFullYear())
-        if (monthlyEst && monthlyEst > 0) {
-          const dailyRate    = monthlyEst / getDaysInMonth(today)
-          const fermentDays  = Math.ceil(r.targetTempSum / Math.max(heatingDefaultTemp - 10, 1))
-          const stockOutDays = stockKg > 0 ? Math.round(stockKg / dailyRate) : 0
-          const brewDays     = Math.max(0, stockOutDays - fermentDays - brewBufferDays)
-          const brewMonth    = addDays(today, brewDays).getMonth() + 1
-          savedLocations[r.name] = (brewMonth >= 6 && brewMonth <= 9) ? '常温' : `暖房${heatingDefaultTemp}℃`
-        } else {
-          savedLocations[r.name] = getSeasonalDefaultLocation(heatingDefaultTemp)
-        }
-      }
+      const stored   = localStorage.getItem(`planning_location_${r.name}`)
+      const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
+      savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
     }
     setStocks(savedStocks)
     setLocations(savedLocations)
     setUseRawAsBase(localStorage.getItem('planning_useRawAsBase') === '1')
     setOptimisticStock(localStorage.getItem('planning_optimisticStock') === '1')
   }, [recipes])
+
+  // plans 確定後に1回だけ: 1回目仕込み日の月で場所デフォルトを補正（localStorage未保存の品種のみ）
+  useEffect(() => {
+    if (locationInitializedRef.current) return
+    const hasAnyBatch = plans.some(p => p.canCalc && p.batches.length > 0)
+    if (!hasAnyBatch) return
+    locationInitializedRef.current = true
+    const updates: Record<string, string> = {}
+    for (const plan of plans) {
+      if (!plan.canCalc || plan.batches.length === 0) continue
+      if (localStorage.getItem(`planning_location_${plan.name}`)) continue
+      const brewMonth = plan.batches[0].brewDate.getMonth() + 1
+      const targetLoc = (brewMonth >= 6 && brewMonth <= 9) ? '常温' : `暖房${heatingDefaultTemp}℃`
+      if (plan.location !== targetLoc) updates[plan.name] = targetLoc
+    }
+    if (Object.keys(updates).length > 0) setLocations(prev => ({ ...prev, ...updates }))
+  })
 
   function handleStockChange(name: string, value: string) {
     setStocks(prev => ({ ...prev, [name]: value }))
