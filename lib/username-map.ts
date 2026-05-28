@@ -4,5 +4,5 @@
  * アカウント名は小文字で統一（ログイン時に自動で小文字変換）。
  */
 export const USERNAME_EMAIL_MAP: Record<string, string> = {
-  admin: 'muranokami30@gmail.com',
+  murakami: 'muranokami30@gmail.com',
 }
