@@ -496,6 +496,12 @@ function generateCSV(plans: RecipePlan[], maxBatches: number, today: Date): stri
   return lines.join('\n')
 }
 
+// 現在月から季節に合った仕込み場所のデフォルトを返す（6〜9月:常温 / 10〜5月:暖房）
+function getSeasonalDefaultLocation(heatingDefaultTemp: number): string {
+  const month = new Date().getMonth() + 1
+  return (month >= 6 && month <= 9) ? '常温' : `暖房${heatingDefaultTemp}℃`
+}
+
 function downloadCSV(content: string, filename: string) {
   // BOM付きUTF-8（Excelで文字化けしないよう）
   const bom  = '﻿'
@@ -511,16 +517,8 @@ function downloadCSV(content: string, filename: string) {
 export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, fermentingScheduleByType, existingBrewPlanKeys }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
-    const opts = [
-      `暖房${heatingDefaultTemp}℃`,
-      `冷房${coolingDefaultTemp}℃`,
-      '常温',
-      '冷蔵庫',
-    ]
-    return Object.fromEntries(recipes.map(r => [
-      r.name,
-      opts.includes(r.defaultLocation) ? r.defaultLocation : opts[0],
-    ]))
+    const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
+    return Object.fromEntries(recipes.map(r => [r.name, seasonal]))
   })
   const [maxBatches,      setMaxBatches]     = useState<number>(1)
   const [perRecipeBatches, setPerRecipeBatches] = useState<Record<string, number>>({})
@@ -559,9 +557,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const savedLocations:  Record<string, string> = {}
     for (const r of recipes) {
       savedStocks[r.name] = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
-      const stored = localStorage.getItem(`planning_location_${r.name}`)
-      const def    = locationOptions.includes(r.defaultLocation) ? r.defaultLocation : locationOptions[0]
-      savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : def
+      const stored   = localStorage.getItem(`planning_location_${r.name}`)
+      const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
+      savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
     }
     setStocks(savedStocks)
     setLocations(savedLocations)
