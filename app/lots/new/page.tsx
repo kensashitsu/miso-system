@@ -58,8 +58,9 @@ export default async function LotNewPage({
 
   const initialValues = brewPlan
     ? {
-        misoType: brewPlan.misoType,
-        brewedAt: format(brewPlan.brewDate, 'yyyy-MM-dd'),
+        misoType:      brewPlan.misoType,
+        brewedAt:      format(brewPlan.brewDate, 'yyyy-MM-dd'),
+        bucketNumbers: brewPlan.bucketNumbers ?? suggestedBucketNumbers,
       }
     : undefined
 

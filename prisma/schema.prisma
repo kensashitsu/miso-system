@@ -213,6 +213,7 @@ model BrewPlan {
   fermentationDays      Int
   location              String
   materialOrderDeadline DateTime
+  bucketNumbers         String?                   // 桶番号（例: "9・10" または "15"）
   status                String    @default("仮登録")  // 仮登録・本登録済
   lotId                 String?
   memo                  String?

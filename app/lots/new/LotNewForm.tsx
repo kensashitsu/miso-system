@@ -143,11 +143,11 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
   recipes: MisoRecipe[]
   weatherAvg: Record<string, number>
   suggestedBucketNumbers: string
-  initialValues?: { misoType?: string; brewedAt?: string }
+  initialValues?: { misoType?: string; brewedAt?: string; bucketNumbers?: string }
   brewPlanId?: string
 }) {
   const [form, setForm] = useState<FormState>(() => {
-    const base: FormState = { ...INITIAL, bucketNumbers: suggestedBucketNumbers }
+    const base: FormState = { ...INITIAL, bucketNumbers: initialValues?.bucketNumbers ?? suggestedBucketNumbers }
     if (initialValues?.brewedAt) base.brewedAt = initialValues.brewedAt
     if (initialValues?.misoType) {
       const recipe = recipes.find(r => r.name === initialValues.misoType)

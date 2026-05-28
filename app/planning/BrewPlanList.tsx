@@ -15,6 +15,7 @@ export interface BrewPlanItem {
   completionDate:        Date
   fermentationDays:      number
   location:              string
+  bucketNumbers:         string | null
   materialOrderDeadline: Date
   status:                string
   lotId:                 string | null

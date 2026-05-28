@@ -29,6 +29,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                   <th className="text-left px-3 py-2 font-medium">品種</th>
                   <th className="text-left px-3 py-2 font-medium">仕込み予定日</th>
                   <th className="text-left px-3 py-2 font-medium">完成予定日</th>
+                  <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">桶番号</th>
                   <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">場所</th>
                   <th className="text-left px-3 py-2 font-medium">状態</th>
                   <th className="text-right px-3 py-2 font-medium">操作</th>
@@ -56,6 +57,9 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                       <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
                         {format(plan.completionDate, 'M/d')}
                         <span className="ml-1 text-[10px]">({plan.fermentationDays}日)</span>
+                      </td>
+                      <td className="px-3 py-2.5 tabular-nums hidden sm:table-cell">
+                        {plan.bucketNumbers ?? '—'}
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell">
                         {plan.location}
