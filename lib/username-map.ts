@@ -5,6 +5,7 @@
  */
 export const USERNAME_EMAIL_MAP: Record<string, string> = {
   murakami: 'muranokami30@gmail.com',
+  daido:    'kanri.mitsuura@gmail.com',
 }
 
 /** メールアドレスからアカウント名を逆引き */
