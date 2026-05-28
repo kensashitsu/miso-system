@@ -659,6 +659,7 @@ UI機能:
 - **予測方式**: SARIMAX / HW（ホルト・ウィンタース・12ヶ月以上必要）/ 3年平均 をトグル切り替え
 - **表示回数**: 1/3/5回分（品種ごとに個別設定も可能）
 - **仕込み場所セレクタ**: 品種ごとに選択（`暖房{heatingDefaultTemp}℃` / `冷房{coolingDefaultTemp}℃` / `常温` / `冷蔵庫`）→ `simulateFermentationDays()` でQ10補正あり・なし両方の熟成日数を計算
+  - **デフォルト選択ロジック**: localStorage未保存の場合、`plans`確定後に`locationInitializedRef`（`useRef`）で1回だけ1回目仕込み日の月を参照し季節判定（6〜9月→常温 / 10〜5月→暖房）。localStorage保存済み（ユーザーが手動変更）は上書きしない。
 - **Q10補正あり・なし両方を表示**: 仕込み日・完成日・手配締切をそれぞれ表示
 - **Q10補正基準の切替トグル**（localStorageで永続化）
 - **在庫切れリスク警告バナー**: 1回目推奨日が過去の場合、超過日数・有効在庫・消費ペース・推定在庫切れまでの日数を表示
@@ -738,6 +739,16 @@ URLパラメータでサーバーサイドフィルタ:
 ### `components/dashboard/lot-card.tsx`
 ロットカード。LotCardProps を受け取り、熟成度バー・現在地・桶残量（折りたたみ）を表示。
 熟成中 + `simConfig` があれば「熟成シミュレーション」ボタンを表示。
+
+### `app/planning/BrewPlanList.tsx`
+仮登録リストのテーブルコンポーネント。`BrewPlanItem` 型を export。現在は `BrewPlanDrawer` にインポートして使用。
+
+### `app/planning/BrewPlanDrawer.tsx`
+画面下部に固定追従する仮登録リストドロワー（`'use client'`）。
+- 仮登録が1件以上あるときのみ表示（`fixed bottom-0`）
+- 折りたたみバー: 件数バッジ（仮登録/本登録済）を常時表示
+- 展開時: テーブルを上方向に表示（最大55vh・スクロール対応）
+- ロット登録リンク・削除ボタンを含む
 
 ### `components/dashboard/LotSimulationModal.tsx`
 将来の場所を選択してインタラクティブに熟成完了日を予測するモーダル。
