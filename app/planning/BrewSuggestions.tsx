@@ -563,7 +563,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       } else {
         // localStorage未保存: 1回目推奨仕込み日の月から季節を推定（循環依存を避けるため暖房ベースで概算）
         const stockKg    = apiStockByType?.[r.name]
-          ?? parseFloat(localStorage.getItem(`planning_stock_${r.name}`) ?? '0') || 0
+          ?? (parseFloat(localStorage.getItem(`planning_stock_${r.name}`) ?? '0') || 0)
         const typeData   = shipmentMap[r.name] ?? {}
         const monthlyEst =
           (sarimaxForecast?.[r.name]?.forecast[0] ?? null)
