@@ -137,7 +137,7 @@ export default function LotCard({
                   key={n}
                   className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600"
                 >
-                  🪣 {n}号
+                  {n}号
                 </span>
               ))}
             </div>
