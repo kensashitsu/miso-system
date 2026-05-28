@@ -62,6 +62,7 @@ const schema = z.object({
   saltLotNo:          z.string().nullish(),
   mizuameBrand:       z.string().nullish(),
   mizuameLotNo:       z.string().nullish(),
+  brewPlanId:         z.string().nullish(),
 })
 
 export type ActionResult = {
@@ -182,6 +183,13 @@ export async function createLot(input: unknown): Promise<ActionResult> {
   } catch (e) {
     console.error('ロット登録エラー:', e)
     return { globalError: 'データベースへの登録中にエラーが発生しました。もう一度お試しください。' }
+  }
+
+  if (d.brewPlanId) {
+    await prisma.brewPlan.update({
+      where: { id: d.brewPlanId },
+      data:  { status: '本登録済', lotId: newId },
+    }).catch(() => {})
   }
 
   redirect(`/lots/${newId}`)

@@ -5,6 +5,7 @@ import { getMisoRecipes } from '@/lib/recipes'
 import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import BrewSuggestions from './BrewSuggestions'
+import BrewPlanList from './BrewPlanList'
 import DemandChart from './DemandChart'
 import WeatherSimulator from './WeatherSimulator'
 import ForecastUpdater from './ForecastUpdater'
@@ -60,7 +61,7 @@ function enrichShipmentMap(
 }
 
 export default async function PlanningPage() {
-  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows] = await Promise.all([
+  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
@@ -82,6 +83,8 @@ export default async function PlanningPage() {
     prisma.forecastCache.findMany({ orderBy: { yearMonth: 'asc' } }),
     // SARIMAXのMAPEをSystemSettingから取得
     prisma.systemSetting.findMany({ where: { key: { startsWith: 'forecast_mape_' } } }),
+    // 仮登録リスト（仮登録・本登録済の両方を取得）
+    prisma.brewPlan.findMany({ orderBy: { brewDate: 'asc' } }),
   ])
 
   // 熟成中ロットを品種別に集計（Bucketがある場合は残量で計算）
@@ -267,7 +270,16 @@ export default async function PlanningPage() {
         apiStockByType={Object.keys(apiStockByType).length > 0 ? apiStockByType : undefined}
         sarimaxForecast={Object.keys(sarimaxMap).length > 0 ? sarimaxMap : undefined}
         fermentingScheduleByType={Object.keys(fermentingScheduleByType).length > 0 ? fermentingScheduleByType : undefined}
+        existingBrewPlanKeys={brewPlans
+          .filter(p => p.status === '仮登録')
+          .map(p => `${p.misoType}::${format(p.brewDate, 'yyyy-MM-dd')}`)}
       />
+
+      {brewPlans.length > 0 && (
+        <div className="no-print">
+          <BrewPlanList plans={brewPlans} />
+        </div>
+      )}
     </div>
   )
 }

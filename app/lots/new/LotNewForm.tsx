@@ -138,13 +138,33 @@ function Opt() {
 
 // ------- メインコンポーネント -------
 
-export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBucketNumbers }: {
+export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBucketNumbers, initialValues, brewPlanId }: {
   moisture: MoistureSettings
   recipes: MisoRecipe[]
   weatherAvg: Record<string, number>
   suggestedBucketNumbers: string
+  initialValues?: { misoType?: string; brewedAt?: string }
+  brewPlanId?: string
 }) {
-  const [form, setForm] = useState<FormState>({ ...INITIAL, bucketNumbers: suggestedBucketNumbers })
+  const [form, setForm] = useState<FormState>(() => {
+    const base: FormState = { ...INITIAL, bucketNumbers: suggestedBucketNumbers }
+    if (initialValues?.brewedAt) base.brewedAt = initialValues.brewedAt
+    if (initialValues?.misoType) {
+      const recipe = recipes.find(r => r.name === initialValues.misoType)
+      if (recipe) {
+        base.misoType        = initialValues.misoType
+        base.targetTempSum   = String(recipe.targetTempSum)
+        base.soybeanOrigin   = recipe.soybeanOrigin ?? ''
+        base.mizuameKg       = String(recipe.mizuameKg)
+        base.initialLocation = recipe.defaultLocation
+        base.mugiOrKomeKg    = String(recipe.grainKg)
+        base.soybeanKg       = String(recipe.soybeanKg)
+        base.saltKg          = String(recipe.saltKg)
+        base.taneKojiG       = String(recipe.taneKojiG)
+      }
+    }
+    return base
+  })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [globalError, setGlobalError] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -217,6 +237,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       saltLotNo:          strOpt(form.saltLotNo),
       mizuameBrand:       strOpt(form.mizuameBrand),
       mizuameLotNo:       strOpt(form.mizuameLotNo),
+      brewPlanId:         brewPlanId ?? null,
     }
 
     startTransition(async () => {

@@ -204,6 +204,22 @@ model IngredientAlert {
   resolved        Boolean  @default(false)
 }
 
+// 仕込み計画の仮登録（AI提案→本登録への中間ステート）
+model BrewPlan {
+  id                    String    @id @default(cuid())
+  misoType              String
+  brewDate              DateTime
+  completionDate        DateTime
+  fermentationDays      Int
+  location              String
+  materialOrderDeadline DateTime
+  status                String    @default("仮登録")  // 仮登録・本登録済
+  lotId                 String?
+  memo                  String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}
+
 // SARIMAX需要予測キャッシュ（品種×年月）
 model ForecastCache {
   misoType   String

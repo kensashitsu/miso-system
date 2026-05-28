@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { holtWinters, getTimeSeries } from '@/lib/forecast'
+import { createBrewPlan } from './brew-plan-actions'
 
 interface Recipe {
   name:            string
@@ -52,6 +53,8 @@ interface Props {
   sarimaxForecast?: Record<string, SarimaxEntry>
   // 熟成中ロットの完成予定日・歩留まりスケジュール（在庫補充タイミング計算用）
   fermentingScheduleByType?: Record<string, FermentingLotSchedule[]>
+  // 既存の仮登録キー一覧（"品種::yyyy-MM-dd" 形式）
+  existingBrewPlanKeys?: string[]
 }
 
 interface BatchPlan {
@@ -505,7 +508,7 @@ function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, fermentingScheduleByType }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, fermentingScheduleByType, existingBrewPlanKeys }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const opts = [
@@ -535,6 +538,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [editingPlan,     setEditingPlan]     = useState<string | null>(null)
   const [editDateValue,   setEditDateValue]   = useState<string>('')
   const cancelEditRef = useRef(false)
+  const [savedKeys,  setSavedKeys]  = useState<Set<string>>(
+    () => new Set(existingBrewPlanKeys ?? [])
+  )
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set())
   const today        = new Date()
   const currentMonth = today.getMonth() + 1
   const currentYear  = today.getFullYear()
@@ -1033,6 +1040,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                             <th className="text-left px-2 py-1.5 font-medium">仕込み日</th>
                             <th className="text-left px-2 py-1.5 font-medium">完成日</th>
                             <th className="text-left px-2 py-1.5 font-medium">手配締切</th>
+                            <th className="text-right px-2 py-1.5 font-medium w-16"></th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1151,6 +1159,45 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       {sLabel} {format(sDL, 'M/d')}
                                     </div>
                                   )}
+                                </td>
+                                <td className="px-2 py-2 text-right">
+                                  {(() => {
+                                    const planKey = `${plan.name}::${format(pBrew, 'yyyy-MM-dd')}`
+                                    const isSaved  = savedKeys.has(planKey)
+                                    const isSaving = savingKeys.has(planKey)
+                                    if (isSaved) {
+                                      return (
+                                        <span className="text-[11px] text-emerald-600 font-medium whitespace-nowrap">
+                                          登録済 ✓
+                                        </span>
+                                      )
+                                    }
+                                    return (
+                                      <button
+                                        type="button"
+                                        disabled={isSaving}
+                                        onClick={async () => {
+                                          setSavingKeys(prev => new Set([...prev, planKey]))
+                                          try {
+                                            await createBrewPlan({
+                                              misoType:                 plan.name,
+                                              brewDateISO:              pBrew.toISOString(),
+                                              completionDateISO:        pComp.toISOString(),
+                                              fermentationDays:         pDays,
+                                              location:                 plan.location,
+                                              materialOrderDeadlineISO: pDL.toISOString(),
+                                            })
+                                            setSavedKeys(prev => new Set([...prev, planKey]))
+                                          } finally {
+                                            setSavingKeys(prev => { const n = new Set(prev); n.delete(planKey); return n })
+                                          }
+                                        }}
+                                        className="text-[11px] px-2 py-0.5 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 whitespace-nowrap"
+                                      >
+                                        {isSaving ? '保存中' : '仮登録'}
+                                      </button>
+                                    )
+                                  })()}
                                 </td>
                               </tr>
                             )

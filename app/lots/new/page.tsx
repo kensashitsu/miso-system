@@ -19,8 +19,14 @@ function nextBucketPair(last: string | null): string {
   return BUCKET_PAIRS[(idx + 1) % 15]
 }
 
-export default async function LotNewPage() {
-  const [moisture, recipes, weatherData, lastLot] = await Promise.all([
+export default async function LotNewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ brewPlanId?: string }>
+}) {
+  const { brewPlanId } = await searchParams
+
+  const [moisture, recipes, weatherData, lastLot, brewPlan] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     prisma.weatherCache.findMany(),
@@ -29,6 +35,9 @@ export default async function LotNewPage() {
       where:   { bucketNumbers: { not: null } },
       select:  { bucketNumbers: true },
     }),
+    brewPlanId
+      ? prisma.brewPlan.findUnique({ where: { id: brewPlanId } })
+      : Promise.resolve(null),
   ])
 
   const suggestedBucketNumbers = nextBucketPair(lastLot?.bucketNumbers ?? null)
@@ -47,6 +56,13 @@ export default async function LotNewPage() {
     weatherAvg[key] = Math.round((sum / count) * 100) / 100
   }
 
+  const initialValues = brewPlan
+    ? {
+        misoType: brewPlan.misoType,
+        brewedAt: format(brewPlan.brewDate, 'yyyy-MM-dd'),
+      }
+    : undefined
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
       <LotNewForm
@@ -54,6 +70,8 @@ export default async function LotNewPage() {
         recipes={recipes}
         weatherAvg={weatherAvg}
         suggestedBucketNumbers={suggestedBucketNumbers}
+        initialValues={initialValues}
+        brewPlanId={brewPlanId}
       />
     </div>
   )
