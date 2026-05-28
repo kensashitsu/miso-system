@@ -472,6 +472,12 @@ export default function LotDetail({
           ...prev,
           [bucketId]: [{ id: result.id!, usedAt: new Date(form.usedAt).toISOString(), usedKg: parseFloat(form.usedKg), notes: form.notes || null }, ...(prev[bucketId] ?? [])],
         }))
+        if (result.newRemainingWeightKg !== undefined) {
+          setBuckets(prev => prev.map(b => b.id === bucketId
+            ? { ...b, remainingWeightKg: result.newRemainingWeightKg!, status: result.newStatus ?? b.status }
+            : b
+          ))
+        }
         setUsageForm(prev => ({ ...prev, [bucketId]: { usedAt: format(new Date(), 'yyyy-MM-dd'), usedKg: '', notes: '' } }))
       }
     })
@@ -484,6 +490,12 @@ export default function LotDetail({
     setDeletingUsageId(null)
     if (result.success) {
       setBucketUsages(prev => ({ ...prev, [bucketId]: (prev[bucketId] ?? []).filter(u => u.id !== usageId) }))
+      if (result.newRemainingWeightKg !== undefined) {
+        setBuckets(prev => prev.map(b => b.id === bucketId
+          ? { ...b, remainingWeightKg: result.newRemainingWeightKg!, status: result.newStatus ?? b.status }
+          : b
+        ))
+      }
     }
   }
 

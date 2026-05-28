@@ -169,6 +169,8 @@ const bucketUsageSchema = z.object({
 export type BucketUsageResult = {
   success?: true
   id?: string
+  newRemainingWeightKg?: number
+  newStatus?: string
   errors?: Record<string, string>
   globalError?: string
 }
@@ -204,7 +206,7 @@ export async function addBucketUsage(bucketId: string, input: unknown): Promise<
     })
 
     revalidatePath(`/lots/${bucket.lotId}`)
-    return { success: true, id: usage.id }
+    return { success: true, id: usage.id, newRemainingWeightKg: newRemaining, newStatus }
   } catch (e) {
     console.error('使用記録追加エラー:', e)
     return { globalError: '保存中にエラーが発生しました。' }
@@ -212,7 +214,7 @@ export async function addBucketUsage(bucketId: string, input: unknown): Promise<
 }
 
 // ── 桶使用記録を削除 ──────────────────────────────────────
-export async function deleteBucketUsage(usageId: string): Promise<{ success?: true; error?: string }> {
+export async function deleteBucketUsage(usageId: string): Promise<{ success?: true; newRemainingWeightKg?: number; newStatus?: string; error?: string }> {
   try {
     const usage = await prisma.bucketUsage.findUnique({
       where:  { id: usageId },
@@ -232,7 +234,7 @@ export async function deleteBucketUsage(usageId: string): Promise<{ success?: tr
     })
 
     revalidatePath(`/lots/${usage.bucket.lotId}`)
-    return { success: true }
+    return { success: true, newRemainingWeightKg: newRemaining, newStatus }
   } catch (e) {
     console.error('使用記録削除エラー:', e)
     return { error: '削除中にエラーが発生しました。' }
