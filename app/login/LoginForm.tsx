@@ -2,27 +2,22 @@
 
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { createBrowserClient } from '@supabase/ssr'
+import { loginAction } from './actions'
 
 export default function LoginForm() {
   const router = useRouter()
-  const [email, setEmail]       = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError]       = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     startTransition(async () => {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        setError('メールアドレスまたはパスワードが正しくありません')
+      const result = await loginAction(username, password)
+      if (result.error) {
+        setError(result.error)
         return
       }
       router.push('/')
@@ -34,16 +29,16 @@ export default function LoginForm() {
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-1.5">
         <label className="block text-sm font-medium text-gray-700">
-          メールアドレス
+          アカウント名
         </label>
         <input
-          type="email"
+          type="text"
           required
-          autoComplete="email"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
+          autoComplete="username"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-1 focus:ring-gray-500"
-          placeholder="admin@example.com"
+          placeholder="admin"
         />
       </div>
 
