@@ -1209,13 +1209,15 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         onClick={async () => {
                                           setSavingKeys(prev => new Set([...prev, planKey]))
                                           try {
+                                            // JST午前0時はUTCで前日になるため、日付文字列からUTC midnightに正規化
+                                            const toUTCMidnight = (d: Date) => `${format(d, 'yyyy-MM-dd')}T00:00:00Z`
                                             await createBrewPlan({
                                               misoType:                 plan.name,
-                                              brewDateISO:              pBrew.toISOString(),
-                                              completionDateISO:        pComp.toISOString(),
+                                              brewDateISO:              toUTCMidnight(pBrew),
+                                              completionDateISO:        toUTCMidnight(pComp),
                                               fermentationDays:         pDays,
                                               location:                 plan.location,
-                                              materialOrderDeadlineISO: pDL.toISOString(),
+                                              materialOrderDeadlineISO: toUTCMidnight(pDL),
                                             })
                                             setSavedKeys(prev => new Set([...prev, planKey]))
                                           } finally {
