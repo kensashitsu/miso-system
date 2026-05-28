@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Lot {
+  id             String    @id @default(cuid())
+  lotNumber      String    @unique        // 例: 202506-001
+  misoType       String                   // 無添加麦みそ・田舎みそ・山吹みそ・白みそ
+  brewedAt       DateTime
+  totalWeightKg  Float
+  targetTempSum  Float                    // 目標積算温度（℃・日）
+  status         String    @default("熟成中") // 熟成中・完成・品質低下出荷・種みそ転用・出荷済
+  completedAt    DateTime?
+  bucketNumbers  String?                   // 使用桶番号（例: "1・2"）
+  finalYieldKg   Float?                   // 完了時の確定歩留まり（kg）
+  yieldRate      Float?                   // 歩留まり率（%）自動計算
+  notes          String?
+  createdAt      DateTime  @default(now())
+
+  brewRecord       BrewRecord?
+  locationHistory  LocationHistory[]
+  agingNotes       AgingNote[]
+  brewDiaries      BrewDiary[]
+  packagingLots    PackagingLot[]
+  buckets          Bucket[]
+  seedMisoUsed     SeedMisoUsage[]  @relation("FromLot")  // 種みそ転用元
+  seedMisoReceived SeedMisoUsage[]  @relation("ToLot")    // 種みそ受け入れ先
+}
+
+model BrewRecord {
+  id               String    @id @default(cuid())
+  lotId            String    @unique
+  lot              Lot       @relation(fields: [lotId], references: [id])
+  // 原料配合
+  mugiOrKomeKg     Float                    // 麦 or 米（kg）
+  kojiKg           Float                    // 麹（kg）
+  soybeanKg        Float                    // 大豆（kg）
+  saltKg           Float                    // 塩（kg）
+  mizuameKg        Float     @default(0)    // 水飴（kg）
+  seedWaterL       Float     @default(0)    // 種水（ℓ）
+  shikomiKg        Float                    // 仕立（kg）
+  // 原料情報
+  soybeanOrigin    String?                  // 大豆産地（県産・カナダ産等）
+  // 原料トレーサビリティ（追加機能③）
+  soybeanOriginDetail  String?              // 産地詳細
+  soybeanArrivalDate   DateTime?            // 大豆入荷日
+  soybeanSupplier      String?              // 大豆仕入れ先
+  soybeanLotNo         String?              // 大豆ロット番号
+  kojiMadeAt           DateTime?            // 麹製造日
+  kojiSupplier         String?              // 麹仕入れ先
+  saltBrand            String?              // 塩銘柄
+  saltLotNo            String?              // 塩ロット番号
+  mizuameBrand         String?              // 水飴銘柄
+  mizuameLotNo         String?              // 水飴ロット番号
+  // 製造記録
+  kojiCondition    Int?                     // 出麹評価（3〜9）
+  soybeanHardness  String?                  // 大豆硬度メモ（例: 317-294-305）
+  airTempC         Float?                   // 仕込み時気温（℃）
+  productTempC     Float?                   // 仕込み時品温（℃）
+  steamingPressure String?                  // 蒸煮条件（例: 0.07-34）
+  coolingMin       String?                  // 冷却時間
+  seedMisoKg       Float     @default(0)    // 種味噌使用量（kg）
+  taneKojiG        Float     @default(0)    // 種麹使用量（g）
+  memo             String?                  // 備考
+}
+
+model LocationHistory {
+  id        String    @id @default(cuid())
+  lotId     String
+  lot       Lot       @relation(fields: [lotId], references: [id])
+  startDate DateTime
+  endDate   DateTime?                       // 次の移動時に自動セット
+  location  String                          // 温調室24℃・温調室20℃・常温
+}
+
+model AgingNote {
+  id           String   @id @default(cuid())
+  lotId        String
+  lot          Lot      @relation(fields: [lotId], references: [id])
+  recordedAt   DateTime @default(now())
+  memo         String
+  airTempC     Float?
+  productTempC Float?
+}
+
+model BrewDiary {
+  id         String   @id @default(cuid())
+  lotId      String
+  lot        Lot      @relation(fields: [lotId], references: [id])
+  recordedAt DateTime @default(now())
+  categories String   // カンマ区切り: "トラブル,品質メモ"
+  tags       String   // カンマ区切り: "カビ,温度"
+  memo       String
+}
+
+model SeedMisoUsage {
+  id         String   @id @default(cuid())
+  fromLotId  String                         // 転用元ロット（着色が進んだロット）
+  fromLot    Lot      @relation("FromLot", fields: [fromLotId], references: [id])
+  toLotId    String                         // 使用先ロット（冬季仕込みロット）
+  toLot      Lot      @relation("ToLot", fields: [toLotId], references: [id])
+  usedKg     Float
+  usedAt     DateTime
+}
+
+model PackagingLot {
+  id                String   @id @default(cuid())
+  lotId             String
+  lot               Lot      @relation(fields: [lotId], references: [id])
+  packagedLotNumber String   @unique         // 賞味期限年月日: 例 20260924
+  expiryDate        DateTime
+  alcoholAddedAt    DateTime?                // アルコール添加日
+  filledAt          DateTime?                // 充填日（翌日が多い）
+  bucketId          String?                  // 使用桶（例: "28"・"9・10"）
+  textureType       String                   // 粒・すり
+  shikomiKg         Float?                   // 仕立量（kg）
+  filled1kgCount    Int      @default(0)     // 1kg袋（個）
+  filled500gCount   Int      @default(0)     // 500g袋（個）
+  orderNo           String?                  // 受注No.（既存システムとの紐付け用）
+  notes             String?
+  createdAt         DateTime @default(now())
+}
+
+model WeatherCache {
+  date          DateTime @id
+  avgTempC      Float
+  effectiveTemp Float                        // max(avgTempC - 10, 0)
+}
+
+model ShipmentHistory {
+  id         String   @id @default(cuid())
+  yearMonth  String                          // 例: 2025-06
+  misoType   String                          // 品種
+  weightKg   Float
+  importedAt DateTime @default(now())
+
+  @@unique([yearMonth, misoType])
+}
+
+// 品種ごとのデフォルト配合レシピ
+model MisoRecipe {
+  id              String   @id @default(cuid())
+  name            String   @unique           // 品種名（Lot.misoType と対応）
+  grainLabel      String                     // 穀物ラベル（裸麦・砕米・無洗米など）
+  grainKg         Float                      // 穀物デフォルト量（kg）
+  soybeanKg       Float                      // 大豆デフォルト量（kg）
+  saltKg          Float                      // 塩デフォルト量（kg）
+  mizuameKg       Float    @default(0)       // 水飴デフォルト量（kg）
+  totalWeightKg   Float                      // 仕込み総量デフォルト（kg）
+  targetTempSum   Float                      // 目標積算温度（℃・日）
+  defaultLocation String   @default("温調室24℃") // 初期場所
+  soybeanOrigin   String?                    // 大豆産地デフォルト
+  taneKojiG       Float    @default(0)       // 種麹デフォルト量（g）
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// システム全体の設定値（キーバリュー形式）
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model Bucket {
+  id                String        @id @default(cuid())
+  lotId             String
+  lot               Lot           @relation(fields: [lotId], references: [id])
+  bucketNumber      Int                        // 桶番号（例: 13）
+  initialWeightKg   Float                      // 初期重量
+  remainingWeightKg Float?                     // 現在残量（nullの場合は初期重量のまま）
+  status            String        @default("待機中") // 使用中・待機中・空
+  notes             String?
+  createdAt         DateTime      @default(now())
+  usages            BucketUsage[]
+}
+
+model BucketUsage {
+  id        String   @id @default(cuid())
+  bucketId  String
+  bucket    Bucket   @relation(fields: [bucketId], references: [id])
+  usedAt    DateTime
+  usedKg    Float
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+model IngredientAlert {
+  id              String   @id @default(cuid())
+  triggerLotId    String                     // クレームが起きたロット
+  affectedLotId   String                     // 同じ原料を使っている他ロット
+  ingredientType  String                     // 大豆・麹・塩・水飴
+  lotNo           String?                    // 問題の原料ロット番号
+  createdAt       DateTime @default(now())
+  resolved        Boolean  @default(false)
+}
+
+// SARIMAX需要予測キャッシュ（品種×年月）
+model ForecastCache {
+  misoType   String
+  yearMonth  String
+  forecastKg Float
+  lower90    Float
+  upper90    Float
+  updatedAt  DateTime @default(now())
+
+  @@id([misoType, yearMonth])
+}

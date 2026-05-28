@@ -1,0 +1,820 @@
+# 味噌熟成・仕込み計画管理システム
+
+## プロジェクト概要
+
+山口県防府市の味噌蔵向け生産管理システム。Excel・紙帳簿からの移行。
+社内LAN上の1台のサーバーPCで `next start` を常時起動し、PC・スマホ（同一Wi-Fi）から2〜3人が使用。認証不要。
+
+既存システム（zaiko.mitsuura.jp / seizou.mitsuura.jp）と役割分担：
+- **既存**: 在庫数量・出荷記録・販売管理・取引先別引き当て
+- **本システム**: 仕込みロットの熟成進捗・着色リスク・場所履歴・仕込み計画・ロットトレース・袋詰めロット
+
+---
+
+## 技術スタック
+
+| ライブラリ | バージョン | 備考 |
+|-----------|-----------|------|
+| Next.js | 16.2.6 | App Router / Server Components / Server Actions |
+| React | 19.2.4 | |
+| Prisma | **6.19.3** | SQLite。v7はSQLiteのdriver adapter問題のため使用不可 |
+| SQLite | — | DATABASE_URL: `file:./dev.db`（実体は `prisma/dev.db`） |
+| Tailwind CSS | v4 | |
+| shadcn/ui | @base-ui/react ^1.4.1 | |
+| Zod | **4.4.3** | v3と構文が異なる（後述） |
+| date-fns | v4.1.0 | |
+| Recharts | 3.8.1 | 積算温度グラフ・需要グラフ・シミュレーションモーダル |
+| xlsx (SheetJS) | 0.18.5 | /importでclient側動的import |
+| tsx | ^4.21.0 | シードスクリプト実行用 |
+| lucide-react | 1.14.0 | |
+| @tanstack/react-query | ^5.100.10 | |
+
+---
+
+## 環境・デプロイ方針
+
+```
+next start を社内PC1台で常時起動
+192.168.11.19:3000 → 社内Wi-Fi経由でPC・スマホ両方からアクセス
+```
+
+### 環境変数（`.env.local`）
+
+| 変数名 | 用途 |
+|--------|------|
+| `DATABASE_URL` | `file:./dev.db`（Prismaが`prisma/`基準で解決） |
+| `STOCK_API_URL` | 熟成済在庫取得エンドポイント |
+| `SALES_API_URL` | 月別出荷実績取得エンドポイント |
+| `EXTERNAL_API_KEY` | 上記APIの認証キー（`X-API-Key`ヘッダー） |
+| `PYTHON_PATH` | SARIMAXスクリプト実行用Python3パス（省略時はシステムデフォルト） |
+
+---
+
+## 場所定義（最新版）
+
+場所は `LocationHistory.location` に文字列として保存。
+
+### 現在の有効な場所
+
+| 場所名 | 表記例 | 日次有効積算温度 | 説明 |
+|--------|--------|-----------------|------|
+| 暖房 | `暖房25℃` | `設定温度 − 10` ℃/日 | ヒーター。設定温度は移動時に任意入力。保存形式: `暖房XX℃` |
+| 冷房 | `冷房20℃` | `max(設定温度 − 10, 0)` ℃/日 | クーラー。設定温度は移動時に任意入力。保存形式: `冷房XX℃` |
+| 常温 | `常温` | Q10補正済み値（後述） | WeatherCache（防府アメダス）使用。データなし日は14℃/日で補完してQ10適用 |
+| 冷蔵庫 | `冷蔵庫` | `max(fridgeTemp − 10, 0)` ≒ 0℃/日 | 設定値`fridgeTemp`（デフォルト6℃）。実質積算停止 |
+
+### ⚠️「温調室」は廃止済み
+
+`温調室24℃`・`温調室20℃` は**廃止済み**。新規登録・場所移動では使用不可。
+後方互換のため `TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/` でパースのみ継続。
+
+
+---
+
+## Q10補正（常温熟成）
+
+### 概要
+
+常温熟成時の温度感受性を補正する係数。実績データ（2020〜2025年・233件）から推奨値 **q10=5.5** を算出。
+
+### 計算式（`lib/tempCalc.ts` の `applyQ10()`）
+
+```typescript
+// effectiveTemp = max(avgTempC - 10, 0)（WeatherCacheに保存済みの値）
+// avgTempC は effectiveTemp > 0 のとき effectiveTemp + 10 として逆算可能
+function applyQ10(effectiveTemp, q10Value, heatingBaseTemp):
+  if effectiveTemp <= 0 || q10Value === 1: return effectiveTemp
+  avgTempC  = effectiveTemp + 10
+  q10Factor = q10Value ^ ((avgTempC - heatingBaseTemp) / 10)
+  return effectiveTemp * q10Factor
+```
+
+**基準温度（heatingBaseTemp）** = `heatingDefaultTemp`（暖房デフォルト温度。デフォルト25℃）
+→ 基準温度では補正係数が1.0となり、暖房と常温の積算が連続する
+
+### 適用箇所
+
+- **常温のみ**（暖房・冷房・冷蔵庫には適用しない）
+- `calcAccumulatedTemp()`・`calcDailyAccumulation()`・`calcPeriodAccumulations()` の常温パス
+- `calcEstimatedCompletion()` の常温推計（直近30日の補正済み平均を使用）
+- `lib/brewSimulation.ts` の `simulateLotForModal()` でも適用
+
+### 検証値（q10=5.5、heatingBaseTemp=25℃）
+
+| 条件 | 補正前（℃/日） | 補正後（℃/日） |
+|------|--------------|--------------|
+| 暖房25℃ | 15.0 | 15.0（変化なし: 5.5^0 = 1.0） |
+| 常温27.5℃（7月平均） | 17.5 | 26.8（5.5^0.25 = 1.53） |
+| 常温15℃（春・秋） | 5.0 | 0.9（5.5^-1.0 = 0.18） |
+
+→ 低温では熟成がほぼ進まないことを正確に表現
+
+### SystemSetting キー
+
+| キー | デフォルト | 範囲 |
+|------|---------|------|
+| `moisture_q10Value` | 5.5 | 1.0〜10.0（1.0 = 補正なし） |
+
+---
+
+## ビジネスルール
+
+### 品種と目標積算温度（実績データ233件より算出・設定画面で変更可能）
+
+| 品種 | 穀物 | 仕込み単位 | 目標積算温度 |
+|------|------|-----------|-------------|
+| 無添加麦みそ | 裸麦 | 約1,600kg | **600℃・日** |
+| 田舎みそ | 裸麦 | 約1,600kg | **600℃・日** |
+| 山吹みそ | 砕米 | 約1,300kg | **550℃・日** |
+| 白みそ | 無洗米 | 約150kg | **70℃・日** |
+
+※ ダッシュボード・ロット詳細は常に `MisoRecipe.targetTempSum` の現在値を参照（レシピ変更が即反映）
+
+### 着色リスク判定（`calcColoringRisk`）
+
+| 積算温度 ÷ 目標 | 判定 | 色 |
+|--------------|------|---|
+| 〜120% | normal | 緑（emerald） |
+| 120〜150% | warning | 黄（amber） |
+| 150%〜 | danger | 赤（rose） |
+
+### ロット番号
+
+`YYYYMM-001`（例: 202506-001）。同月内件数+1で自動採番。
+
+### ステータス遷移
+
+```
+熟成中 → 完成 / 品質低下出荷 / 種みそ転用 / 出荷済
+（いずれも熟成中に戻せる）
+```
+
+### 桶（Bucket）管理
+
+**ステータス**: `待機中`（残量 = 初期重量）→ `使用中`（減少・0超）→ `空`（= 0）
+
+**ロット登録時の生成**:
+- 白みそ: 1桶、初期重量 = `floor(仕立量 × yieldRate)`
+- 非白みそ: 2桶ペア、各初期重量 = `floor(仕立量 × yieldRate / 2)`
+- 全桶ステータスは **「待機中」**（SQLite制限のためトランザクション外で `create`）
+
+**使用記録（BucketUsage）**:
+- 桶ごとに使用量と日付を記録できる（袋詰め・出荷先メモ付き）
+- ロット詳細画面の桶パネルから追加・削除可能
+
+---
+
+## 積算温度の計算方式（`lib/tempCalc.ts`）
+
+有効積算温度の基準温度は **10℃**。`TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/`
+
+| 場所 | 日次加算値 |
+|------|-----------|
+| `暖房XX℃` | `設定温度 - 10` ℃/日 |
+| `冷房XX℃` | `max(設定温度 - 10, 0)` ℃/日 |
+| `常温` | `applyQ10(max(avgTempC-10,0), q10Value, heatingBaseTemp)` |
+| `冷蔵庫` | `max(fridgeTemp - 10, 0)` ≒ 0℃/日 |
+| `温調室XX℃`（旧） | `設定温度 - 10` ℃/日（後方互換のみ） |
+
+### RoomTemps 型
+
+```typescript
+type RoomTemps = {
+  room1Temp:        number   // 仕込み計画用参照温度（暖房）
+  room2Temp:        number   // 仕込み計画用参照温度（冷房）
+  fridgeTemp:       number   // 冷蔵庫温度
+  heatingBaseTemp?: number   // Q10基準温度（= heatingDefaultTemp）。省略時25℃
+  q10Value?:        number   // Q10補正係数。省略または1.0で補正なし
+}
+```
+
+### 完成予定日の推計（`calcEstimatedCompletion`）
+
+- 暖房・冷房: `ceil(残り ÷ 日次値)` 日後
+- 常温: 直近30日の**Q10補正済み**平均で除算
+- 冷蔵庫（日次値≦0）: `null`（完了予定日なし）
+
+---
+
+## 外部API連携（`lib/externalApi.ts`）
+
+**認証**: `X-API-Key: ${EXTERNAL_API_KEY}` ヘッダー。サーバーサイドのみ（`NEXT_PUBLIC_` なし）。
+
+### 熟成済在庫 API（`STOCK_API_URL`）
+
+```typescript
+interface AgedStockItem {
+  misoType:         string
+  stockKg:          number   // 旧フィールド（agedStockKgへ改名予定、両対応済み）
+  packagedStockKg?: number   // 小分け製品在庫（APIへの追加対応待ち）
+}
+```
+
+**packagedStockKg の品種マッピング**（外部システム開発者向け）:
+- 無添加麦みそ: 光うらの麦みそ（粒）1kg/500g・（すり）1kg・一番掘り出し1kg・10K桶/バラ・芳麦味噌500g
+- 田舎みそ: 田舎みそ（ｽﾘ/粒）各サイズ・各取引先別
+- 山吹みそ: 山吹みそ各サイズ
+- 白みそ: 「西京みそ バラ」として`stockKg`に含む（`packagedStockKg`不要）
+
+### 月別出荷実績 API（`SALES_API_URL`）
+
+```typescript
+interface MonthlySalesItem { yearMonth: string; misoType: string; weightKg: number }
+```
+
+**マージルール**: `2026-01` 以降のデータは外部APIを優先してShipmentHistoryに上書き。
+
+### 在庫サマリー構成（ダッシュボード）
+
+| 列 | 取得元 |
+|----|--------|
+| 熟成中ロット | 本システム（Bucket残量ベースで品種別集計） |
+| 熟成済在庫 | 外部API（stockKg） |
+| 小分け製品在庫 | 外部API（packagedStockKg・追加対応待ち） |
+| 工場内合計 | 上記3列の合計 |
+
+---
+
+## 需要予測
+
+### ホルト・ウィンタース法（`lib/forecast.ts`）
+
+- 加法モデル・季節周期12ヶ月
+- パラメータ固定: **α=0.3, β=0.1, γ=0.3**
+- 最低必要データ: **12ヶ月**（不足時は自動的に3年平均にフォールバック）
+- UI上で「AI予測 / 3年平均」をトグルで切り替え可能
+
+### SARIMAX予測（`app/planning/forecast-actions.ts`）
+
+- Pythonスクリプト `scripts/forecast_sarimax.py` を呼び出して予測を実行
+- 結果は `ForecastCache` テーブルにキャッシュ（`misoType + yearMonth` をキー）
+- MAPE（予測誤差）は `SystemSetting`（キー: `forecast_mape_{misoType}`）に保存
+- `ForecastUpdater` コンポーネントのボタンから手動実行
+- 環境変数 `PYTHON_PATH` でPythonパスを指定可能
+
+### 品種別データ補完（BRAND_RATIOS）
+
+品種別データがない月は「全品種合計」から比率で補完:
+
+```
+無添加麦みそ: 57.3%（33347/58210）
+田舎みそ:    37.0%（21566/58210）
+山吹みそ:     5.0%（2883/58210）
+白みそ:       残り約0.7%
+```
+
+---
+
+## 気象データ取得（防府アメダス）
+
+- **prec_no: 81**（山口県）・**block_no: 0775**（防府内部コード、WMO番号47835とは別）
+- URL: `https://www.data.jma.go.jp/stats/etrn/view/daily_a1.php?prec_no=81&block_no=0775&year=YYYY&month=MM`
+- HTMLパース: データ行 `<tr class="mtx" style="text-align:right;">`、**列3（0始まり）が平均気温**
+- WeatherCache保存: `date` はUTC midnight（`new Date(Date.UTC(year, month-1, day))`）
+- `effectiveTemp = max(avgTempC - 10, 0)` を保存済み
+- 取込間隔: 0.7秒/月（気象庁サーバー負荷軽減）
+
+---
+
+## DBスキーマ（prisma/schema.prisma）
+
+15テーブル構成。
+
+```prisma
+model Lot {
+  id             String    @id @default(cuid())
+  lotNumber      String    @unique        // YYYYMM-001
+  misoType       String
+  brewedAt       DateTime
+  totalWeightKg  Float
+  targetTempSum  Float                    // ※表示はMisoRecipe.targetTempSumの現在値を優先
+  status         String    @default("熟成中")  // 熟成中・完成・品質低下出荷・種みそ転用・出荷済
+  completedAt    DateTime?
+  bucketNumbers  String?
+  finalYieldKg   Float?
+  yieldRate      Float?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  brewRecord       BrewRecord?
+  locationHistory  LocationHistory[]
+  agingNotes       AgingNote[]
+  brewDiaries      BrewDiary[]
+  packagingLots    PackagingLot[]
+  buckets          Bucket[]
+  seedMisoUsed     SeedMisoUsage[]  @relation("FromLot")
+  seedMisoReceived SeedMisoUsage[]  @relation("ToLot")
+}
+
+model BrewRecord {
+  id               String   @id @default(cuid())
+  lotId            String   @unique
+  mugiOrKomeKg     Float
+  kojiKg           Float
+  soybeanKg        Float
+  saltKg           Float
+  mizuameKg        Float    @default(0)
+  seedWaterL       Float    @default(0)
+  shikomiKg        Float
+  seedMisoKg       Float    @default(0)
+  taneKojiG        Float    @default(0)
+  soybeanOrigin         String?
+  soybeanOriginDetail   String?
+  soybeanArrivalDate    DateTime?
+  soybeanSupplier       String?
+  soybeanLotNo          String?
+  kojiMadeAt            DateTime?
+  kojiSupplier          String?
+  saltBrand             String?
+  saltLotNo             String?
+  mizuameBrand          String?
+  mizuameLotNo          String?
+  kojiCondition    Int?     // 出麹評価（3〜9）
+  soybeanHardness  String?
+  airTempC         Float?
+  productTempC     Float?
+  steamingPressure String?
+  coolingMin       String?
+  memo             String?
+}
+
+model LocationHistory {
+  id        String    @id @default(cuid())
+  lotId     String
+  startDate DateTime
+  endDate   DateTime?
+  location  String    // 暖房XX℃・冷房XX℃・常温・冷蔵庫（旧: 温調室XX℃）
+}
+
+model AgingNote {
+  id           String   @id @default(cuid())
+  lotId        String
+  recordedAt   DateTime @default(now())
+  memo         String
+  airTempC     Float?
+  productTempC Float?
+}
+
+model BrewDiary {
+  id         String   @id @default(cuid())
+  lotId      String
+  recordedAt DateTime @default(now())
+  categories String   // カンマ区切り
+  tags       String   // カンマ区切り
+  memo       String
+}
+
+model SeedMisoUsage {
+  id        String   @id @default(cuid())
+  fromLotId String
+  toLotId   String
+  usedKg    Float
+  usedAt    DateTime
+}
+
+model PackagingLot {
+  id                String   @id @default(cuid())
+  lotId             String
+  packagedLotNumber String   @unique  // 賞味期限年月日8桁
+  expiryDate        DateTime
+  alcoholAddedAt    DateTime?
+  filledAt          DateTime?
+  bucketId          String?
+  textureType       String   // 粒・すり
+  shikomiKg         Float?
+  filled1kgCount    Int      @default(0)
+  filled500gCount   Int      @default(0)
+  orderNo           String?
+  notes             String?
+  createdAt         DateTime @default(now())
+}
+
+model Bucket {
+  id                String       @id @default(cuid())
+  lotId             String
+  bucketNumber      Int
+  initialWeightKg   Float
+  remainingWeightKg Float?
+  status            String       @default("待機中")  // 待機中・使用中・空
+  notes             String?
+  createdAt         DateTime     @default(now())
+  usages            BucketUsage[]
+}
+
+model BucketUsage {
+  id        String   @id @default(cuid())
+  bucketId  String
+  bucket    Bucket   @relation(fields: [bucketId], references: [id])
+  usedAt    DateTime
+  usedKg    Float
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+model WeatherCache {
+  date          DateTime @id  // UTC midnight
+  avgTempC      Float
+  effectiveTemp Float         // max(avgTempC - 10, 0)
+}
+
+model ShipmentHistory {
+  id         String   @id @default(cuid())
+  yearMonth  String
+  misoType   String
+  weightKg   Float
+  importedAt DateTime @default(now())
+  @@unique([yearMonth, misoType])
+}
+
+model MisoRecipe {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  grainLabel      String   // 裸麦・砕米・無洗米
+  grainKg         Float
+  soybeanKg       Float
+  saltKg          Float
+  mizuameKg       Float    @default(0)
+  totalWeightKg   Float
+  targetTempSum   Float
+  defaultLocation String   @default("暖房24℃")    // 移行済み。旧形式「温調室XX℃」はDB・コードから除去済み
+  soybeanOrigin   String?
+  taneKojiG       Float    @default(0)
+  isActive        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model SystemSetting {
+  key       String   @id  // moisture_* / forecast_mape_* プレフィックス
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model ForecastCache {
+  misoType   String
+  yearMonth  String
+  forecastKg Float
+  lower90    Float
+  upper90    Float
+  updatedAt  DateTime @updatedAt
+  @@id([misoType, yearMonth])
+}
+
+model IngredientAlert {
+  id             String   @id @default(cuid())
+  triggerLotId   String
+  affectedLotId  String
+  ingredientType String
+  lotNo          String?
+  createdAt      DateTime @default(now())
+  resolved       Boolean  @default(false)
+}
+```
+
+---
+
+## lib/ ユーティリティ
+
+| ファイル | 主要エクスポート | 役割 |
+|---------|--------------|------|
+| `lib/prisma.ts` | `prisma` | PrismaClientシングルトン |
+| `lib/settings.ts` | `getMoistureSettings()`, `saveMoistureSettings()`, `MoistureSettings`, `DEFAULT_MOISTURE` | SystemSettingの読み書き |
+| `lib/recipes.ts` | `getMisoRecipes()` | MisoRecipe一覧取得 |
+| `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcEstimatedCompletion()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む） |
+| `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcSimulatedCompletionDate()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース） |
+| `lib/forecast.ts` | `holtWinters()`, `getTimeSeries()` | ホルト・ウィンタース法 |
+| `lib/weatherFetch.ts` | `fetchMonthlyWeather()` | 気象庁HTMLスクレイピング |
+| `lib/externalApi.ts` | `fetchAgedStock()`, `fetchMonthlySales()`, `testApiConnection()` | 外部システムAPI連携 |
+| `lib/misoTypeColor.ts` | `getMisoTypeBadgeStyle()` | 品種バッジのCSSスタイル（inline style） |
+| `lib/utils.ts` | `cn()` | shadcn/ui用クラスマージ |
+
+### MoistureSettings 型（全フィールド）
+
+```typescript
+type MoistureSettings = {
+  // 含水量（小数: 0.13 = 13%）
+  hadakaMugi:    number   // 裸麦
+  mugiKoji:      number   // 麦麹（実測値）
+  kome:          number   // 砕米・無洗米
+  komeKoji:      number   // 米麹（実測値）
+  soybean:       number   // 大豆
+  mizuame:       number   // 水飴
+  seedMiso:      number   // 種味噌
+  // 処理比率（as-is）
+  kojiRatio:     number   // 裸麦→麦麹（デフォルト1.2）
+  komeKojiRatio: number   // 砕米→米麹（デフォルト1.1）
+  soybeanRatio:  number   // 大豆→蒸煮大豆（デフォルト2.3）
+  // 温度（℃、as-is）
+  room1Temp:          number  // 仕込み計画用参照温度: 暖房（デフォルト24）
+  room2Temp:          number  // 仕込み計画用参照温度: 冷房（デフォルト20）
+  fridgeTemp:         number  // 冷蔵庫（デフォルト6）
+  heatingDefaultTemp: number  // 場所移動時の暖房デフォルト・Q10基準温度（デフォルト25）
+  coolingDefaultTemp: number  // 場所移動時の冷房デフォルト（デフォルト20）
+  q10Value:           number  // 常温Q10補正係数（デフォルト5.5）
+  // 仕込み計画
+  brewBufferDays: number  // 在庫切れ予測日から仕込み日までのバッファ日数（デフォルト14）
+  // 歩留まり
+  yieldRate:     number   // 小数（0.95 = 95%）
+}
+```
+
+SystemSettingキー: `moisture_` プレフィックス（例: `moisture_q10Value`）
+
+%表記フィールド（hadakaMugi〜seedMiso, yieldRate）はUI表示時に×100、DB保存時に÷100変換。
+温度・比率・q10Value・brewBufferDaysはas-is。
+
+### lib/brewSimulation.ts の詳細
+
+`simulateLotForModal()` の動作:
+- **室内期間**（10〜5月）: `dailyRoomAccum`（= room1Temp - 10）を使用
+- **屋外期間**（6〜9月）: `weatherAvg`（月日平均 `MM-dd` キー）を使用
+- Q10補正を全期間に適用
+- `futureFixedRate` 指定時はその固定値で計算（ユーザーが将来の場所を選んだ場合）
+- 730日先まで最大シミュレーション・200%で打ち切り
+
+`calcSimulatedCompletionDate()` は `simulateLotForModal()` の簡易版（完成日のみ返す）。
+
+---
+
+## 設定画面（`/settings`）の構成
+
+### 1. API接続状態（ApiStatusCard）
+STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
+
+### 2. 品種・配合レシピ（RecipeSettings）
+- MisoRecipeCRUD（追加・編集・削除）
+- 麹歩合・塩分・水分を自動計算して一覧表示
+- **targetTempSum変更 → ダッシュボード・ロット詳細に即反映**
+
+### 3. 水分計算用の含水量・処理比率設定（MoistureSettingsForm）
+- 裸麦/麦麹、砕米/米麹、大豆/蒸煮大豆の比率・含水量
+- 乾物量変化テーブル表示（理論値との比較）
+- **温度管理設定セクション**:
+  - 暖房デフォルト温度（`heatingDefaultTemp`、10〜40℃）＋有効積算温度表示
+  - 冷房デフォルト温度（`coolingDefaultTemp`、10〜40℃）＋有効積算温度表示
+  - 冷蔵庫温度（`fridgeTemp`、1〜15℃）
+  - **Q10値（`q10Value`、1.0〜10.0、0.1刻み）＋説明文**
+  - 仕込み計画用参照温度（`room1Temp`/`room2Temp`、点線枠内サブセクション）
+- 歩留まり率・仕込み計画バッファ日数（`brewBufferDays`）
+
+### 4. 場所履歴温度一括変更
+- 暖房・冷房・常温の場所履歴レコードを全ロット横断で一括変更可能
+- 「暖房XX℃の全レコードをYY℃に変更」など温度変更時に個別操作不要
+
+### 5. 気象データ取り込み（WeatherImportCard）
+- 年範囲を指定して手動取り込み（0.7秒/月のディレイ）
+- `app/settings/weather-actions.ts` の Server Action
+
+---
+
+## 画面一覧
+
+| # | 画面名 | パス | 実装状況 |
+|---|--------|------|---------|
+| 1 | ダッシュボード | `/` | ✅ |
+| 2 | ロット登録 | `/lots/new` | ✅ |
+| 3 | ロット詳細 | `/lots/[id]` | ✅ |
+| 4 | 場所移動の記録 | `/lots/[id]/move` | ✅ |
+| 5 | 仕込み計画 | `/planning` | ✅ |
+| 6 | データインポート | `/import` | ✅（出荷実績・仕込帳。袋詰め記録は未実装） |
+| 7 | 設定 | `/settings` | ✅ |
+| 8 | トレース検索 | `/trace` | ✅ |
+
+---
+
+## 各画面の詳細
+
+### ダッシュボード（`/`）
+- 品種別在庫サマリー（熟成中ロット / 熟成済在庫 / 小分け製品在庫 / 工場内合計）
+- ロットをステータス別グループ表示（`DashboardLotGroups`コンポーネント）
+  - 熟成中: 完成予定日昇順→仕込み日降順
+  - 完成済み: 仕込み日降順
+  - 要対応（着色リスク高・完成間近）
+- アラートバナー：着色リスク高（150%超）・完成間近（7日以内）
+- ロットカード（`lot-card.tsx`）：積算温度・進捗バー・現在地・桶別残量・完成予定日
+- **熟成シミュレーションボタン**（熟成中ロットのみ）→ `LotSimulationModal` を開く
+- **目標積算温度は常にMisoRecipeの現在値を参照**（`recipeTargetMap[lot.misoType] ?? lot.targetTempSum`）
+
+### ロット登録（`/lots/new`）
+4セクション構成：
+- ① 基本情報（品種・仕込み日・目標積算温度・場所・桶番号）＋自動計算サマリー
+- ② 原料配合（穀物・麹・大豆・塩・水飴・種水・種味噌・種麹）
+- ③ 製造記録（出麹評価・大豆硬度・気温・品温・蒸煮条件・冷却時間・メモ）
+- ④ 原料ロット（大豆・麹・塩・水飴の入荷日・仕入先・ロット番号）
+
+初期場所のバリデーション: `LOCATION_RE = /^(?:暖房|冷房|温調室)\d+(?:\.\d+)?℃$/` または `['常温', '冷蔵庫']`
+
+### ロット詳細（`/lots/[id]`）
+- ヘッダー：ロット番号・品種バッジ・ステータス・着色リスク・積算温度進捗バー・**熟成日数**（completedAtがあればcompletedAt−brewedAt、なければ今日−brewedAt）
+- **completedAt手動編集**: インライン鉛筆アイコンで直接編集。編集時は最後のLocationHistory.endDateも自動同期
+- 積算温度グラフ（`LotSimChart`）:
+  - 完成予定日は WeatherCache 積み上げ方式（`calcCompletionFromBrew`）で計算
+  - completedAt設定済みロット: グラフ範囲を completedAt+14日で終了、実際の完成日（緑縦線）表示、完成予定日は非表示
+  - 場所移動ごとにグラフの傾きが変化
+  - 縦線ラベル（完成日・場所移動・今日・予測）の重なり解消: 3日以内は結合、上下交互配置
+  - X軸ラベル間引き（30日以内: 毎日、90日以内: 2日ごと、それ以上: 週1）
+  - **「Q10補正あり（係数：X.X）」アノテーション**（q10≠1のとき）
+- 場所履歴タイムライン（各期間の積算加算量付き）・**暖房/冷房温度の後から編集機能**（鉛筆アイコン）
+- **桶別残量管理**:
+  - blur/Enter で保存 → ステータス自動変更（0以下で「空」、0超で「使用中」）
+  - 全桶が空になると「出荷済みにする」プロンプト表示
+  - 桶ごとに使用記録（BucketUsage）をトグル展開して追加・削除
+- 桶の後から追加フォーム
+- 仕込み記録（折りたたみ）
+- 熟成メモ追加・一覧
+- ステータス変更（2ステップ確認）・熟成中に戻す機能
+- ロット削除（2ステップ確認・全関連データ削除）
+
+#### Server Actions（`app/lots/[id]/actions.ts`）
+| アクション | 引数 | 説明 |
+|-----------|------|------|
+| `addAgingNote` | `(lotId, {recordedAt, memo, airTempC, productTempC})` | 熟成メモ追加 |
+| `changeLotStatus` | `(lotId, newStatus, completedAtStr?)` | ステータス変更 |
+| `revertLotStatus` | `(lotId)` | 熟成中に戻す・completedAt クリア |
+| `updateBucketNumbers` | `(lotId, bucketNumbers)` | 桶番号文字列の更新 |
+| `updateBucketRemaining` | `(bucketId, kg)` | 残量更新・ステータス自動判定・`allEmpty`フラグ返却 |
+| `addBucketToLot` | `(lotId, bucketNumber, initialWeightKg)` | 既存ロットへ桶を追加 |
+| `addBucketUsage` | `(bucketId, {usedAt, usedKg, notes})` | 使用記録を追加 |
+| `deleteBucketUsage` | `(usageId)` | 使用記録を削除 |
+| `deleteLot` | `(lotId)` | ロットと全関連データを削除 |
+
+### 場所移動（`/lots/[id]/move`）
+- 移動先を大きなボタンで選択: **暖房 / 冷房 / 常温 / 冷蔵庫**
+- 暖房/冷房を選択すると温度入力欄を表示（初期値: `heatingDefaultTemp`/`coolingDefaultTemp`）
+- 有効積算温度をリアルタイム表示（例: `有効積算：15℃/日`）
+- 「移動と同時に熟成完了にする」チェックボックス（熟成中のみ）
+- 保存文字列: `暖房25℃`・`冷房20℃`・`常温`・`冷蔵庫`
+
+### 仕込み計画（`/planning`）
+
+#### ① AI仕込み提案（BrewSuggestions）
+テンプレート方式（Claude API不使用）:
+```
+在庫切れ予測日 = 今日 + (有効在庫 ÷ 1日消費量)
+推奨仕込み日   = 在庫切れ予測日 − 熟成日数 − brewBufferDays（デフォルト14日）
+原料手配締切   = 推奨仕込み日 − リードタイム（通常21日、白みそ7日）
+```
+
+UI機能:
+- **予測方式**: SARIMAX / HW（ホルト・ウィンタース・12ヶ月以上必要）/ 3年平均 をトグル切り替え
+- **表示回数**: 1/3/5回分（品種ごとに個別設定も可能）
+- **仕込み場所セレクタ**: 品種ごとに選択（`暖房{heatingDefaultTemp}℃` / `冷房{coolingDefaultTemp}℃` / `常温` / `冷蔵庫`）→ `simulateFermentationDays()` でQ10補正あり・なし両方の熟成日数を計算
+- **Q10補正あり・なし両方を表示**: 仕込み日・完成日・手配締切をそれぞれ表示
+- **Q10補正基準の切替トグル**（localStorageで永続化）
+- **在庫切れリスク警告バナー**: 1回目推奨日が過去の場合、超過日数・有効在庫・消費ペース・推定在庫切れまでの日数を表示
+- **1回目推奨仕込み日が過去の場合は今日以降に自動修正**（表示回数1〜5回で共通ロジック。後続バッチは修正後の完成日を起点に連鎖計算し昇順を保証。警告バナーは元の推奨日を表示）
+- **1回目仕込み日の手動微調整機能**（鉛筆アイコン・日付入力ポップオーバー）
+- **計算の根拠**: 全回分を折りたたみ表示（①消費量推計 ②有効在庫 ③在庫切れ日〜仕込み日 ④手配締切）
+- **仕込みカレンダー**: 仕込み日・完成日を月カレンダー上に色分け・凡例付き表示
+- バッファ日数トグル（あり/なし）・仕込み曜日トグル（水・木のみ/制限なし）
+- 完成日に熟成日数を併記（例: `6/15 (50日)`）
+- CSVエクスポート・印刷
+- 仕込み場所の選択はブランドごとに `localStorage` で永続化
+
+**注意: 既知のバグ**: Q10補正ありの仕込み日が4・5回目で補正なしと同じになるケースが残存
+
+#### ② 需要グラフ（DemandChart）
+Recharts棒グラフ・月別出荷実績
+
+#### ③ 気象シミュレーター（WeatherSimulator）
+品種×仕込み日→熟成完了予定日推計。6〜9月は常温（気象データ）、10〜5月は `room1Temp`。Q10補正あり・なし両方の完成日縦線を表示。
+
+#### ④ SARIMAX予測更新（ForecastUpdater）
+- Pythonスクリプトを実行してForecastCacheを更新するボタン
+- `forecast-actions.ts` の `runSarimaxForecast()` Server Action が呼ばれる
+
+### データインポート（`/import`）
+タブ構成:
+
+**Tab 1: 出荷実績** ✅
+- xlsx「月間集計」シート（列A: 年月ラベル、列B: 全品種合計kg）
+- 元号パターン: `H27.3月`・`H.30.2月`・`2019.01月`（M=1867, T=1911, S=1925, H=1988, R=2018）
+- `@@unique([yearMonth, misoType])` でupsert
+
+**Tab 2: 仕込帳** ✅ バックエンド実装済み（UIはShikomiImport.tsx・アクションはshikomi-actions.ts）
+- UTF-8 CSVファイルをアップロード
+- フィールド: brewedAt, misoType, bucketNumbers, mugiKg, kojiKg, daizuKg, shioKg, shikomiKg, daizuOrigin, 等
+- ステータス判定: useStartAt記録あり→「出荷済」、なし→「完成」
+- `importShikomiData()` Server Action: Lot + BrewRecord を作成（lotNumber重複はスキップ）
+
+**Tab 3: 袋詰め記録** 🚧 未実装
+- UIのプレースホルダーのみ（「準備中」表示）
+
+### トレース検索（`/trace`）
+URLパラメータでサーバーサイドフィルタ:
+- ロット番号（部分一致）・品種・仕込み日範囲・ステータス
+- 大豆産地・大豆ロット番号・麹仕入れ先・塩ロット番号・桶番号
+
+結果: 積算温度・着色リスク・現在地・桶番号・大豆産地・**熟成日数・目標積算温度**
+原料アラートバナー: 大豆ロット番号/麹仕入れ先検索時にヒット件数を警告表示
+**completedAt手動編集**: 結果一覧からインライン編集可能
+
+---
+
+## ロット登録の自動計算
+
+```
+麹処理後(kg)    = 穀物(kg) × kojiRatio         （麦: ×1.2, 米: ×1.1）
+蒸煮大豆(kg)   = 大豆(kg) × soybeanRatio       （×2.3）
+仕立量(kg)     = 麹処理後 + 蒸煮大豆 + 塩 + 種水 + 水飴 + 種味噌
+塩分(%)        = 塩 ÷ 仕立量 × 100
+麹歩合(割)     = 穀物原料 ÷ 大豆原料 × 10
+蒸煮大豆水分率  = ((soybeanRatio - 1) + 大豆含水量) ÷ soybeanRatio
+水分(%)        = (麹処理後×麹水分率 + 蒸煮大豆×蒸煮大豆水分率 + 種水×1.0 + 水飴×mizuame水分率 + 種味噌×seedMiso水分率) ÷ 仕立量 × 100
+```
+
+白みそのアルコール添加量 = 仕立量 × 2.5%
+
+---
+
+## コンポーネント一覧
+
+### `components/NavBar.tsx`
+`'use client'` — `usePathname()` でアクティブリンクをアンダーライン表示。sticky top / backdrop blur。
+
+### `components/dashboard/DashboardLotGroups.tsx`
+ステータス別グループ（熟成中・完成・要対応）を3セクションで表示。
+
+### `components/dashboard/lot-card.tsx`
+ロットカード。LotCardProps を受け取り、熟成度バー・現在地・桶残量（折りたたみ）を表示。
+熟成中 + `simConfig` があれば「熟成シミュレーション」ボタンを表示。
+
+### `components/dashboard/LotSimulationModal.tsx`
+将来の場所を選択してインタラクティブに熟成完了日を予測するモーダル。
+- Recharts ComposedChart: Q10補正ライン（青）＋補正なしライン（グレー点線）
+- 参照線: 100%完了・現在日・場所移動イベント・完成予定日
+- 場所選択（暖房/冷房/常温/冷蔵庫）で再計算
+- `lib/brewSimulation.ts` の `simulateLotForModal()` を使用
+
+---
+
+## 品種バッジカラー（lib/misoTypeColor.ts）
+
+| 品種 | background | color | border |
+|------|-----------|-------|--------|
+| 無添加麦みそ | #E1F5EE | #0F6E56 | #5DCAA5 |
+| 田舎みそ | #FAEEDA | #854F0B | #EF9F27 |
+| 山吹みそ | #EEEDFE | #3C3489 | #AFA9EC |
+| 白みそ | #E6F1FB | #185FA5 | #85B7EB |
+
+---
+
+## 重要な実装上の注意点
+
+### Zod v4 構文
+```typescript
+// ✅ 正しい（v4）
+z.number({ error: 'メッセージ' })
+z.enum(VALUES, { error: 'メッセージ' })
+// ❌ 間違い（v3の書き方）
+z.number({ errorMap: ..., invalid_type_error: ... })
+```
+
+### `redirect()` を `startTransition` 内で使わない
+```typescript
+// ❌ ReactがredirectをSwallowする
+startTransition(async () => { await action(); redirect('/path') })
+// ✅ actionはresultを返し、クライアント側でrouter.push()する
+startTransition(async () => {
+  const result = await action()
+  if (result.success) router.push('/path')
+})
+```
+
+### Tailwind v4 の動的クラス検出
+- `STYLE_MAP[key]` のような動的参照はビルド時に消える可能性がある
+- 解決策: if-else で静的文字列を返す関数に書き直す
+
+### SQLite の `createMany` 制限
+- interactive transaction内で `createMany` はSQLiteで動作しない（エラーなく0件）
+- トランザクション外で `create` を個別に呼ぶこと
+
+### Prisma migrate のドリフト対策
+- スキーマとDBが乖離した場合: `npx prisma migrate resolve --applied <migration_name>` でベースラインとして登録
+- `npx prisma generate` はdev serverが起動中だとDLLロックでEPERM。必ずサーバーを停止してから実行
+
+### allowedDevOrigins（スマホ開発アクセス）
+```typescript
+// next.config.ts
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ['192.168.11.19'],
+}
+```
+これがないとスマホ（192.168.11.19経由）からのHMR WebSocketがブロックされ、クライアントサイドJSが動作しない。
+
+### その他
+- `useTransition` で Server Action を呼ぶ（`<form>` タグ不使用）
+- shadcn Select の `onValueChange: (value: string | null) => void`
+- Prisma クライアント出力先: `lib/generated/prisma`
+- コメント・エラーメッセージは全て**日本語**
+- 日付はJST基準（WeatherCacheのみUTC midnight）
+- 品種名は必ず正規化: 「無添加麦みそ」「田舎みそ」「山吹みそ」「白みそ」
+
+---
+
+## 未実装・課題
+
+- [ ] 袋詰め記録インポート（/import?tab=packaging）: 未実装（UIプレースホルダーのみ）
+- [ ] PackagingLot管理画面・SeedMisoUsage記録UI
+- [ ] 外部API `packagedStockKg` フィールド追加（外部システム側対応待ち）
+- [ ] SarimaxスクリプトのPythonパス・依存関係のセットアップ手順整備
