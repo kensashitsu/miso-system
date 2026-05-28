@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
 
 const NAV_LINKS = [
   { href: '/',         label: 'ダッシュボード' },
@@ -14,6 +15,18 @@ const NAV_LINKS = [
 
 export default function NavBar() {
   const pathname = usePathname()
+  const router   = useRouter()
+
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+
+  async function handleLogout() {
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
 
   return (
     <header className="bg-white/80 backdrop-blur-md border-b border-gray-100 sticky top-0 z-50 h-14">
@@ -24,7 +37,7 @@ export default function NavBar() {
         </span>
 
         {/* ナビゲーション */}
-        <nav className="flex items-stretch h-full overflow-x-auto">
+        <nav className="flex items-stretch h-full overflow-x-auto flex-1">
           {NAV_LINKS.map(({ href, label }) => {
             const active = href === '/' ? pathname === '/' : pathname.startsWith(href)
             return (
@@ -46,6 +59,15 @@ export default function NavBar() {
             )
           })}
         </nav>
+
+        {/* ログアウト */}
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="shrink-0 text-xs text-gray-400 hover:text-gray-700 transition-colors px-2 py-1 rounded"
+        >
+          ログアウト
+        </button>
       </div>
     </header>
   )
