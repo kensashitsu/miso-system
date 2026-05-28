@@ -6,6 +6,7 @@ import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import BrewSuggestions from './BrewSuggestions'
 import BrewPlanList from './BrewPlanList'
+import BrewPlanDrawer from './BrewPlanDrawer'
 import DemandChart from './DemandChart'
 import WeatherSimulator from './WeatherSimulator'
 import ForecastUpdater from './ForecastUpdater'
@@ -228,7 +229,8 @@ export default async function PlanningPage() {
   }))
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-8">
+    <>
+    <div className="max-w-5xl mx-auto px-4 py-6 pb-16 space-y-8">
       {/* タイトルとSARIMAX更新ボタン */}
       <div className="flex items-start justify-between gap-4">
         <h1 className="text-2xl font-bold text-gray-900 tracking-tight print:text-2xl">仕込み計画</h1>
@@ -275,11 +277,9 @@ export default async function PlanningPage() {
           .map(p => `${p.misoType}::${format(p.brewDate, 'yyyy-MM-dd')}`)}
       />
 
-      {brewPlans.length > 0 && (
-        <div className="no-print">
-          <BrewPlanList plans={brewPlans} />
-        </div>
-      )}
     </div>
+
+    <BrewPlanDrawer plans={brewPlans} />
+    </>
   )
 }
