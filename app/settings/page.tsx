@@ -10,7 +10,7 @@ import ApiStatusCard from './ApiStatusCard'
 import BulkTempUpdateCard, { type ActiveLot } from './BulkTempUpdateCard'
 
 export const metadata: Metadata = {
-  title: '設定 | 味噌熟成管理システム',
+  title: '設定 | みそ熟成管理システム',
 }
 
 const HEATING_RE = /^暖房\d+(?:\.\d+)?℃$/

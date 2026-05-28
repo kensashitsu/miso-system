@@ -33,7 +33,7 @@ export default function NavBar() {
       <div className="max-w-5xl mx-auto px-4 h-full flex items-center gap-8">
         {/* ロゴ */}
         <span className="font-bold text-gray-900 tracking-tight text-lg shrink-0 select-none">
-          味噌熟成管理
+          みそ熟成管理
         </span>
 
         {/* ナビゲーション */}

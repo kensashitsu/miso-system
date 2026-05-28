@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 import LotNewForm from './LotNewForm'
 
 export const metadata: Metadata = {
-  title: 'ロット登録 | 味噌熟成管理システム',
+  title: 'ロット登録 | みそ熟成管理システム',
 }
 
 // 桶番号ペア一覧（1・2 〜 29・30、計15ペア）

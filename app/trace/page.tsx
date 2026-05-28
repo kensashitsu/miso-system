@@ -11,7 +11,7 @@ import { getMisoRecipes } from '@/lib/recipes'
 import TraceClient, { type TraceLot, type TraceSearchValues } from './TraceClient'
 
 export const metadata: Metadata = {
-  title: 'トレース検索 | 味噌熟成管理システム',
+  title: 'トレース検索 | みそ熟成管理システム',
 }
 
 export const dynamic = 'force-dynamic'

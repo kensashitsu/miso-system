@@ -4,7 +4,7 @@ import ShipmentImport, { type ExistingRow, type ImportSummaryRow } from './Shipm
 import ShikomiImport, { type ShikomiSummaryRow } from './ShikomiImport'
 
 export const metadata: Metadata = {
-  title: 'データインポート | 味噌熟成管理システム',
+  title: 'データインポート | みそ熟成管理システム',
 }
 
 export const dynamic = 'force-dynamic'

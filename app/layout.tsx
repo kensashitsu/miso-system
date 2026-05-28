@@ -6,7 +6,7 @@ import NavBar from '@/components/NavBar'
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
 export const metadata: Metadata = {
-  title: '味噌熟成管理システム',
+  title: 'みそ熟成管理システム',
   description: '仕込みロット熟成進捗・仕込み計画管理',
 }
 
