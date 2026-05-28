@@ -557,9 +557,28 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const savedLocations:  Record<string, string> = {}
     for (const r of recipes) {
       savedStocks[r.name] = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
-      const stored   = localStorage.getItem(`planning_location_${r.name}`)
-      const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
-      savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
+      const stored = localStorage.getItem(`planning_location_${r.name}`)
+      if (stored && locationOptions.includes(stored)) {
+        savedLocations[r.name] = stored
+      } else {
+        // localStorage未保存: 1回目推奨仕込み日の月から季節を推定（循環依存を避けるため暖房ベースで概算）
+        const stockKg    = apiStockByType?.[r.name]
+          ?? parseFloat(localStorage.getItem(`planning_stock_${r.name}`) ?? '0') || 0
+        const typeData   = shipmentMap[r.name] ?? {}
+        const monthlyEst =
+          (sarimaxForecast?.[r.name]?.forecast[0] ?? null)
+          ?? get3YearAvg(typeData, today.getMonth() + 1, today.getFullYear())
+        if (monthlyEst && monthlyEst > 0) {
+          const dailyRate    = monthlyEst / getDaysInMonth(today)
+          const fermentDays  = Math.ceil(r.targetTempSum / Math.max(heatingDefaultTemp - 10, 1))
+          const stockOutDays = stockKg > 0 ? Math.round(stockKg / dailyRate) : 0
+          const brewDays     = Math.max(0, stockOutDays - fermentDays - brewBufferDays)
+          const brewMonth    = addDays(today, brewDays).getMonth() + 1
+          savedLocations[r.name] = (brewMonth >= 6 && brewMonth <= 9) ? '常温' : `暖房${heatingDefaultTemp}℃`
+        } else {
+          savedLocations[r.name] = getSeasonalDefaultLocation(heatingDefaultTemp)
+        }
+      }
     }
     setStocks(savedStocks)
     setLocations(savedLocations)
