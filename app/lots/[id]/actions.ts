@@ -184,17 +184,25 @@ export async function addBucketUsage(bucketId: string, input: unknown): Promise<
   }
   const d = parsed.data
   try {
-    const bucket = await prisma.bucket.findUnique({ where: { id: bucketId }, select: { lotId: true } })
+    const bucket = await prisma.bucket.findUnique({
+      where:  { id: bucketId },
+      select: { lotId: true, initialWeightKg: true, usages: { select: { usedKg: true } } },
+    })
     if (!bucket) return { globalError: '桶が見つかりません。' }
 
     const usage = await prisma.bucketUsage.create({
-      data: {
-        bucketId,
-        usedAt: new Date(d.usedAt),
-        usedKg: d.usedKg,
-        notes:  d.notes ?? null,
-      },
+      data: { bucketId, usedAt: new Date(d.usedAt), usedKg: d.usedKg, notes: d.notes ?? null },
     })
+
+    // 残量を再計算して更新（initialWeightKg - 全使用量合計）
+    const totalUsed  = bucket.usages.reduce((s, u) => s + u.usedKg, 0) + d.usedKg
+    const newRemaining = Math.max(bucket.initialWeightKg - totalUsed, 0)
+    const newStatus  = newRemaining <= 0 ? '空' : newRemaining < bucket.initialWeightKg ? '使用中' : '待機中'
+    await prisma.bucket.update({
+      where: { id: bucketId },
+      data:  { remainingWeightKg: newRemaining, status: newStatus },
+    })
+
     revalidatePath(`/lots/${bucket.lotId}`)
     return { success: true, id: usage.id }
   } catch (e) {
@@ -207,12 +215,22 @@ export async function addBucketUsage(bucketId: string, input: unknown): Promise<
 export async function deleteBucketUsage(usageId: string): Promise<{ success?: true; error?: string }> {
   try {
     const usage = await prisma.bucketUsage.findUnique({
-      where: { id: usageId },
-      select: { bucket: { select: { lotId: true } } },
+      where:  { id: usageId },
+      select: { usedKg: true, bucket: { select: { id: true, lotId: true, initialWeightKg: true, usages: { select: { usedKg: true } } } } },
     })
     if (!usage) return { error: '記録が見つかりません。' }
 
     await prisma.bucketUsage.delete({ where: { id: usageId } })
+
+    // 残量を再計算して更新（削除したusageを除いた合計）
+    const totalUsed    = usage.bucket.usages.reduce((s, u) => s + u.usedKg, 0) - usage.usedKg
+    const newRemaining = Math.max(usage.bucket.initialWeightKg - totalUsed, 0)
+    const newStatus    = newRemaining <= 0 ? '空' : newRemaining < usage.bucket.initialWeightKg ? '使用中' : '待機中'
+    await prisma.bucket.update({
+      where: { id: usage.bucket.id },
+      data:  { remainingWeightKg: newRemaining, status: newStatus },
+    })
+
     revalidatePath(`/lots/${usage.bucket.lotId}`)
     return { success: true }
   } catch (e) {
