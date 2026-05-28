@@ -555,16 +555,20 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
   useEffect(() => {
     locationInitializedRef.current = false
-    const savedStocks:     Record<string, string> = {}
-    const savedLocations:  Record<string, string> = {}
+    const savedStocks:       Record<string, string> = {}
+    const savedLocations:    Record<string, string> = {}
+    const savedManualDates:  Record<string, string> = {}
     for (const r of recipes) {
-      savedStocks[r.name] = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
+      savedStocks[r.name]  = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
       const stored   = localStorage.getItem(`planning_location_${r.name}`)
       const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
       savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
+      const storedDate = localStorage.getItem(`planning_manualDate_${r.name}`)
+      if (storedDate) savedManualDates[r.name] = storedDate
     }
     setStocks(savedStocks)
     setLocations(savedLocations)
+    setManualBrewDates(savedManualDates)
     setUseRawAsBase(localStorage.getItem('planning_useRawAsBase') === '1')
     setOptimisticStock(localStorage.getItem('planning_optimisticStock') === '1')
   }, [recipes])
@@ -1093,7 +1097,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       onKeyDown={e => {
                                         if (e.key === 'Enter') {
                                           e.preventDefault()
-                                          if (editDateValue) setManualBrewDates(prev => ({ ...prev, [plan.name]: editDateValue }))
+                                          if (editDateValue) {
+                                            localStorage.setItem(`planning_manualDate_${plan.name}`, editDateValue)
+                                            setManualBrewDates(prev => ({ ...prev, [plan.name]: editDateValue }))
+                                          }
                                           setEditingPlan(null)
                                         }
                                         if (e.key === 'Escape') {
@@ -1104,7 +1111,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       }}
                                       onBlur={() => {
                                         if (cancelEditRef.current) { cancelEditRef.current = false; return }
-                                        if (editDateValue) setManualBrewDates(prev => ({ ...prev, [plan.name]: editDateValue }))
+                                        if (editDateValue) {
+                                          localStorage.setItem(`planning_manualDate_${plan.name}`, editDateValue)
+                                          setManualBrewDates(prev => ({ ...prev, [plan.name]: editDateValue }))
+                                        }
                                         setEditingPlan(null)
                                       }}
                                       className="text-xs border border-input rounded px-1.5 py-0.5 w-32 focus:outline-none focus:ring-1 focus:ring-ring bg-background"
@@ -1134,11 +1144,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                             {isManual && (
                                               <button
                                                 type="button"
-                                                onClick={() => setManualBrewDates(prev => {
-                                                  const n = { ...prev }
-                                                  delete n[plan.name]
-                                                  return n
-                                                })}
+                                                onClick={() => {
+                                                  localStorage.removeItem(`planning_manualDate_${plan.name}`)
+                                                  setManualBrewDates(prev => {
+                                                    const n = { ...prev }
+                                                    delete n[plan.name]
+                                                    return n
+                                                  })
+                                                }}
                                                 className="text-muted-foreground/40 hover:text-rose-500 transition-colors"
                                                 title="AI推奨日に戻す"
                                               >
