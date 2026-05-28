@@ -131,7 +131,16 @@ export default function LotCard({
             </div>
           </div>
           {bucketNumbers && (
-            <p className="text-sm text-gray-500 mt-0.5">桶 {bucketNumbers} 号</p>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {bucketNumbers.split('・').map(n => (
+                <span
+                  key={n}
+                  className="inline-flex items-center rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600"
+                >
+                  🪣 {n}号
+                </span>
+              ))}
+            </div>
           )}
         </CardHeader>
 
