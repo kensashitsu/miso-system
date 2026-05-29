@@ -9,7 +9,7 @@ import { deleteBrewPlan } from '@/app/planning/brew-plan-actions'
 import type { BrewPlanItem } from './BrewPlanList'
 
 export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(true)
   const [isPending, startTransition] = useTransition()
 
   if (plans.length === 0) return null
@@ -19,6 +19,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 no-print">
+      <div className="max-w-5xl mx-auto px-4">
       {/* 展開時のパネル */}
       {isOpen && (
         <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden max-h-[55vh] flex flex-col">
@@ -120,7 +121,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
-        className="w-full bg-white border-t border-gray-200 px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors"
+        className="w-full bg-white border-t border-x border-gray-200 px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-3 text-sm font-medium">
           {pending.length > 0 && (
@@ -144,6 +145,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
           )}
         </span>
       </button>
+      </div>
     </div>
   )
 }
