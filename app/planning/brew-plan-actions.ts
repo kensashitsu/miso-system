@@ -83,14 +83,14 @@ export async function createBrewPlan(data: {
     },
   })
   await resequencePendingPlans()
-  revalidatePath('/planning')
+  revalidatePath('/', 'layout')
   return { id: plan.id }
 }
 
 export async function deleteBrewPlan(id: string): Promise<void> {
   await prisma.brewPlan.delete({ where: { id } })
   await resequencePendingPlans()
-  revalidatePath('/planning')
+  revalidatePath('/', 'layout')
 }
 
 export async function markBrewPlanRegistered(id: string, lotId: string): Promise<void> {

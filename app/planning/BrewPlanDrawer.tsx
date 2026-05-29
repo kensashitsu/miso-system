@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { Trash2, ArrowRight, CheckCircle, ChevronUp, ChevronDown } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
-import { deleteBrewPlan } from './brew-plan-actions'
+import { deleteBrewPlan } from '@/app/planning/brew-plan-actions'
 import type { BrewPlanItem } from './BrewPlanList'
 
 export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {

@@ -4,6 +4,8 @@ import './globals.css'
 import NavBar from '@/components/NavBar'
 import { createSupabaseServerClient } from '@/lib/supabase-server'
 import { emailToUsername } from '@/lib/username-map'
+import { prisma } from '@/lib/prisma'
+import BrewPlanDrawer from '@/app/planning/BrewPlanDrawer'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
@@ -14,7 +16,10 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createSupabaseServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const [{ data: { user } }, brewPlans] = await Promise.all([
+    supabase.auth.getUser(),
+    prisma.brewPlan.findMany({ orderBy: { brewDate: 'asc' } }),
+  ])
   const username = user?.email ? emailToUsername(user.email) : null
 
   return (
@@ -22,6 +27,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-screen flex flex-col bg-background text-foreground antialiased">
         <NavBar username={username} />
         <main className="flex-1">{children}</main>
+        <BrewPlanDrawer plans={brewPlans} />
       </body>
     </html>
   )

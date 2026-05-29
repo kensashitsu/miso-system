@@ -65,7 +65,7 @@ export default async function LotNewPage({
     : undefined
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6">
+    <div className="max-w-5xl mx-auto px-4 py-6 pb-16">
       <LotNewForm
         moisture={moisture}
         recipes={recipes}

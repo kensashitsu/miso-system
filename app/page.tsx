@@ -166,7 +166,7 @@ export default async function DashboardPage() {
   })
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 py-6 pb-16 space-y-6">
       <h1 className="text-2xl font-bold text-gray-900 tracking-tight">ダッシュボード</h1>
 
       {/* 品種別在庫サマリー */}

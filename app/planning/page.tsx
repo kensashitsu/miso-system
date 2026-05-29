@@ -6,7 +6,6 @@ import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import BrewSuggestions from './BrewSuggestions'
 import BrewPlanList from './BrewPlanList'
-import BrewPlanDrawer from './BrewPlanDrawer'
 import DemandChart from './DemandChart'
 import WeatherSimulator from './WeatherSimulator'
 import ForecastUpdater from './ForecastUpdater'
@@ -229,7 +228,6 @@ export default async function PlanningPage() {
   }))
 
   return (
-    <>
     <div className="max-w-5xl mx-auto px-4 py-6 pb-16 space-y-8">
       {/* タイトルとSARIMAX更新ボタン */}
       <div className="flex items-start justify-between gap-4">
@@ -287,8 +285,5 @@ export default async function PlanningPage() {
       />
 
     </div>
-
-    <BrewPlanDrawer plans={brewPlans} />
-    </>
   )
 }
