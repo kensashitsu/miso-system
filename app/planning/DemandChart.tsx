@@ -60,6 +60,50 @@ function calcHistoricalForecasts(
   return result
 }
 
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ payload: Record<string, number | boolean | null> }>; label?: string }) {
+  if (!active || !payload?.length) return null
+  const d = payload[0]?.payload
+  if (!d) return null
+
+  const fmt = (v: number | null | undefined) =>
+    v != null ? `${Math.round(Number(v)).toLocaleString()} kg` : null
+  const range = (lo: number | null | undefined, hi: number | null | undefined) =>
+    lo != null && hi != null
+      ? `${Math.round(Number(lo)).toLocaleString()}〜${Math.round(Number(hi)).toLocaleString()} kg`
+      : null
+
+  type Row = { label: string; value: string; sub?: string; color: string }
+  const rows: Row[] = []
+  if (d.actual    != null) rows.push({ label: '実績',          value: fmt(d.actual as number)!,    color: '#111111' })
+  if (d.predicted != null) rows.push({ label: '予測（3年平均）', value: fmt(d.predicted as number)!, color: '#888888' })
+  if (d.hwForecast != null) {
+    const r = range(d.hwLower as number, d.hwUpper as number)
+    rows.push({ label: 'AI予測（HW法）', value: fmt(d.hwForecast as number)!, sub: r ? `予測範囲：${r}` : undefined, color: '#3B82F6' })
+  }
+  if (d.sarimaxBar != null) {
+    const isFut  = d.isFuture as boolean
+    const r      = isFut ? range(d.sarimaxLower as number, d.sarimaxUpper as number) : null
+    rows.push({
+      label: isFut ? 'SARIMAX予測（今月以降）' : 'SARIMAX予測（LOO検証）',
+      value: fmt(d.sarimaxBar as number)!,
+      sub:   r ? `90%信頼区間：${r}` : undefined,
+      color: '#16a34a',
+    })
+  }
+
+  return (
+    <div style={{ fontSize: 12, borderRadius: 6, border: '1px solid hsl(var(--border))', background: 'white', padding: '8px 12px', lineHeight: 1.6 }}>
+      <p style={{ fontWeight: 600, marginBottom: 4 }}>{label}</p>
+      {rows.map((r, i) => (
+        <div key={i} style={{ marginBottom: r.sub ? 2 : 0 }}>
+          <span style={{ color: r.color }}>{r.label}：{r.value}</span>
+          {r.sub && <div style={{ color: '#888', fontSize: 11, paddingLeft: 8 }}>{r.sub}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastForecast, sarimaxMape }: Props) {
   const [selectedType,     setSelectedType]     = useState<string>(MISO_TYPES[0])
   const [forecastMonths,   setForecastMonths]   = useState<number>(6)
@@ -145,10 +189,13 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
     let hwLower:     number | null = null
     let hwBandWidth: number | null = null
 
+    let hwUpper: number | null = null
+
     if (isFuture && hwResult && hwIdx < hwResult.forecast.length) {
       hwForecast  = hwResult.forecast[hwIdx]
       hwLower     = hwResult.lowerBound[hwIdx]
-      hwBandWidth = hwResult.upperBound[hwIdx] - hwLower
+      hwUpper     = hwResult.upperBound[hwIdx]
+      hwBandWidth = hwUpper - hwLower
     } else if (!isFuture && showPastForecast) {
       hwForecast = historicalForecasts[ym] ?? null
     }
@@ -156,12 +203,14 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
     // SARIMAX予測（未来期間のみ）
     let sarimaxForecastVal: number | null = null
     let sarimaxLower:       number | null = null
+    let sarimaxUpper:       number | null = null
     let sarimaxBandWidth:   number | null = null
 
     if (isFuture && sarimaxByYM[ym]) {
-      const s         = sarimaxByYM[ym]
+      const s            = sarimaxByYM[ym]
       sarimaxForecastVal = s.forecast
       sarimaxLower       = s.lower90
+      sarimaxUpper       = s.upper90
       sarimaxBandWidth   = s.upper90 - s.lower90
     }
 
@@ -172,9 +221,9 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
 
     return {
       ym, label, actual, predicted,
-      hwForecast, hwLower, hwBandWidth,
+      hwForecast, hwLower, hwUpper, hwBandWidth,
       sarimaxForecast: sarimaxForecastVal,
-      sarimaxLower,
+      sarimaxLower, sarimaxUpper,
       sarimaxBandWidth,
       sarimaxBar,
       isFuture,
@@ -282,22 +331,7 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
                 stroke="hsl(var(--border))"
                 tickFormatter={yTickFormatter}
               />
-              <Tooltip
-                formatter={(v, name, props) => {
-                  if (v == null || v === '') return ['—', name]
-                  const kg = `${Math.round(Number(v)).toLocaleString()} kg`
-                  if (name === 'actual')     return [kg, '実績']
-                  if (name === 'predicted')  return [kg, '予測（3年平均）']
-                  if (name === 'hwForecast') return [kg, 'AI予測（HW法）']
-                  if (name === 'sarimaxBar') {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const isFut = (props as any)?.payload?.isFuture
-                    return [kg, isFut ? 'SARIMAX予測（今月以降）' : 'SARIMAX予測（LOO検証）']
-                  }
-                  return [kg, name]
-                }}
-                contentStyle={{ fontSize: 12, borderRadius: 6, border: '1px solid hsl(var(--border))' }}
-              />
+              <Tooltip content={<CustomTooltip />} />
               <Legend
                 wrapperStyle={{ fontSize: 12 }}
                 formatter={v => {
