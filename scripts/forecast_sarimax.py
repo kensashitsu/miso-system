@@ -7,20 +7,22 @@
 """
 
 import sys
+import os
+import re
 import json
-import sqlite3
 import warnings
 from pathlib import Path
 from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+import psycopg2
+import psycopg2.extras
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import xgboost as xgb
 
 warnings.filterwarnings('ignore')
 
-DB_PATH    = Path(__file__).resolve().parent.parent / 'prisma' / 'dev.db'
 MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ']
 
 # log-SARIMA: 航空機モデル優先、失敗時フォールバック
@@ -36,21 +38,17 @@ MIN_TRAIN  = 36
 
 # ─────────────────────────────────────────────
 # 人口データ（年次・1月1日基準）
-#   国勢調査アンカー値から線形補間・外挿
-#   山口県: 2015年=1,404,729人 / 2020年=1,342,059人
-#   全国:   2015年=127,095,000人 / 2020年=125,708,000人（人口推計）
 # ─────────────────────────────────────────────
 
-# 山口県 人口（住民基本台帳・国勢調査ベース推計）
 _POP_YAMAGUCHI = {
     2013: 1_426_000,
     2014: 1_415_000,
-    2015: 1_404_729,   # 国勢調査
+    2015: 1_404_729,
     2016: 1_392_000,
     2017: 1_379_000,
     2018: 1_366_000,
     2019: 1_354_000,
-    2020: 1_342_059,   # 国勢調査
+    2020: 1_342_059,
     2021: 1_328_000,
     2022: 1_315_000,
     2023: 1_302_000,
@@ -60,16 +58,15 @@ _POP_YAMAGUCHI = {
     2027: 1_249_000,
 }
 
-# 全国 人口（総務省統計局 人口推計・国勢調査）
 _POP_NATIONAL = {
     2013: 127_298_000,
     2014: 127_237_000,
-    2015: 127_095_000,   # 国勢調査
+    2015: 127_095_000,
     2016: 126_933_000,
     2017: 126_706_000,
     2018: 126_443_000,
     2019: 126_167_000,
-    2020: 125_708_000,   # 国勢調査
+    2020: 125_708_000,
     2021: 125_502_000,
     2022: 125_009_000,
     2023: 124_352_000,
@@ -79,7 +76,6 @@ _POP_NATIONAL = {
     2027: 122_000_000,
 }
 
-# 品種ごとの人口スコープ
 _MISO_POP_DATA = {
     '無添加麦みそ': _POP_NATIONAL,
     '田舎みそ':     _POP_YAMAGUCHI,
@@ -87,21 +83,16 @@ _MISO_POP_DATA = {
     '白みそ':       _POP_YAMAGUCHI,
 }
 
-# 人口特徴量を使う品種（LOO比較で効果があったもののみ）
 MISO_USE_POPULATION = {'白みそ'}
 
 
 def get_population_index(miso_type, yms):
-    """
-    年次人口データを月次に線形補完し、基準年（最初の年）=1.0のインデックスで返す。
-    既知範囲外は末端2年のトレンドで外挿。
-    """
     pop_data = _MISO_POP_DATA.get(miso_type, _POP_NATIONAL)
     years    = sorted(pop_data.keys())
     base_pop = pop_data[years[0]]
 
     def pop_at(year, month):
-        frac = year + (month - 1) / 12  # 小数年
+        frac = year + (month - 1) / 12
         y_lo = years[0] if frac <= years[0] else max(y for y in years if y <= frac)
         y_hi = years[-1] if frac >= years[-1] else min(y for y in years if y > frac)
         if y_lo == y_hi:
@@ -113,7 +104,6 @@ def get_population_index(miso_type, yms):
     for ym in yms:
         year  = int(ym[:4])
         month = int(ym[5:7])
-        # 既知範囲外の外挿: 末端2年のスロープで延長
         if year < years[0] or (year == years[0] and month < 1):
             y1, y2 = years[0], years[1]
             slope  = (pop_data[y2] - pop_data[y1])
@@ -130,19 +120,36 @@ def get_population_index(miso_type, yms):
 
 
 # ─────────────────────────────────────────────
+# DB接続
+# ─────────────────────────────────────────────
+
+def get_db_url():
+    url = os.environ.get('DATABASE_URL', '')
+    # pgbouncer パラメータを除去（psycopg2非対応）
+    url = re.sub(r'[?&]pgbouncer=true', '', url)
+    url = re.sub(r'\?$', '', url)
+    return url
+
+
+# ─────────────────────────────────────────────
 # データ読み込み
 # ─────────────────────────────────────────────
 
 def load_shipment_data(conn):
     return pd.read_sql_query(
-        'SELECT yearMonth, misoType, weightKg FROM ShipmentHistory ORDER BY yearMonth', conn)
+        'SELECT "yearMonth", "misoType", "weightKg" FROM "ShipmentHistory" ORDER BY "yearMonth"',
+        conn,
+    )
 
 
 def load_weather_data(conn):
-    df = pd.read_sql_query('SELECT date, avgTempC FROM WeatherCache ORDER BY date', conn)
+    df = pd.read_sql_query(
+        'SELECT date, "avgTempC" FROM "WeatherCache" ORDER BY date',
+        conn,
+    )
     if df.empty:
         return pd.DataFrame(columns=['yearMonth', 'avgTempC'])
-    df['yearMonth'] = pd.to_datetime(df['date'], unit='ms', utc=True).dt.strftime('%Y-%m')
+    df['yearMonth'] = pd.to_datetime(df['date'], utc=True).dt.strftime('%Y-%m')
     return df.groupby('yearMonth')['avgTempC'].mean().reset_index()
 
 
@@ -350,11 +357,9 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     y       = type_df['weightKg'].values.astype(float)
     exog    = np.array(temps, float).reshape(-1, 1)
 
-    # 人口特徴量（品種ごとに有効/無効）
     use_pop    = miso_type in MISO_USE_POPULATION
     pop_index  = get_population_index(miso_type, all_yms) if use_pop else None
 
-    # 将来年月と気温・人口
     ly, lm = int(all_yms[-1][:4]), int(all_yms[-1][5:7])
     future_yms = []
     for i in range(1, forecast_months + 1):
@@ -366,7 +371,6 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     future_exog  = np.array(future_temps, float).reshape(-1, 1)
     future_pop   = get_population_index(miso_type, future_yms) if use_pop else None
 
-    # ── 将来予測 ──
     pop_label = '人口特徴量あり' if use_pop else '人口特徴量なし'
     print(f'[{miso_type}] 将来予測中... ({pop_label})', file=sys.stderr)
 
@@ -377,7 +381,6 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     if x_mean is not None:
         print(f'  XGBoost完了（{pop_label}）', file=sys.stderr)
 
-    # ── LOO評価 ──
     print(f'[{miso_type}] LOO評価中...', file=sys.stderr)
     actuals, sarima_loo, xgb_loo = run_loo(list(y), temps, all_yms, feat_df)
 
@@ -388,7 +391,6 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     if x_mape is not None:
         print(f'  xgb:    MAPE={x_mape:.1f}%（{pop_label}）', file=sys.stderr)
 
-    # ── アンサンブル将来予測（単純平均） ──
     models_mean = [m for m in [s_mean, x_mean] if m is not None]
     if not models_mean:
         print(f'[{miso_type}] 全モデル失敗', file=sys.stderr)
@@ -435,7 +437,7 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
 
 
 # ─────────────────────────────────────────────
-# DB書き込み
+# DB書き込み（PostgreSQL）
 # ─────────────────────────────────────────────
 
 def write_to_db(conn, records):
@@ -443,13 +445,17 @@ def write_to_db(conn, records):
         return
     cur   = conn.cursor()
     types = list({r['misoType'] for r in records})
-    ph    = ','.join('?' * len(types))
-    cur.execute(f'DELETE FROM ForecastCache WHERE misoType IN ({ph})', types)
+    cur.execute('DELETE FROM "ForecastCache" WHERE "misoType" = ANY(%s)', (types,))
     for r in records:
         cur.execute(
-            'INSERT INTO ForecastCache'
-            ' (misoType, yearMonth, forecastKg, lower90, upper90, updatedAt)'
-            ' VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO "ForecastCache"'
+            ' ("misoType", "yearMonth", "forecastKg", "lower90", "upper90", "updatedAt")'
+            ' VALUES (%s, %s, %s, %s, %s, %s)'
+            ' ON CONFLICT ("misoType", "yearMonth") DO UPDATE SET'
+            '   "forecastKg" = EXCLUDED."forecastKg",'
+            '   "lower90"    = EXCLUDED."lower90",'
+            '   "upper90"    = EXCLUDED."upper90",'
+            '   "updatedAt"  = EXCLUDED."updatedAt"',
             (r['misoType'], r['yearMonth'], r['forecastKg'],
              r['lower90'],  r['upper90'],   r['updatedAt']),
         )
@@ -464,7 +470,10 @@ def write_mape_to_settings(conn, mape_map):
         if mape is None:
             continue
         cur.execute(
-            'INSERT OR REPLACE INTO SystemSetting (key, value, updatedAt) VALUES (?, ?, ?)',
+            'INSERT INTO "SystemSetting" (key, value, "updatedAt") VALUES (%s, %s, %s)'
+            ' ON CONFLICT (key) DO UPDATE SET'
+            '   value       = EXCLUDED.value,'
+            '   "updatedAt" = EXCLUDED."updatedAt"',
             (f'forecast_mape_{miso_type}', str(round(mape, 1)), now_utc),
         )
     conn.commit()
@@ -475,14 +484,14 @@ def write_mape_to_settings(conn, mape_map):
 # ─────────────────────────────────────────────
 
 def main():
-    print(f'データベース: {DB_PATH}', file=sys.stderr)
-
-    if not DB_PATH.exists():
-        print(json.dumps({'ok': False, 'error': f'DBが見つかりません: {DB_PATH}'},
+    db_url = get_db_url()
+    if not db_url:
+        print(json.dumps({'ok': False, 'error': 'DATABASE_URL が設定されていません'},
                          ensure_ascii=False))
         sys.exit(1)
 
-    conn = sqlite3.connect(str(DB_PATH))
+    print(f'データベース接続中...', file=sys.stderr)
+    conn = psycopg2.connect(db_url)
     try:
         shipment_df     = load_shipment_data(conn)
         weather_monthly = load_weather_data(conn)

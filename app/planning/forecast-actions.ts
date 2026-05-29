@@ -1,77 +1,49 @@
 'use server'
 
-import { execFile } from 'child_process'
-import path from 'path'
 import { revalidatePath } from 'next/cache'
 
-// Server Action: SARIMAX予測スクリプトを実行してForecastCacheを更新する
+// GitHub Actions workflow_dispatch でSARIMAX予測を起動する
+// 実行はGitHub Actions側（Ubuntu + Python）で行い、結果はSupabaseに直接書き込まれる
 
 type ForecastResult =
   | { ok: true;  message: string; updatedAt: string }
   | { ok: false; message: string }
 
+const REPO          = 'kensashitsu/miso-system'
+const WORKFLOW_FILE = 'forecast.yml'
+
 export async function runSarimaxForecast(): Promise<ForecastResult> {
-  // 環境変数からPythonパスを取得（なければシステムのpythonを使用）
-  const pythonPath  = process.env.PYTHON_PATH ?? 'python'
-  const scriptPath  = path.join(process.cwd(), 'scripts', 'forecast_sarimax.py')
-  const timeoutMs   = 3 * 60 * 1000 // 3分
+  const token = process.env.GITHUB_PAT
+  if (!token) {
+    return { ok: false, message: 'GITHUB_PAT が未設定です（Vercel環境変数に追加してください）' }
+  }
 
-  return new Promise(resolve => {
-    execFile(
-      pythonPath,
-      [scriptPath],
-      { timeout: timeoutMs, encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } },
-      (error, stdout, stderr) => {
-        // stderrはログとして記録（エラーではなく進捗出力）
-        if (stderr) {
-          console.log('[forecast_sarimax stderr]', stderr)
-        }
+  const url = `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`
 
-        if (error) {
-          const msg = error.killed
-            ? '予測処理がタイムアウトしました（3分）'
-            : `予測スクリプトエラー: ${error.message}`
-          console.error('[forecast_sarimax error]', error)
-          resolve({ ok: false, message: msg })
-          return
-        }
-
-        // stdoutからJSONを取得
-        const rawOutput = stdout.trim()
-        if (!rawOutput) {
-          resolve({ ok: false, message: 'スクリプトから出力がありませんでした' })
-          return
-        }
-
-        try {
-          const parsed = JSON.parse(rawOutput) as {
-            ok:    boolean
-            types?: string[]
-            mape?:  Record<string, number | null>
-            error?: string
-          }
-
-          if (!parsed.ok) {
-            resolve({ ok: false, message: parsed.error ?? '予測処理に失敗しました' })
-            return
-          }
-
-          const types     = (parsed.types ?? []).join('、')
-          const mapeLines = Object.entries(parsed.mape ?? {})
-            .map(([type, val]) => `${type}: ${val != null ? `${val.toFixed(1)}%` : '—'}`)
-            .join(' / ')
-
-          const message = `更新完了（${types}）MAPE: ${mapeLines}`
-          const updatedAt = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
-
-          // 仕込み計画ページのキャッシュを無効化
-          revalidatePath('/planning')
-
-          resolve({ ok: true, message, updatedAt })
-        } catch {
-          resolve({ ok: false, message: `JSON解析エラー: ${rawOutput.slice(0, 200)}` })
-        }
-      },
-    )
+  const res = await fetch(url, {
+    method:  'POST',
+    headers: {
+      Authorization:  `Bearer ${token}`,
+      Accept:         'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({ ref: 'main' }),
   })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    return { ok: false, message: `GitHub API エラー (${res.status}): ${text.slice(0, 200)}` }
+  }
+
+  // 204 No Content が成功レスポンス
+  // 予測完了まで数分かかるため、ページキャッシュは少し遅延して無効化
+  setTimeout(() => revalidatePath('/planning'), 5 * 60 * 1000)
+
+  const updatedAt = new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+  return {
+    ok:      true,
+    message: 'GitHub Actions でSARIMAX予測ジョブを開始しました。完了まで数分かかります。GitHubのActionsタブで進捗を確認できます。',
+    updatedAt,
+  }
 }

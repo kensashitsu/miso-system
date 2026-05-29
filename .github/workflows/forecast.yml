@@ -1,0 +1,29 @@
+name: SARIMAX需要予測更新
+
+on:
+  schedule:
+    - cron: '0 15 * * 0'  # 毎週日曜 0:00 JST（= 土曜 15:00 UTC）
+  workflow_dispatch:       # GitHub画面・APIから手動実行可能
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: scripts/requirements-forecast.txt
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements-forecast.txt
+
+      - name: Run forecast script
+        env:
+          DATABASE_URL: ${{ secrets.FORECAST_DATABASE_URL }}
+        run: python scripts/forecast_sarimax.py
