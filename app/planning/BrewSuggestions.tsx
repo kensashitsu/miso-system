@@ -55,6 +55,8 @@ interface Props {
   fermentingScheduleByType?: Record<string, FermentingLotSchedule[]>
   // 既存の仮登録キー一覧（"品種::yyyy-MM-dd" 形式）
   existingBrewPlanKeys?: string[]
+  // DBに保存済みの仮登録仕込み日（品種別・他PCからの同期用フォールバック）
+  initialManualBrewDates?: Record<string, string>
 }
 
 interface BatchPlan {
@@ -514,7 +516,7 @@ function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, fermentingScheduleByType, existingBrewPlanKeys }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -563,7 +565,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const stored   = localStorage.getItem(`planning_location_${r.name}`)
       const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
       savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
-      const storedDate = localStorage.getItem(`planning_manualDate_${r.name}`)
+      const storedDate = localStorage.getItem(`planning_manualDate_${r.name}`) ?? initialManualBrewDates?.[r.name]
       if (storedDate) savedManualDates[r.name] = storedDate
     }
     setStocks(savedStocks)

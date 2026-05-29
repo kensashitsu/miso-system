@@ -275,6 +275,15 @@ export default async function PlanningPage() {
         existingBrewPlanKeys={brewPlans
           .filter(p => p.status === '仮登録')
           .map(p => `${p.misoType}::${format(p.brewDate, 'yyyy-MM-dd')}`)}
+        initialManualBrewDates={
+          brewPlans
+            .filter(p => p.status === '仮登録')
+            .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
+            .reduce<Record<string, string>>((acc, p) => {
+              if (!acc[p.misoType]) acc[p.misoType] = format(p.brewDate, 'yyyy-MM-dd')
+              return acc
+            }, {})
+        }
       />
 
     </div>
