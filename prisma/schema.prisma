@@ -221,6 +221,19 @@ model BrewPlan {
   updatedAt             DateTime  @updatedAt
 }
 
+// 月末在庫スナップショット（ML用データ蓄積）
+model MonthlyInventorySnapshot {
+  id           String   @id @default(cuid())
+  yearMonth    String   // "2026-05"（前月末時点）
+  misoType     String   // 品種
+  fermentingKg Float    // 熟成中ロット残量（Bucket集計）
+  agedKg       Float?   // 熟成済在庫（外部API）
+  packagedKg   Float?   // 小分け製品在庫（外部API）
+  recordedAt   DateTime @default(now())
+
+  @@unique([yearMonth, misoType])
+}
+
 // SARIMAX需要予測キャッシュ（品種×年月）
 model ForecastCache {
   misoType   String
