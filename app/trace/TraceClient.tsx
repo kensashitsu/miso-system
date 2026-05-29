@@ -319,7 +319,7 @@ export default function TraceClient({
               <span className="text-xs text-muted-foreground">{lots.length}件</span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/40">
                     <th className="text-left px-3 py-2 text-xs font-medium text-gray-400 tracking-wider uppercase whitespace-nowrap">ロット番号</th>

@@ -24,7 +24,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="ja" className={geist.variable}>
-      <body className="min-h-screen flex flex-col bg-background text-foreground antialiased overflow-x-hidden">
+      <body className="min-h-screen flex flex-col bg-background text-foreground antialiased">
         <NavBar username={username} />
         <main className="flex-1">{children}</main>
         <BrewPlanDrawer plans={brewPlans} />

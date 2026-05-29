@@ -24,7 +24,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       {isOpen && (
         <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden max-h-[55vh] flex flex-col">
           <div className="overflow-y-auto overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[500px] text-xs">
               <thead className="sticky top-0 bg-muted/40 border-b">
                 <tr className="text-muted-foreground">
                   <th className="text-left px-3 py-2 font-medium">品種</th>

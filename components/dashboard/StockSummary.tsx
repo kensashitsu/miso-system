@@ -68,7 +68,7 @@ export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiD
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[520px] text-sm">
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="text-left py-2.5 pr-3 px-4 text-gray-400 font-medium text-xs tracking-wider uppercase">品種</th>
