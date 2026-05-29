@@ -13,9 +13,9 @@ const REPO          = 'kensashitsu/miso-system'
 const WORKFLOW_FILE = 'forecast.yml'
 
 export async function runSarimaxForecast(): Promise<ForecastResult> {
-  const token = process.env.GITHUB_PAT
+  const token = process.env.GH_PAT
   if (!token) {
-    return { ok: false, message: 'GITHUB_PAT が未設定です（Vercel環境変数に追加してください）' }
+    return { ok: false, message: 'GH_PAT が未設定です（Vercel環境変数に追加してください）' }
   }
 
   const url = `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`
