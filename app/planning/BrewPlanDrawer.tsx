@@ -23,7 +23,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       {/* 展開時のパネル */}
       {isOpen && (
         <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden max-h-[55vh] flex flex-col">
-          <div className="overflow-y-auto">
+          <div className="overflow-y-auto overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-muted/40 border-b">
                 <tr className="text-muted-foreground">
