@@ -242,8 +242,8 @@ export default function BrewSimulator({
   targetMoistureSampleCount,
   room1Temp,
   room2Temp,
-  weatherDailyAvg,
-  weatherAvgTempC,
+  weatherMonthlyDailyAvg,
+  weatherMonthlyTempC,
 }: {
   baseKojiHo:                number
   baseSaltPct:               number
@@ -257,8 +257,8 @@ export default function BrewSimulator({
   targetMoistureSampleCount: number
   room1Temp:                 number
   room2Temp:                 number
-  weatherDailyAvg:           number
-  weatherAvgTempC:           number   // 年間平均気温（℃）：常温のlocTemp推計用
+  weatherMonthlyDailyAvg:    Record<number, number>
+  weatherMonthlyTempC:       Record<number, number>
 }) {
   const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
   const [saltPct,           setSaltPct]           = useState(baseSaltPct)
@@ -266,18 +266,19 @@ export default function BrewSimulator({
   const [targetMoisturePct, setTargetMoisturePct] = useState(
     Math.round(targetMoisture * 1000) / 10
   )
-  const [selectedLocation,  setSelectedLocation]  = useState<'暖房' | '冷房' | '常温'>('暖房')
+  const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温'>('暖房')
+  const [brewMonth,        setBrewMonth]        = useState(() => new Date().getMonth() + 1)
 
   const dailyAccum = selectedLocation === '暖房'
     ? room1Temp - 10
     : selectedLocation === '冷房'
     ? Math.max(room2Temp - 10, 0)
-    : weatherDailyAvg
+    : (weatherMonthlyDailyAvg[brewMonth] ?? 4)
 
   // 仕込み温度（℃）：Q10補正でrを調整するために使用
   const locTemp = selectedLocation === '暖房' ? room1Temp
     : selectedLocation === '冷房' ? room2Temp
-    : weatherAvgTempC
+    : (weatherMonthlyTempC[brewMonth] ?? 14)
 
   // 出麹評価は固定（6=標準）。result・base とも同じ温度で比較（配合の差だけを見る）
   const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp), [kojiHo, saltPct, locTemp])
@@ -482,7 +483,7 @@ export default function BrewSimulator({
 
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
-        <div className="flex items-center gap-3 mb-0.5">
+        <div className="flex flex-wrap items-center gap-2 mb-0.5">
           <h2 className="text-sm font-semibold text-gray-700">発酵進行度</h2>
           <div className="ml-auto flex rounded border border-gray-200 overflow-hidden text-xs">
             {(['暖房', '冷房', '常温'] as const).map(loc => (
@@ -500,10 +501,27 @@ export default function BrewSimulator({
               </button>
             ))}
           </div>
+          {selectedLocation === '常温' && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-gray-500">仕込み開始月</span>
+              <select
+                value={brewMonth}
+                onChange={e => setBrewMonth(Number(e.target.value))}
+                className="border border-gray-200 rounded px-1.5 py-0.5 bg-white text-gray-700 text-xs"
+              >
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                  <option key={m} value={m}>{m}月</option>
+                ))}
+              </select>
+              <span className="text-gray-400">
+                （月平均 {(weatherMonthlyTempC[brewMonth] ?? 14).toFixed(1)}℃）
+              </span>
+            </div>
+          )}
         </div>
         <p className="text-xs text-muted-foreground mb-4">
           X軸：積算温度（℃・日）　右Y軸：pH
-          <span className="text-violet-600 ml-1">{selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算</span>
+          <span className="text-violet-600 ml-1">{selectedLocation}（{locTemp.toFixed(1)}℃）：{dailyAccum.toFixed(1)} ℃/日換算</span>
         </p>
 
         {/* 凡例 */}

@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export default async function SimulationPage() {
-  const [moisture, recipe, brewRecords, weatherAvgResult] = await Promise.all([
+  const [moisture, recipe, brewRecords, allWeatherData] = await Promise.all([
     getMoistureSettings(),
     prisma.misoRecipe.findFirst({ where: { name: '無添加麦みそ' } }),
     // 無添加麦みその実績仕込みデータ（直近20件）
@@ -34,7 +34,8 @@ export default async function SimulationPage() {
       orderBy: { brewedAt: 'desc' },
       take: 20,
     }),
-    prisma.weatherCache.aggregate({ _avg: { effectiveTemp: true } }),
+    // 月別平均気温計算用（date・effectiveTemp のみ取得）
+    prisma.weatherCache.findMany({ select: { date: true, effectiveTemp: true } }),
   ])
 
   const baseGrainKg   = recipe?.grainKg       ?? 650
@@ -49,14 +50,33 @@ export default async function SimulationPage() {
   const steamedSoyMoisture =
     (moisture.soybeanRatio - 1 + moisture.soybean) / moisture.soybeanRatio
 
-  // 常温の年間平均有効積算温度（Q10補正済み）と年間平均気温
-  const rawAvgEffective = weatherAvgResult._avg.effectiveTemp ?? 4
-  const weatherDailyAvg = applyQ10(rawAvgEffective, moisture.q10Value, moisture.heatingDefaultTemp)
-  // rawAvgEffective = avg(max(avgTempC-10, 0)) なので +10 で年間平均気温を近似
-  const weatherAvgTempC = rawAvgEffective + 10
+  // 月別（1〜12月）の平均有効積算温度・平均気温を計算
+  const monthlyBuckets: Record<number, number[]> = {}
+  for (const w of allWeatherData) {
+    const m = w.date.getUTCMonth() + 1  // 1〜12
+    if (!monthlyBuckets[m]) monthlyBuckets[m] = []
+    monthlyBuckets[m].push(w.effectiveTemp)
+  }
+
+  const weatherMonthlyDailyAvg: Record<number, number> = {}  // Q10補正済み有効積算（℃/日）
+  const weatherMonthlyTempC:    Record<number, number> = {}   // 月平均気温（℃）
+
+  // データがない月のフォールバック用年間平均
+  const allTemps = allWeatherData.map(w => w.effectiveTemp)
+  const globalRawAvg = allTemps.length > 0
+    ? allTemps.reduce((s, t) => s + t, 0) / allTemps.length
+    : 4
+
+  for (let m = 1; m <= 12; m++) {
+    const temps  = monthlyBuckets[m] ?? []
+    const rawAvg = temps.length > 0
+      ? temps.reduce((s, t) => s + t, 0) / temps.length
+      : globalRawAvg
+    weatherMonthlyDailyAvg[m] = applyQ10(rawAvg, moisture.q10Value, moisture.heatingDefaultTemp)
+    weatherMonthlyTempC[m]    = rawAvg + 10  // effectiveTemp + 10 ≈ 月平均気温
+  }
 
   // 実際の仕込みデータから目標水分率を計算
-  // 水分(%) = (麹×麹水分率 + 蒸煮大豆×蒸煮大豆水分率 + 種水 + 種味噌×種味噌水分率) / 仕立量
   const validRecords = brewRecords
     .map(l => l.brewRecord)
     .filter((br): br is NonNullable<typeof br> =>
@@ -77,7 +97,6 @@ export default async function SimulationPage() {
     targetMoisture = moistures.reduce((a, b) => a + b, 0) / moistures.length
     targetMoistureSampleCount = validRecords.length
   } else {
-    // 実績なし → レシピから計算（種水なし）
     targetMoisture =
       (baseGrainKg * moisture.kojiRatio * moisture.mugiKoji +
        baseSoybeanKg * moisture.soybeanRatio * steamedSoyMoisture) /
@@ -106,8 +125,8 @@ export default async function SimulationPage() {
         targetMoistureSampleCount={targetMoistureSampleCount}
         room1Temp={moisture.room1Temp}
         room2Temp={moisture.room2Temp}
-        weatherDailyAvg={weatherDailyAvg}
-        weatherAvgTempC={weatherAvgTempC}
+        weatherMonthlyDailyAvg={weatherMonthlyDailyAvg}
+        weatherMonthlyTempC={weatherMonthlyTempC}
       />
     </div>
   )
