@@ -354,7 +354,10 @@ export default function BrewSimulator({
                 : 'レシピ参考値'}
               value={targetMoisturePct} min={35} max={55} step={0.5} unit="%" decimals={1}
               onChange={setTargetMoisturePct} />
-            <p className="text-xs text-gray-400 mt-2">水分活性 aw = {result.aw.toFixed(3)}</p>
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2">
+              <p className="text-xs text-gray-400">水分活性 aw = {result.aw.toFixed(3)}</p>
+              <p className="text-xs text-gray-400">対水食塩濃度 = {(saltPct / targetMoisturePct * 100).toFixed(1)}%</p>
+            </div>
           </div>
 
           {/* 右：原料逆算 */}
