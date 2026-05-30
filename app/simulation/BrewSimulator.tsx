@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceArea,
@@ -392,6 +392,41 @@ export default function BrewSimulator({
   const isWindowNarrow = windowRatio != null && windowRatio < 0.7
   const isWindowMissing = result.windowStart === null
 
+  // 収穫窓アニメーション（モード切替時にx1/x2を補間）
+  const [animWindow, setAnimWindow] = useState<{ start: number | null; end: number | null }>({
+    start: result.windowStart, end: result.windowEnd,
+  })
+  const animWindowRef = useRef(animWindow)
+  const rafRef        = useRef<number | null>(null)
+
+  useEffect(() => {
+    const from = { ...animWindowRef.current }
+    const to   = { start: result.windowStart, end: result.windowEnd }
+    if (from.start === to.start && from.end === to.end) return
+
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
+
+    const DURATION  = 400
+    const startTime = performance.now()
+    const lerp = (a: number | null, b: number | null): number | null =>
+      a != null && b != null ? a + (b - a) * (1 - (1 - Math.min(1, (performance.now() - startTime) / DURATION)) ** 3) : b
+
+    const tick = (now: number) => {
+      const t    = Math.min((now - startTime) / DURATION, 1)
+      const ease = 1 - (1 - t) ** 3
+      const cur  = {
+        start: from.start != null && to.start != null ? from.start + (to.start - from.start) * ease : to.start,
+        end:   from.end   != null && to.end   != null ? from.end   + (to.end   - from.end)   * ease : to.end,
+      }
+      animWindowRef.current = cur
+      setAnimWindow({ ...cur })
+      if (t < 1) rafRef.current = requestAnimationFrame(tick)
+      else        rafRef.current = null
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current != null) cancelAnimationFrame(rafRef.current) }
+  }, [result.windowStart, result.windowEnd])
+
   return (
     <div className="space-y-5">
 
@@ -630,12 +665,12 @@ export default function BrewSimulator({
             />
             <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#E5E7EB', strokeWidth: 1 }} />
 
-            {/* 収穫窓ハイライト */}
-            {result.windowStart != null && (
+            {/* 収穫窓ハイライト（アニメーション付き） */}
+            {animWindow.start != null && (
               <ReferenceArea
                 yAxisId="left"
-                x1={result.windowStart}
-                x2={result.windowEnd ?? T_MAX}
+                x1={animWindow.start}
+                x2={animWindow.end ?? T_MAX}
                 fill="#D1FAE5"
                 fillOpacity={0.55}
                 stroke="#6EE7B7"
