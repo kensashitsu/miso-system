@@ -294,6 +294,7 @@ model Lot {
   finalYieldKg   Float?
   yieldRate      Float?
   notes          String?
+  isPrototype    Boolean   @default(false)  // 試作品フラグ（試作モードで登録したロット）
   createdAt      DateTime  @default(now())
   brewRecord       BrewRecord?
   locationHistory  LocationHistory[]
@@ -832,6 +833,7 @@ const nextConfig: NextConfig = {
 - [ ] SarimaxスクリプトのPythonパス・依存関係のセットアップ手順整備
 - [ ] 試作シミュレーター：普通米（米みそ）対応（将来実装予定）
 - [ ] 試作シミュレーター：設計マップ（麹歩合×塩分%の2D等高線）ビュー
+- [ ] 試作シミュレーター：配合設定とグラフをスクロールなしで同時確認できるレイアウト改善
 
 ---
 
@@ -917,7 +919,7 @@ f_aw_maillard(aw) = max(0, 1 − |aw − 0.77| / 0.15)   ← aw≈0.77で最大�
 | 麹歩合↑ | k_pro↑（AA蓄積が速い）・甘味ポテンシャル↑（糖産生量↑） |
 | 塩分↑ | aw↓ → k_mic↓（糖消費が遅い）→ 収穫窓が広くなる |
 | 塩分↓ | aw↑ → k_mic↑（糖消費が速い）→ 収穫窓が狭くなる |
-| 出麹評価↑ | k_amy↑ → 糖ピークが早まり高くなる |
+| 出麹評価 | UIから削除・内部で6固定（標準） |
 
 ### 除外した例外パラメータ（対象外の品種への対応）
 
@@ -927,9 +929,64 @@ f_aw_maillard(aw) = max(0, 1 − |aw − 0.77| / 0.15)   ← aw≈0.77で最大�
 | 山吹みそ | 砕米の表面積効果でk_amyが実態と乖離 |
 | 白みそ | アルコール添加でk_mic≈0・酵素分解のみで完成 |
 
+### 原料逆算（仕立量から全原料を計算）
+
+配合設定（仕立量・麹歩合・塩分%・目標水分%）から全原料量を連立方程式で解く：
+
+```
+R = 麹歩合/10、P = 塩分%/100、M = 目標水分率
+
+soybeanKg  = 仕立量 × (1 − P − M) / (R×1.2×(1−mugiKoji) + 2.3×(1−steamedSoyMoisture))
+grainKg    = R × soybeanKg
+saltKg     = P × 仕立量
+kojiKg     = grainKg × kojiRatio          （参考値）
+mushiDaizuKg = soybeanKg × soybeanRatio   （参考値）
+seedWaterL = M × 仕立量 − (grainKg×1.2×mugiKoji + soybeanKg×2.3×steamedSoyMoisture)
+```
+
+**目標水分率（M）の決定**：過去の無添加麦みそBrewRecord（直近20件）から実測平均で算出。
+データがない場合はレシピ計算値（種水なし）にフォールバック。
+
+```typescript
+moisture = (kojiKg × mugiKoji + soybeanKg × soybeanRatio × steamedSoyMoisture
+          + seedWaterL + seedMisoKg × seedMiso) / shikomiKg
+```
+
+仕立量≤10kgのとき原料表示を kg→g・L→mL に自動切り替え。
+
+### 対水食塩濃度
+
+```
+対水食塩濃度(%) = 塩分% / 目標水分% × 100
+```
+
+配合設定カードにリアルタイム表示。水分活性awと並べて表示。
+
+### 試作品ロット登録との連携
+
+シミュレーター内「この配合でロット登録へ →」ボタンで `/lots/new` に以下をURLパラメータで渡す：
+
+```
+?prototype=true&targetTempSum=XXX&grainKg=XX&kojiKg=XX&soybeanKg=XX&saltKg=XX&seedWaterL=XX&shikomiKg=XX
+```
+
+- `prototype=true` のとき品種名フィールドが **自由テキスト入力** に切り替わる（既存レシピ選択なし）
+- 原料量・目標積算温度が自動セット済み
+- `Lot.isPrototype = true` で登録される
+- ダッシュボード・ロット詳細に **紫の「試作」バッジ** を表示
+
+目標積算温度 = 収穫窓の中央値 `(windowStart + windowEnd) / 2`
+
+### UI構成（BrewSimulator.tsx）
+
+- **Stepper入力**：[−] 数値 [+] 形式。フォーカス時に全選択・blur/Enterで確定
+- **2カラムカード**：左=配合設定（仕立量→麹歩合→塩分→目標水分）、右=原料逆算テーブル
+- **グラフアニメーション**：400ms ease-out
+- **ページ順序**：配合設定→グラフ→収穫窓アラート→サマリーカード→モデル注記
+
 ### ファイル構成
 
 | ファイル | 役割 |
 |---------|------|
-| `app/simulation/page.tsx` | サーバー：無添加麦みそレシピから基準パラメータを取得 |
-| `app/simulation/BrewSimulator.tsx` | クライアント：スライダーUI・モデル計算・Rechartsグラフ |
+| `app/simulation/page.tsx` | サーバー：レシピ・MoistureSettings・過去BrewRecord（直近20件）を取得、目標水分率を計算 |
+| `app/simulation/BrewSimulator.tsx` | クライアント：Stepper UI・モデル計算・原料逆算・Rechartsグラフ・試作登録ボタン |
