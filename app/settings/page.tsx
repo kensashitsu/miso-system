@@ -8,6 +8,7 @@ import RecipeSettings from './RecipeSettings'
 import WeatherImportCard from './WeatherImportCard'
 import ApiStatusCard from './ApiStatusCard'
 import BulkTempUpdateCard, { type ActiveLot } from './BulkTempUpdateCard'
+import InventorySnapshotCard from './InventorySnapshotCard'
 
 export const metadata: Metadata = {
   title: '設定 | みそ熟成管理システム',
@@ -17,7 +18,7 @@ const HEATING_RE = /^暖房\d+(?:\.\d+)?℃$/
 const COOLING_RE = /^冷房\d+(?:\.\d+)?℃$/
 
 export default async function SettingsPage() {
-  const [moisture, recipes, weatherStatus, fermentingLots] = await Promise.all([
+  const [moisture, recipes, weatherStatus, fermentingLots, snapshots] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     getWeatherStatus(),
@@ -33,6 +34,10 @@ export default async function SettingsPage() {
         },
       },
       orderBy: { lotNumber: 'asc' },
+    }),
+    prisma.monthlyInventorySnapshot.findMany({
+      orderBy: [{ yearMonth: 'desc' }, { misoType: 'asc' }],
+      take: 96, // 最大24ヶ月×4品種
     }),
   ])
 
@@ -62,6 +67,7 @@ export default async function SettingsPage() {
         coolingDefaultTemp={moisture.coolingDefaultTemp}
       />
       <WeatherImportCard initialStatus={weatherStatus} />
+      <InventorySnapshotCard snapshots={snapshots} />
     </div>
   )
 }
