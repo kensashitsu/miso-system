@@ -43,8 +43,10 @@ export default async function SimulationPage() {
   const baseSaltKg    = recipe?.saltKg        ?? 171
   const baseTotalKg   = recipe?.totalWeightKg ?? 1572
 
-  const baseKojiHo  = Math.round((baseGrainKg / baseSoybeanKg) * 10 * 10) / 10
-  const baseSaltPct = Math.round((baseSaltKg  / baseTotalKg)   * 1000) / 10
+  const baseKojiHo       = Math.round((baseGrainKg / baseSoybeanKg) * 10 * 10) / 10
+  const baseSaltPct      = Math.round((baseSaltKg  / baseTotalKg)   * 1000) / 10
+  // 大豆なしモード用：基準レシピでの穀物比率（%）
+  const baseGrainRatioPct = Math.round((baseGrainKg / baseTotalKg) * 1000) / 10
 
   // 蒸煮大豆水分率 = (soybeanRatio - 1 + 大豆含水率) / soybeanRatio
   const steamedSoyMoisture =
@@ -127,6 +129,7 @@ export default async function SimulationPage() {
         room2Temp={moisture.room2Temp}
         weatherMonthlyDailyAvg={weatherMonthlyDailyAvg}
         weatherMonthlyTempC={weatherMonthlyTempC}
+        baseGrainRatioPct={baseGrainRatioPct}
       />
     </div>
   )
