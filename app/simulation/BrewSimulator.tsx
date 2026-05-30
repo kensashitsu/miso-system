@@ -338,15 +338,15 @@ export default function BrewSimulator({
             <h2 className="text-sm font-semibold text-gray-700 mb-1">配合設定
               <span className="text-xs font-normal text-gray-400 ml-2">裸麦使用・水飴なし</span>
             </h2>
+            <Stepper label="仕立量"
+              value={shikomiKg} min={1} max={2000} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
+              onChange={setShikomiKg} />
             <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
               value={kojiHo} min={15} max={45} step={0.5} unit="割" decimals={1}
               onChange={setKojiHo} />
             <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
               value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
               onChange={setSaltPct} />
-            <Stepper label="仕立量"
-              value={shikomiKg} min={1} max={2000} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
-              onChange={setShikomiKg} />
             <Stepper
               label="目標水分"
               sub={targetMoistureSampleCount > 0
