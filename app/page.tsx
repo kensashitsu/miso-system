@@ -13,6 +13,7 @@ import { getMisoRecipes } from '@/lib/recipes'
 import DashboardLotGroups from '@/components/dashboard/DashboardLotGroups'
 import { type LotCardProps, type LotSimConfig } from '@/components/dashboard/lot-card'
 import StockSummary from '@/components/dashboard/StockSummary'
+import InventoryTrendChart from '@/components/dashboard/InventoryTrendChart'
 
 // 常にサーバー側で最新データを取得する
 export const dynamic = 'force-dynamic'
@@ -21,11 +22,14 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // weatherData は全期間取得（oldestBrewDate フィルタだと過去年の夏季データが欠落し
   // weatherAvg が空になるため、ロット積算計算・シミュレーター両方が正常に動作しない）
-  const [moisture, agedStockData, recipes, weatherData] = await Promise.all([
+  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots] = await Promise.all([
     getMoistureSettings(),
     fetchAgedStock(),
     getMisoRecipes(),
     prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
+    prisma.monthlyInventorySnapshot.findMany({
+      orderBy: [{ yearMonth: 'asc' }, { misoType: 'asc' }],
+    }),
   ])
 
   // レシピの現在の目標積算温度を品種名でルックアップ
@@ -176,6 +180,9 @@ export default async function DashboardPage() {
         hasApiData={agedStockData != null}
         hasApiError={agedStockData == null && !!process.env.STOCK_API_URL}
       />
+
+      {/* 在庫推移グラフ */}
+      <InventoryTrendChart snapshots={inventorySnapshots} />
 
       {/* アラートバナー */}
       {(dangerLots.length > 0 || nearCompletionLots.length > 0) && (
