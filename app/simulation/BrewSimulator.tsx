@@ -33,6 +33,7 @@ type ChartPoint = {
   A:        number   // デンプン残存 100〜0%
   B:        number   // 糖（B_max = 100 に正規化）
   protein:  number   // タンパク質残存 100〜0%
+  AA:       number   // アミノ酸蓄積 0〜100%
   pH:       number
   maillard: number   // 着色指数 0〜100（B × AA × f_aw）
 }
@@ -100,6 +101,7 @@ function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: numbe
       A: A * 100,
       B: Bnorm,
       protein,
+      AA: AAnorm,
       pH,
       maillard,
     })
@@ -130,6 +132,7 @@ function ChartTooltip({
       <p style={{ color: '#9CA3AF', margin: 0 }}>デンプン残存：{d.A.toFixed(1)}%</p>
       <p style={{ color: '#5DCAA5', margin: 0 }}>タンパク質残存：{d.protein.toFixed(1)}%</p>
       <p style={{ color: '#C8963E', margin: 0 }}>糖（相対）：{d.B.toFixed(1)}%</p>
+      <p style={{ color: '#34D399', margin: 0 }}>アミノ酸蓄積：{d.AA.toFixed(1)}%</p>
       <p style={{ color: '#E07B7B', margin: 0 }}>着色指数：{d.maillard.toFixed(1)}</p>
       <p style={{ color: '#9B7FC8', margin: 0 }}>pH：{d.pH.toFixed(2)}</p>
     </div>
@@ -531,6 +534,7 @@ export default function BrewSimulator({
             { color: '#9CA3AF', label: 'デンプン残存', dash: '4 2' },
             { color: '#5DCAA5', label: 'タンパク質残存', dash: '4 2' },
             { color: '#C8963E', label: '糖（甘味源）' },
+            { color: '#34D399', label: 'アミノ酸（旨味源）' },
             { color: '#E07B7B', label: '着色指数', dash: '2 2' },
             { color: '#9B7FC8', label: 'pH（右軸）' },
           ].map(({ color, label, dash }) => (
@@ -621,6 +625,7 @@ export default function BrewSimulator({
             <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="protein"  stroke="#5DCAA5" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="AA"       stroke="#34D399" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
