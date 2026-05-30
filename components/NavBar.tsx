@@ -5,12 +5,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
 const NAV_LINKS = [
-  { href: '/',         label: 'ダッシュボード' },
-  { href: '/lots/new', label: 'ロット登録' },
-  { href: '/planning', label: '仕込み計画' },
-  { href: '/trace',    label: 'トレース' },
-  { href: '/import',   label: 'インポート' },
-  { href: '/settings', label: '設定' },
+  { href: '/',            label: 'ダッシュボード' },
+  { href: '/lots/new',    label: 'ロット登録' },
+  { href: '/planning',    label: '仕込み計画' },
+  { href: '/simulation',  label: '試作' },
+  { href: '/trace',       label: 'トレース' },
+  { href: '/import',      label: 'インポート' },
+  { href: '/settings',    label: '設定' },
 ]
 
 function NavLinks({ pathname }: { pathname: string }) {
