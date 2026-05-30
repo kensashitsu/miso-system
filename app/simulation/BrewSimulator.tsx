@@ -229,17 +229,28 @@ export default function BrewSimulator({
   targetMoisture:            number
   targetMoistureSampleCount: number
 }) {
-  const [kojiHo,           setKojiHo]           = useState(baseKojiHo)
-  const [saltPct,          setSaltPct]          = useState(baseSaltPct)
-  const [kojiQ,            setKojiQ]            = useState(6)
-  const [shikomiKg,        setShikomiKg]        = useState(80)
-  // 目標水分%：実績データから初期化、ユーザーが微調整可能
+  const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
+  const [saltPct,           setSaltPct]           = useState(baseSaltPct)
+  const [shikomiKg,         setShikomiKg]         = useState(80)
   const [targetMoisturePct, setTargetMoisturePct] = useState(
     Math.round(targetMoisture * 1000) / 10
   )
 
-  const result = useMemo(() => runModel(kojiHo,  saltPct, kojiQ), [kojiHo, saltPct, kojiQ])
+  // 出麹評価は固定（6=標準）
+  const result = useMemo(() => runModel(kojiHo, saltPct, 6), [kojiHo, saltPct])
   const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6), [baseKojiHo, baseSaltPct])
+
+  // 仕立量が10kg以下の場合はg/mL表示
+  const useGrams = shikomiKg <= 10
+  const shikomiStep = shikomiKg <= 5 ? 0.5 : shikomiKg <= 50 ? 5 : 10
+  const fmtQty = (value: number, unit: string): string => {
+    if (useGrams) {
+      return unit === 'L'
+        ? `${Math.round(value * 1000)} mL`
+        : `${Math.round(value * 1000)} g`
+    }
+    return `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`
+  }
 
   const tPeakRatio     = result.tPeak / T_COMPLETE
   const basePeakRatio  = base.tPeak   / T_COMPLETE
@@ -309,13 +320,8 @@ export default function BrewSimulator({
             <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
               value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
               onChange={setSaltPct} />
-            <Stepper
-              label="出麹評価"
-              sub={kojiQ <= 4 ? '低品質' : kojiQ === 5 ? 'やや低い' : kojiQ === 6 ? '標準' : kojiQ === 7 ? '良好' : '高品質'}
-              value={kojiQ} min={3} max={9} step={1} unit="" decimals={0}
-              onChange={setKojiQ} />
             <Stepper label="仕立量"
-              value={shikomiKg} min={30} max={500} step={10} unit="kg" decimals={0}
+              value={shikomiKg} min={1} max={500} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
               onChange={setShikomiKg} />
             <Stepper
               label="目標水分"
@@ -344,14 +350,16 @@ export default function BrewSimulator({
                     <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">
                       {value < 0
                         ? <span className="text-rose-500 text-xs">計算不可</span>
-                        : `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`}
+                        : fmtQty(value, unit)}
                     </td>
                     <td className="py-1.5 text-right text-xs text-gray-400 pl-2">{note}</td>
                   </tr>
                 ))}
                 <tr className="border-t border-gray-200">
                   <td className="pt-2 pb-1 font-medium text-gray-700">仕立量</td>
-                  <td className="pt-2 pb-1 text-right tabular-nums font-bold text-gray-900">{shikomiKg} kg</td>
+                  <td className="pt-2 pb-1 text-right tabular-nums font-bold text-gray-900">
+                    {useGrams ? `${Math.round(shikomiKg * 1000)} g` : `${shikomiKg} kg`}
+                  </td>
                   <td className="pt-2 pb-1 text-right text-xs text-gray-400 pl-2">目標 {brewTargetTempSum}℃・日</td>
                 </tr>
               </tbody>
