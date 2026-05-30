@@ -253,7 +253,7 @@ export default function BrewSimulator({
 
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
-  const shikomiStep = shikomiKg <= 5 ? 0.5 : shikomiKg <= 50 ? 5 : 10
+  const shikomiStep = shikomiKg <= 5 ? 0.5 : shikomiKg <= 50 ? 5 : shikomiKg <= 200 ? 10 : 50
   const fmtQty = (value: number, unit: string): string => {
     if (useGrams) {
       return unit === 'L'
@@ -332,7 +332,7 @@ export default function BrewSimulator({
               value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
               onChange={setSaltPct} />
             <Stepper label="仕立量"
-              value={shikomiKg} min={1} max={500} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
+              value={shikomiKg} min={1} max={2000} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
               onChange={setShikomiKg} />
             <Stepper
               label="目標水分"
