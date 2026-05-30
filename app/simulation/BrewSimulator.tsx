@@ -26,6 +26,8 @@ const STEP         = 5
 const Q10_ENZ = 2.0
 const Q10_MIC = 4.0
 const T_REF   = 25   // キャリブレーション基準温度（暖房℃）
+// 麹歩合1割あたりの塩分変化率（高麹歩合ほど低塩：実データ近似）
+const SALT_KOJI_RATE = 0.175
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -276,6 +278,17 @@ export default function BrewSimulator({
   )
   const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温'>('暖房')
   const [brewMonth,        setBrewMonth]        = useState(() => new Date().getMonth() + 1)
+  const [linkSalt,         setLinkSalt]         = useState(true)
+
+  const handleKojiHoChange = (v: number) => {
+    setKojiHo(v)
+    if (linkSalt) {
+      const linked = Math.round(
+        Math.min(14, Math.max(5, baseSaltPct + (baseKojiHo - v) * SALT_KOJI_RATE)) * 10
+      ) / 10
+      setSaltPct(linked)
+    }
+  }
 
   const dailyAccum = selectedLocation === '暖房'
     ? room1Temp - 10
@@ -377,10 +390,24 @@ export default function BrewSimulator({
               onChange={setShikomiKg} />
             <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
               value={kojiHo} min={10} max={50} step={0.5} unit="割" decimals={1}
-              onChange={setKojiHo} />
-            <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
-              value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
-              onChange={setSaltPct} />
+              onChange={handleKojiHoChange} />
+            <div className="flex items-center gap-2 py-1">
+              <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
+                value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
+                onChange={setSaltPct} />
+              <button
+                type="button"
+                onClick={() => setLinkSalt(v => !v)}
+                title={linkSalt ? '麹歩合との連動をオフにする' : '麹歩合と連動させる'}
+                className={`shrink-0 text-xs px-2 py-0.5 rounded border transition-colors ${
+                  linkSalt
+                    ? 'bg-violet-100 text-violet-700 border-violet-300'
+                    : 'bg-gray-50 text-gray-400 border-gray-200'
+                }`}
+              >
+                連動
+              </button>
+            </div>
             <Stepper
               label="目標水分"
               sub={targetMoistureSampleCount > 0
