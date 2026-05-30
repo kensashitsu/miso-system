@@ -41,6 +41,7 @@ type ChartPoint = {
 type ModelOutput = {
   points:      ChartPoint[]
   tPeak:       number
+  tAAPeak:     number    // AA=90%（タンパク質の90%がアミノ酸に変換）の積算温度
   bMax:        number
   aw:          number
   phFinal:     number
@@ -107,7 +108,10 @@ function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: numbe
     })
   }
 
-  return { points, tPeak, bMax, aw, phFinal, windowStart, windowEnd }
+  // AA=90%（タンパク質の90%変換）に必要な積算温度
+  const tAAPeak = Math.log(10) / kPro
+
+  return { points, tPeak, tAAPeak, bMax, aw, phFinal, windowStart, windowEnd }
 }
 
 // ── カスタムツールチップ ──────────────────────────────────────────────────────
@@ -615,6 +619,14 @@ export default function BrewSimulator({
               stroke="#F59E0B" strokeWidth={1.5}
               label={{ value: '糖ピーク', position: 'insideTopRight', fontSize: 9, fill: '#F59E0B' }}
             />
+            {/* 縦線：アミノ酸ピーク（AA=90%、グラフ範囲内のみ表示） */}
+            {result.tAAPeak <= T_MAX && (
+              <ReferenceLine
+                yAxisId="left" x={result.tAAPeak}
+                stroke="#34D399" strokeWidth={1.5}
+                label={{ value: 'アミノ酸ピーク', position: 'insideTopLeft', fontSize: 9, fill: '#34D399' }}
+              />
+            )}
             {/* 横線：pH下限 */}
             <ReferenceLine
               yAxisId="right" y={4.8}
@@ -702,6 +714,7 @@ export default function BrewSimulator({
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8</p>
+        <p>アミノ酸ピーク：タンパク質の90%がアミノ酸に変換された時点（AA=90%）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
       </div>
     </div>
