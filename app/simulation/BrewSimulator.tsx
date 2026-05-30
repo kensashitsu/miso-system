@@ -215,9 +215,10 @@ function calcIngredients(
   const soybeanKg  = shikomiKg * (1 - P - M) / (R * α * (1 - mKoji) + β * (1 - mSoy))
   const grainKg    = R * soybeanKg
   const saltKg     = P * shikomiKg
-  const kojiKg     = grainKg * α
-  const seedWaterL = M * shikomiKg - (grainKg * α * mKoji + soybeanKg * β * mSoy)
-  return { grainKg, kojiKg, soybeanKg, saltKg, seedWaterL }
+  const kojiKg       = grainKg * α
+  const mushiDaizuKg = soybeanKg * β
+  const seedWaterL   = M * shikomiKg - (grainKg * α * mKoji + soybeanKg * β * mSoy)
+  return { grainKg, kojiKg, soybeanKg, mushiDaizuKg, saltKg, seedWaterL }
 }
 
 // ── メインコンポーネント ──────────────────────────────────────────────────────
@@ -348,30 +349,58 @@ export default function BrewSimulator({
           <div className="p-5 flex flex-col gap-3">
             <h2 className="text-sm font-semibold text-gray-700">原料逆算</h2>
             <table className="w-full text-sm">
-              <tbody className="divide-y divide-gray-50">
-                {[
-                  { label: '裸麦（穀物）',  value: ingredients.grainKg,    unit: 'kg', note: `麹歩合 ${kojiHo.toFixed(1)}割` },
-                  { label: '麦麹（参考）',  value: ingredients.kojiKg,     unit: 'kg', note: `裸麦×${kojiRatio}` },
-                  { label: '大豆',          value: ingredients.soybeanKg,  unit: 'kg', note: '' },
-                  { label: '塩',            value: ingredients.saltKg,     unit: 'kg', note: `塩分 ${saltPct.toFixed(1)}%` },
-                  { label: '種水',          value: ingredients.seedWaterL, unit: 'L',  note: `水分 ${targetMoisturePct.toFixed(1)}%調整` },
-                ].map(({ label, value, unit, note }) => (
-                  <tr key={label}>
-                    <td className="py-1.5 text-gray-600">{label}</td>
-                    <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">
-                      {value < 0
-                        ? <span className="text-rose-500 text-xs">計算不可</span>
-                        : fmtQty(value, unit)}
-                    </td>
-                    <td className="py-1.5 text-right text-xs text-gray-400 pl-2">{note}</td>
-                  </tr>
-                ))}
-                <tr className="border-t border-gray-200">
-                  <td className="pt-2 pb-1 font-medium text-gray-700">仕立量</td>
-                  <td className="pt-2 pb-1 text-right tabular-nums font-bold text-gray-900">
-                    {useGrams ? `${Math.round(shikomiKg * 1000)} g` : `${shikomiKg} kg`}
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left pb-1.5 text-xs text-gray-400 font-medium">処理前</th>
+                  <th className="text-right pb-1.5 text-xs text-gray-400 font-medium"></th>
+                  <th className="pb-1.5 w-4"></th>
+                  <th className="text-left pb-1.5 text-xs text-gray-400 font-medium pl-1">処理後</th>
+                  <th className="text-right pb-1.5 text-xs text-gray-400 font-medium">重量</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* 裸麦 → 麦麹 */}
+                <tr className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-600">裸麦</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.grainKg, 'kg')}</td>
+                  <td className="py-1.5 text-center text-gray-300 text-xs">→</td>
+                  <td className="py-1.5 text-gray-500 pl-1">麦麹</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.kojiKg, 'kg')}</td>
+                </tr>
+                {/* 大豆 → 蒸煮大豆 */}
+                <tr className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-600">大豆</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.soybeanKg, 'kg')}</td>
+                  <td className="py-1.5 text-center text-gray-300 text-xs">→</td>
+                  <td className="py-1.5 text-gray-500 pl-1">蒸煮大豆</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</td>
+                </tr>
+                {/* 塩 */}
+                <tr className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-600">塩</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.saltKg, 'kg')}</td>
+                  <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">塩分 {saltPct.toFixed(1)}%</td>
+                </tr>
+                {/* 種水 */}
+                <tr className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-600">種水</td>
+                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">
+                    {ingredients.seedWaterL < 0
+                      ? <span className="text-rose-500 text-xs">計算不可</span>
+                      : fmtQty(ingredients.seedWaterL, 'L')}
                   </td>
-                  <td className="pt-2 pb-1 text-right text-xs text-gray-400 pl-2">目標 {brewTargetTempSum}℃・日</td>
+                  <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">水分 {targetMoisturePct.toFixed(1)}%調整</td>
+                </tr>
+                {/* 仕立量合計 */}
+                <tr className="border-t border-gray-200">
+                  <td colSpan={2} className="pt-2 pb-1 font-semibold text-gray-700">仕立量合計</td>
+                  <td></td>
+                  <td colSpan={2} className="pt-2 pb-1 text-right">
+                    <span className="tabular-nums font-bold text-gray-900">
+                      {useGrams ? `${Math.round(shikomiKg * 1000)} g` : `${shikomiKg} kg`}
+                    </span>
+                    <span className="text-xs text-gray-400 ml-1.5">目標 {brewTargetTempSum}℃・日</span>
+                  </td>
                 </tr>
               </tbody>
             </table>
