@@ -24,7 +24,7 @@ const STEP         = 5
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
-  x:        number   // 麦みそ比（T / 600）
+  x:        number   // 積算温度（℃・日）
   A:        number   // デンプン残存 0〜100%
   B:        number   // 糖（B_max = 100 に正規化）
   AA:       number   // アミノ酸蓄積 0〜100%
@@ -88,7 +88,7 @@ function runModel(kojiHo: number, saltPct: number, kojiQ: number): ModelOutput {
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
 
     points.push({
-      x: T / T_COMPLETE,
+      x: T,
       A: A * 100,
       B: Bnorm,
       AA: AAnorm,
@@ -109,7 +109,7 @@ function ChartTooltip({
 }) {
   if (!active || !payload?.length) return null
   const d = payload[0].payload
-  const T = Math.round(d.x * T_COMPLETE)
+  const T = Math.round(d.x)
   return (
     <div style={{
       fontSize: 12, borderRadius: 8, background: 'white',
@@ -117,7 +117,7 @@ function ChartTooltip({
       padding: '10px 14px', border: '1px solid #f0f0f0', lineHeight: 2,
     }}>
       <p style={{ fontWeight: 700, color: '#374151', marginBottom: 2 }}>
-        麦みそ比 {d.x.toFixed(2)}（{T} ℃・日）
+        {T} ℃・日
       </p>
       <p style={{ color: '#9CA3AF', margin: 0 }}>デンプン残存：{d.A.toFixed(1)}%</p>
       <p style={{ color: '#C8963E', margin: 0 }}>糖（相対）：{d.B.toFixed(1)}%</p>
@@ -281,10 +281,8 @@ export default function BrewSimulator({
     return `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`
   }
 
-  const tPeakRatio     = result.tPeak / T_COMPLETE
-  const basePeakRatio  = base.tPeak   / T_COMPLETE
-  const windowStartR   = result.windowStart != null ? result.windowStart / T_COMPLETE : null
-  const windowEndR     = result.windowEnd   != null ? result.windowEnd   / T_COMPLETE : null
+  const tPeakRatio    = result.tPeak / T_COMPLETE
+  const basePeakRatio = base.tPeak   / T_COMPLETE
 
   const windowWidth     = result.windowStart != null && result.windowEnd != null
     ? result.windowEnd - result.windowStart : null
@@ -490,7 +488,7 @@ export default function BrewSimulator({
           </div>
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          X軸：麦みそ比（1.0 = 無添加麦みそ基準 600 ℃・日）　右Y軸：pH
+          X軸：積算温度（℃・日）　右Y軸：pH
           <span className="text-violet-600">{selectedLocation}：{dailyAccum.toFixed(1)} ℃/日換算</span>
         </p>
 
@@ -522,9 +520,9 @@ export default function BrewSimulator({
             <XAxis
               dataKey="x"
               type="number"
-              domain={[0, 1.5]}
-              ticks={[0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5]}
-              tickFormatter={v => String(v.toFixed(2))}
+              domain={[0, T_MAX]}
+              ticks={[0, 150, 300, 450, 600, 750, 900]}
+              tickFormatter={v => v === 0 ? '0' : String(v)}
               tick={{ fontSize: 10, fill: '#9CA3AF' }}
               axisLine={false} tickLine={false}
             />
@@ -548,11 +546,11 @@ export default function BrewSimulator({
             <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#E5E7EB', strokeWidth: 1 }} />
 
             {/* 収穫窓ハイライト */}
-            {windowStartR != null && (
+            {result.windowStart != null && (
               <ReferenceArea
                 yAxisId="left"
-                x1={windowStartR}
-                x2={windowEndR ?? 1.5}
+                x1={result.windowStart}
+                x2={result.windowEnd ?? T_MAX}
                 fill="#D1FAE5"
                 fillOpacity={0.55}
                 stroke="#6EE7B7"
@@ -560,23 +558,23 @@ export default function BrewSimulator({
               />
             )}
 
-            {/* 縦線：基準完成 */}
+            {/* 縦線：基準完成（600℃・日） */}
             <ReferenceLine
-              yAxisId="left" x={1.0}
+              yAxisId="left" x={T_COMPLETE}
               stroke="#CBD5E1" strokeDasharray="3 3"
-              label={{ value: '基準完成', position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
+              label={{ value: '600', position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
             />
             {/* 縦線：基準の糖ピーク */}
-            {Math.abs(tPeakRatio - basePeakRatio) > 0.02 && (
+            {Math.abs(result.tPeak - base.tPeak) > 12 && (
               <ReferenceLine
-                yAxisId="left" x={basePeakRatio}
+                yAxisId="left" x={base.tPeak}
                 stroke="#FCD34D" strokeDasharray="2 3" strokeWidth={1}
                 label={{ value: '基準糖ピーク', position: 'insideTopLeft', fontSize: 9, fill: '#F59E0B' }}
               />
             )}
             {/* 縦線：現在の糖ピーク */}
             <ReferenceLine
-              yAxisId="left" x={tPeakRatio}
+              yAxisId="left" x={result.tPeak}
               stroke="#F59E0B" strokeWidth={1.5}
               label={{ value: '糖ピーク', position: 'insideTopRight', fontSize: 9, fill: '#F59E0B' }}
             />
@@ -614,7 +612,7 @@ export default function BrewSimulator({
           }
           <div>
             <span className="font-medium">収穫窓：</span>
-            麦みそ比 {windowStartR?.toFixed(2)}〜{windowEndR?.toFixed(2) ?? '（範囲内で終了せず）'}
+            {result.windowStart}〜{result.windowEnd ?? '（範囲内で終了せず）'} ℃・日
             {result.windowStart != null && dailyAccum > 0 && (
               <span className="ml-1 text-xs">
                 （約 {Math.round(result.windowStart / dailyAccum)}〜{result.windowEnd != null ? Math.round(result.windowEnd / dailyAccum) : '—'} 日・{selectedLocation}）
@@ -627,9 +625,9 @@ export default function BrewSimulator({
       {/* ── サマリーカード ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard
-          label="糖ピーク（麦みそ比）"
-          value={`${tPeakRatio.toFixed(2)}倍`}
-          sub={`${Math.round(result.tPeak)} ℃・日 / ${selectedLocation}約${tPeakDays ?? '—'}日`}
+          label="糖ピーク"
+          value={`${Math.round(result.tPeak)} ℃・日`}
+          sub={`${selectedLocation}約${tPeakDays ?? '—'}日`}
           diffText={
             Math.abs(tPeakRatio - basePeakRatio) > 0.01
               ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
