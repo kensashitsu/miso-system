@@ -369,7 +369,8 @@ export default function BrewSimulator({
                   <th className="text-left pb-1.5 text-xs text-gray-400 font-medium">処理前</th>
                   <th className="text-right pb-1.5 text-xs text-gray-400 font-medium">重量</th>
                   <th className="pb-1.5 w-4"></th>
-                  <th colSpan={2} className="text-right pb-1.5 text-xs text-gray-400 font-medium">処理後</th>
+                  <th className="text-left pb-1.5 text-xs text-gray-400 font-medium pl-1">処理後</th>
+                  <th className="text-right pb-1.5 text-xs text-gray-400 font-medium">重量</th>
                 </tr>
               </thead>
               <tbody>
@@ -381,8 +382,8 @@ export default function BrewSimulator({
                     <div className="tabular-nums text-xs text-sky-600">{moisturePct.grain.toFixed(1)}%</div>
                   </td>
                   <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
-                  <td colSpan={2} className="py-1.5 text-right">
-                    <div className="text-gray-500 text-sm">麦麹</div>
+                  <td className="py-1.5 text-gray-500 pl-1">麦麹</td>
+                  <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.kojiKg, 'kg')}</div>
                     <div className="tabular-nums text-xs text-sky-600">{moisturePct.koji.toFixed(1)}%</div>
                   </td>
@@ -395,8 +396,8 @@ export default function BrewSimulator({
                     <div className="tabular-nums text-xs text-sky-600">{moisturePct.soybean.toFixed(1)}%</div>
                   </td>
                   <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
-                  <td colSpan={2} className="py-1.5 text-right">
-                    <div className="text-gray-500 text-sm">蒸煮大豆</div>
+                  <td className="py-1.5 text-gray-500 pl-1">蒸煮大豆</td>
+                  <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</div>
                     <div className="tabular-nums text-xs text-sky-600">{moisturePct.mushi.toFixed(1)}%</div>
                   </td>
