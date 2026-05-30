@@ -327,10 +327,7 @@ export default function BrewSimulator({
   const isWindowMissing = result.windowStart === null
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[2fr_3fr] gap-6 items-start">
-
-      {/* ══ 左カラム：配合設定・原料逆算・サマリー ══ */}
-      <div className="space-y-4">
+    <div className="space-y-5">
 
       {/* ── 配合設定 × 原料逆算 2カラム統合カード ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
@@ -523,11 +520,6 @@ export default function BrewSimulator({
         </div>
       )}
 
-      </div>{/* /左カラム */}
-
-      {/* ══ 右カラム：グラフ（sticky） ══ */}
-      <div className="sticky top-20 space-y-4">
-
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
         <h2 className="text-sm font-semibold text-gray-700 mb-0.5">発酵進行度</h2>
@@ -643,8 +635,6 @@ export default function BrewSimulator({
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸 ≥ 30% かつ pH ≥ 4.8</p>
-      </div>
-
       </div>
     </div>
   )
