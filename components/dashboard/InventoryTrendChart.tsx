@@ -71,7 +71,7 @@ function CustomTooltip({ active, payload }: {
 }
 
 export default function InventoryTrendChart({ snapshots }: { snapshots: SnapshotRow[] }) {
-  const [isOpen,       setIsOpen]       = useState(true)
+  const [isOpen,       setIsOpen]       = useState(false)
   const [selectedType, setSelectedType] = useState<string>(MISO_TYPES[0])
 
   const today  = new Date()
