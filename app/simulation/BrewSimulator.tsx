@@ -331,7 +331,7 @@ export default function BrewSimulator({
     <>
     <div
       className="space-y-5"
-      style={{ paddingBottom: isDrawerOpen ? 'calc(55vh + 64px)' : '56px' }}
+      style={{ paddingBottom: isDrawerOpen ? '280px' : '56px' }}
     >
 
       {/* ── 配合設定 × 原料逆算 2カラム統合カード ── */}
@@ -607,7 +607,7 @@ export default function BrewSimulator({
 
           {/* 展開コンテンツ */}
           {isDrawerOpen && (
-            <div className="max-h-[55vh] overflow-y-auto p-4 space-y-4 border-b border-gray-100">
+            <div className="max-h-[240px] overflow-y-auto p-4 space-y-4 border-b border-gray-100">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <MetricCard
                   label="糖ピーク（麦みそ比）"
