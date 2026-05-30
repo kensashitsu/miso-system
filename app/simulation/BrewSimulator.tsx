@@ -50,10 +50,10 @@ function fAwMaillard(aw: number): number {
 
 function runModel(kojiHo: number, saltPct: number, kojiQ: number): ModelOutput {
   const aw      = 0.99 - 0.015 * saltPct
-  const kAmy    = K_AMY_BASE * (kojiQ / 6.0)
+  const kAmy    = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / KOJI_HO_BASE)
   const kMic    = Math.max(0.0001, K_MIC_BASE * (aw - AW_MIN_MIC) / (AW_BASE - AW_MIN_MIC))
   const r       = kMic / kAmy
-  const kPro    = 0.5 * kAmy * (kojiHo / KOJI_HO_BASE)
+  const kPro    = 0.5 * kAmy
   const phFinal = 4.5 + 0.05 * saltPct
   const fMaillard = fAwMaillard(aw)
 
@@ -291,7 +291,7 @@ export default function BrewSimulator({
   const windowRatio = windowWidth != null && baseWindowWidth != null
     ? windowWidth / baseWindowWidth : null
 
-  const sweetnessPotential = kojiHo / baseKojiHo
+  const sweetnessPotential = base.bMax > 0 ? result.bMax / base.bMax : 1
   const phDiff = result.phFinal - base.phFinal
 
   // 原料逆算（目標水分%をユーザー調整値で使用）
@@ -645,7 +645,7 @@ export default function BrewSimulator({
         <MetricCard
           label="甘味ポテンシャル"
           value={`${sweetnessPotential.toFixed(2)}倍`}
-          sub="基準（無添加麦みそ）比"
+          sub="モデル上の最大糖産生量・基準比"
           diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
           diffGood={sweetnessPotential >= 1 ? true : false}
         />
