@@ -327,7 +327,6 @@ export default function BrewSimulator({
   const windowRatio = windowWidth != null && baseWindowWidth != null
     ? windowWidth / baseWindowWidth : null
 
-  const sweetnessPotential = base.bMax > 0 ? result.bMax / base.bMax : 1
   const phDiff = result.phFinal - base.phFinal
 
   // 原料逆算（目標水分%をユーザー調整値で使用）
@@ -337,6 +336,20 @@ export default function BrewSimulator({
     mugiKojiMoisture, steamedSoyMoisture,
     targetMoisturePct / 100,
   ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
+
+  // 基準配合の原料量（デンプン絶対量の比較用）
+  const baseIngredients = useMemo(() => calcIngredients(
+    shikomiKg, baseKojiHo, baseSaltPct,
+    kojiRatio, soybeanRatio,
+    mugiKojiMoisture, steamedSoyMoisture,
+    targetMoisturePct / 100,
+  ), [shikomiKg, baseKojiHo, baseSaltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
+
+  // 甘味ポテンシャル = bMax比 × 穀物量比
+  // bMaxは「デンプンの何割が糖になるか」の比率、grainKgは「デンプンの絶対量」を代理
+  const sweetnessPotential = (base.bMax > 0 && baseIngredients.grainKg > 0)
+    ? (result.bMax * ingredients.grainKg) / (base.bMax * baseIngredients.grainKg)
+    : 1
 
   // 各原料の含水率（%表示用）
   const moisturePct = {
@@ -720,7 +733,7 @@ export default function BrewSimulator({
         <MetricCard
           label="甘味ポテンシャル"
           value={`${sweetnessPotential.toFixed(2)}倍`}
-          sub="モデル上の最大糖産生量・基準比"
+          sub="最大糖産生量 × 穀物量（デンプン絶対量）基準比"
           diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
           diffGood={sweetnessPotential >= 1 ? true : false}
         />
