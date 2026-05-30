@@ -128,6 +128,38 @@ function ChartTooltip({
   )
 }
 
+// ── ステッパー入力 ────────────────────────────────────────────────────────────
+function Stepper({
+  label, sub, value, min, max, step, unit, decimals = 1, onChange,
+}: {
+  label: string; sub?: string; value: number; min: number; max: number
+  step: number; unit: string; decimals?: number
+  onChange: (v: number) => void
+}) {
+  const round = (v: number) => Math.round(v * 10 ** decimals) / 10 ** decimals
+  const btnCls = 'w-7 h-7 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-500 text-base flex items-center justify-center transition-colors select-none'
+  return (
+    <div className="flex items-center gap-2 py-2.5 border-b border-gray-50 last:border-b-0">
+      <div className="flex-1 min-w-0">
+        <span className="text-sm text-gray-700">{label}</span>
+        {sub && <span className="text-xs text-gray-400 ml-1.5">{sub}</span>}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button type="button" onClick={() => onChange(Math.max(min, round(value - step)))} className={btnCls}>−</button>
+        <input
+          type="number"
+          value={decimals > 0 ? value.toFixed(decimals) : String(value)}
+          min={min} max={max} step={step}
+          onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) onChange(Math.min(max, Math.max(min, round(v)))) }}
+          className="w-16 text-center tabular-nums font-semibold text-sm border border-gray-200 rounded px-1 py-1 text-gray-900 bg-white"
+        />
+        <button type="button" onClick={() => onChange(Math.min(max, round(value + step)))} className={btnCls}>+</button>
+        <span className="text-xs text-gray-400 w-6 shrink-0">{unit}</span>
+      </div>
+    </div>
+  )
+}
+
 // ── メトリクスカード ──────────────────────────────────────────────────────────
 function MetricCard({
   label, value, sub, diffText, diffGood,
@@ -256,71 +288,76 @@ export default function BrewSimulator({
   return (
     <div className="space-y-5">
 
-      {/* ── 入力コントロール ── */}
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 space-y-5">
-        <h2 className="text-sm font-semibold text-gray-700">配合設定（裸麦使用・水飴なし）</h2>
+      {/* ── 配合設定 × 原料逆算 2カラム統合カード ── */}
+      <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+        <div className="grid grid-cols-1 sm:grid-cols-2">
 
-        {/* 麹歩合 */}
-        <div>
-          <div className="flex justify-between items-baseline mb-1.5">
-            <label className="text-sm text-gray-600">麹歩合</label>
-            <span className="text-sm font-semibold text-gray-900 tabular-nums">
-              {kojiHo.toFixed(1)}割
-              <span className="text-xs text-muted-foreground font-normal ml-2">
-                基準 {baseKojiHo.toFixed(1)}割
-              </span>
-            </span>
+          {/* 左：配合設定 */}
+          <div className="p-5 sm:border-r border-b sm:border-b-0 border-gray-100">
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">配合設定
+              <span className="text-xs font-normal text-gray-400 ml-2">裸麦使用・水飴なし</span>
+            </h2>
+            <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
+              value={kojiHo} min={15} max={45} step={0.5} unit="割" decimals={1}
+              onChange={setKojiHo} />
+            <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
+              value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
+              onChange={setSaltPct} />
+            <Stepper
+              label="出麹評価"
+              sub={kojiQ <= 4 ? '低品質' : kojiQ === 5 ? 'やや低い' : kojiQ === 6 ? '標準' : kojiQ === 7 ? '良好' : '高品質'}
+              value={kojiQ} min={3} max={9} step={1} unit="" decimals={0}
+              onChange={setKojiQ} />
+            <Stepper label="仕立量"
+              value={shikomiKg} min={30} max={500} step={10} unit="kg" decimals={0}
+              onChange={setShikomiKg} />
+            <p className="text-xs text-gray-400 mt-2">水分活性 aw = {result.aw.toFixed(3)}</p>
           </div>
-          <input
-            type="range" min={15} max={45} step={0.5}
-            value={kojiHo}
-            onChange={e => setKojiHo(parseFloat(e.target.value))}
-            className="w-full accent-amber-500 h-1.5"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>15割（旨味重視）</span>
-            <span>45割（甘味重視）</span>
-          </div>
-        </div>
 
-        {/* 塩分% */}
-        <div>
-          <div className="flex justify-between items-baseline mb-1.5">
-            <label className="text-sm text-gray-600">塩分</label>
-            <span className="text-sm font-semibold text-gray-900 tabular-nums">
-              {saltPct.toFixed(1)}%
-              <span className="text-xs text-muted-foreground font-normal ml-2">
-                基準 {baseSaltPct.toFixed(1)}%
-              </span>
-            </span>
-          </div>
-          <input
-            type="range" min={5} max={14} step={0.1}
-            value={saltPct}
-            onChange={e => setSaltPct(parseFloat(e.target.value))}
-            className="w-full accent-sky-500 h-1.5"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>5%（甘・酸味強）</span>
-            <span>14%（辛口・保存性高）</span>
-          </div>
-        </div>
+          {/* 右：原料逆算 */}
+          <div className="p-5 flex flex-col gap-3">
+            <h2 className="text-sm font-semibold text-gray-700">原料逆算</h2>
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-gray-50">
+                {[
+                  { label: '裸麦（穀物）',  value: ingredients.grainKg,    unit: 'kg', note: `麹歩合 ${kojiHo.toFixed(1)}割` },
+                  { label: '麦麹（参考）',  value: ingredients.kojiKg,     unit: 'kg', note: `裸麦×${kojiRatio}` },
+                  { label: '大豆',          value: ingredients.soybeanKg,  unit: 'kg', note: '' },
+                  { label: '塩',            value: ingredients.saltKg,     unit: 'kg', note: `塩分 ${saltPct.toFixed(1)}%` },
+                  { label: '種水',          value: ingredients.seedWaterL, unit: 'L',  note: `水分 ${(targetMoisture * 100).toFixed(1)}%調整` },
+                ].map(({ label, value, unit, note }) => (
+                  <tr key={label}>
+                    <td className="py-1.5 text-gray-600">{label}</td>
+                    <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">
+                      {value < 0
+                        ? <span className="text-rose-500 text-xs">計算不可</span>
+                        : `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`}
+                    </td>
+                    <td className="py-1.5 text-right text-xs text-gray-400 pl-2">{note}</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-gray-200">
+                  <td className="pt-2 pb-1 font-medium text-gray-700">仕立量</td>
+                  <td className="pt-2 pb-1 text-right tabular-nums font-bold text-gray-900">{shikomiKg} kg</td>
+                  <td className="pt-2 pb-1 text-right text-xs text-gray-400 pl-2">目標 {brewTargetTempSum}℃・日</td>
+                </tr>
+              </tbody>
+            </table>
 
-        {/* 出麹評価 */}
-        <div className="flex items-center gap-3">
-          <label className="text-sm text-gray-600 shrink-0">出麹評価（麹品質）</label>
-          <select
-            value={kojiQ}
-            onChange={e => setKojiQ(parseInt(e.target.value))}
-            className="text-sm border border-gray-200 rounded-md px-2 py-1 text-gray-700 bg-white"
-          >
-            {[3, 4, 5, 6, 7, 8, 9].map(v => (
-              <option key={v} value={v}>
-                {v}（{v <= 4 ? '低品質' : v === 5 ? 'やや低い' : v === 6 ? '標準' : v === 7 ? '良好' : '高品質'}）
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-muted-foreground">水分活性 aw = {result.aw.toFixed(3)}</span>
+            {ingredients.seedWaterL < 0 ? (
+              <p className="text-xs text-rose-600 flex items-center gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                原料水分が目標を超えています。塩分を増やすか麹歩合を下げてください。
+              </p>
+            ) : (
+              <a href={brewUrl}
+                className="flex items-center justify-center gap-2 w-full rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 transition-colors mt-auto"
+              >
+                この配合でロット登録へ →
+              </a>
+            )}
+          </div>
+
         </div>
       </div>
 
@@ -387,86 +424,6 @@ export default function BrewSimulator({
           </div>
         </div>
       )}
-
-      {/* ── 原料逆算セクション ── */}
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-gray-700">原料逆算</h2>
-
-        {/* 仕立量スライダー */}
-        <div>
-          <div className="flex justify-between items-baseline mb-1.5">
-            <label className="text-sm text-gray-600">目標仕立量</label>
-            <span className="text-sm font-semibold text-gray-900 tabular-nums">{shikomiKg} kg</span>
-          </div>
-          <input
-            type="range" min={30} max={500} step={10}
-            value={shikomiKg}
-            onChange={e => setShikomiKg(parseInt(e.target.value))}
-            className="w-full accent-violet-500 h-1.5"
-          />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
-            <span>30 kg</span><span>500 kg</span>
-          </div>
-        </div>
-
-        {/* 原料一覧 */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left py-1.5 text-xs text-gray-400 font-medium">原料</th>
-                <th className="text-right py-1.5 text-xs text-gray-400 font-medium">計算値</th>
-                <th className="text-right py-1.5 text-xs text-gray-400 font-medium">備考</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {[
-                { label: '裸麦（穀物）',  value: ingredients.grainKg,    unit: 'kg',  note: `麹歩合 ${kojiHo.toFixed(1)}割` },
-                { label: '麦麹（参考）',  value: ingredients.kojiKg,     unit: 'kg',  note: `裸麦×${kojiRatio}` },
-                { label: '大豆',          value: ingredients.soybeanKg,  unit: 'kg',  note: '' },
-                { label: '塩',            value: ingredients.saltKg,     unit: 'kg',  note: `塩分 ${saltPct.toFixed(1)}%` },
-                { label: '種水',          value: ingredients.seedWaterL, unit: 'L',   note: `水分 ${(targetMoisture * 100).toFixed(1)}%に調整` },
-              ].map(({ label, value, unit, note }) => (
-                <tr key={label} className="hover:bg-gray-50/40">
-                  <td className="py-2 text-gray-700 font-medium">{label}</td>
-                  <td className="py-2 text-right tabular-nums font-semibold text-gray-900">
-                    {value < 0
-                      ? <span className="text-rose-500">計算不可</span>
-                      : `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`
-                    }
-                  </td>
-                  <td className="py-2 text-right text-xs text-muted-foreground">{note}</td>
-                </tr>
-              ))}
-              <tr className="border-t border-gray-200 bg-gray-50/60">
-                <td className="py-2 font-semibold text-gray-700">仕立量合計</td>
-                <td className="py-2 text-right tabular-nums font-bold text-gray-900">{shikomiKg} kg</td>
-                <td className="py-2 text-right text-xs text-muted-foreground">
-                  目標積算温度 {brewTargetTempSum} ℃・日
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* 種水が負の場合の警告 */}
-        {ingredients.seedWaterL < 0 && (
-          <p className="text-xs text-rose-600 flex items-center gap-1">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            原料の水分だけで目標水分を超えています。塩分を増やすか麹歩合を下げてください。
-          </p>
-        )}
-
-        {/* 仕込むボタン */}
-        {ingredients.seedWaterL >= 0 && (
-          <a
-            href={brewUrl}
-            className="flex items-center justify-center gap-2 w-full rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 transition-colors"
-          >
-            この配合でロット登録へ →
-          </a>
-        )}
-      </div>
 
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
