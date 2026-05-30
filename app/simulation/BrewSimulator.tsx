@@ -5,7 +5,7 @@ import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle, Info, ChevronUp, ChevronDown } from 'lucide-react'
 
 // ── モデル定数（無添加麦みそキャリブレーション） ─────────────────────────────
 // 拘束条件:
@@ -245,6 +245,7 @@ export default function BrewSimulator({
   targetMoisture:            number
   targetMoistureSampleCount: number
 }) {
+  const [isDrawerOpen,      setIsDrawerOpen]      = useState(false)
   const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
   const [saltPct,           setSaltPct]           = useState(baseSaltPct)
   const [shikomiKg,         setShikomiKg]         = useState(80)
@@ -327,7 +328,8 @@ export default function BrewSimulator({
   const isWindowMissing = result.windowStart === null
 
   return (
-    <div className="space-y-5">
+    <>
+    <div className="space-y-5 pb-16">
 
       {/* ── 配合設定 × 原料逆算 2カラム統合カード ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
@@ -593,49 +595,83 @@ export default function BrewSimulator({
         </div>
       )}
 
-      {/* ── サマリーカード ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MetricCard
-          label="糖ピーク（麦みそ比）"
-          value={`${tPeakRatio.toFixed(2)}倍`}
-          sub={`${Math.round(result.tPeak)} ℃・日 / 暖房約${tPeakDays}日`}
-          diffText={
-            Math.abs(tPeakRatio - basePeakRatio) > 0.01
-              ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
-              : '基準と同等'
-          }
-          diffGood={null}
-        />
-        <MetricCard
-          label="最終pH（到達下限）"
-          value={result.phFinal.toFixed(2)}
-          sub={result.phFinal < 4.8 ? '酸味が強くなる' : result.phFinal < 5.0 ? 'やや酸味あり' : '穏やかな酸味'}
-          diffText={`基準比 ${phDiff >= 0 ? '+' : ''}${phDiff.toFixed(2)}`}
-          diffGood={phDiff >= 0 ? true : false}
-        />
-        <MetricCard
-          label="甘味ポテンシャル"
-          value={`${sweetnessPotential.toFixed(2)}倍`}
-          sub="基準（無添加麦みそ）比"
-          diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
-          diffGood={sweetnessPotential >= 1 ? true : false}
-        />
-        <MetricCard
-          label="収穫窓の広さ"
-          value={windowWidth != null ? `${windowWidth} ℃・日` : '—'}
-          sub={windowRatio != null ? `基準比 ${(windowRatio * 100).toFixed(0)}%` : '窓が開かない'}
-          diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
-          diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
-        />
-      </div>
+    </div>
 
-      {/* ── モデル注記 ── */}
-      <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-4 space-y-1 border border-gray-100">
-        <p className="font-medium text-gray-600">モデルの前提と限界</p>
-        <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
-        <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
-        <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸 ≥ 30% かつ pH ≥ 4.8</p>
+    {/* ── 底部固定ドロワー（サマリー・モデル注記） ── */}
+    <div className="fixed bottom-0 left-0 right-0 z-40">
+      <div className="max-w-5xl mx-auto px-4">
+        <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden">
+
+          {/* 展開コンテンツ */}
+          {isDrawerOpen && (
+            <div className="max-h-[55vh] overflow-y-auto p-4 space-y-4 border-b border-gray-100">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <MetricCard
+                  label="糖ピーク（麦みそ比）"
+                  value={`${tPeakRatio.toFixed(2)}倍`}
+                  sub={`${Math.round(result.tPeak)} ℃・日 / 暖房約${tPeakDays}日`}
+                  diffText={
+                    Math.abs(tPeakRatio - basePeakRatio) > 0.01
+                      ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
+                      : '基準と同等'
+                  }
+                  diffGood={null}
+                />
+                <MetricCard
+                  label="最終pH（到達下限）"
+                  value={result.phFinal.toFixed(2)}
+                  sub={result.phFinal < 4.8 ? '酸味が強くなる' : result.phFinal < 5.0 ? 'やや酸味あり' : '穏やかな酸味'}
+                  diffText={`基準比 ${phDiff >= 0 ? '+' : ''}${phDiff.toFixed(2)}`}
+                  diffGood={phDiff >= 0 ? true : false}
+                />
+                <MetricCard
+                  label="甘味ポテンシャル"
+                  value={`${sweetnessPotential.toFixed(2)}倍`}
+                  sub="基準（無添加麦みそ）比"
+                  diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
+                  diffGood={sweetnessPotential >= 1 ? true : false}
+                />
+                <MetricCard
+                  label="収穫窓の広さ"
+                  value={windowWidth != null ? `${windowWidth} ℃・日` : '—'}
+                  sub={windowRatio != null ? `基準比 ${(windowRatio * 100).toFixed(0)}%` : '窓が開かない'}
+                  diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
+                  diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
+                />
+              </div>
+              <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-3 space-y-1 border border-gray-100">
+                <p className="font-medium text-gray-600">モデルの前提と限界</p>
+                <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
+                <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
+                <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸 ≥ 30% かつ pH ≥ 4.8</p>
+              </div>
+            </div>
+          )}
+
+          {/* トグルバー */}
+          <button
+            type="button"
+            onClick={() => setIsDrawerOpen(p => !p)}
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-4 text-sm overflow-hidden">
+              <span className="font-medium text-gray-700 shrink-0">詳細分析</span>
+              <span className="text-gray-400 tabular-nums shrink-0">糖ピーク {tPeakRatio.toFixed(2)}倍</span>
+              <span className="text-gray-400 tabular-nums shrink-0">
+                収穫窓 {windowWidth != null ? `${windowWidth} ℃・日` : '—'}
+              </span>
+              <span className="text-gray-400 tabular-nums shrink-0">pH {result.phFinal.toFixed(2)}</span>
+            </div>
+            <span className="flex items-center gap-1 text-xs text-gray-400 shrink-0 ml-2">
+              {isDrawerOpen
+                ? <><ChevronDown className="h-4 w-4" />閉じる</>
+                : <><ChevronUp   className="h-4 w-4" />開く</>}
+            </span>
+          </button>
+
+        </div>
       </div>
     </div>
+    </>
   )
 }
