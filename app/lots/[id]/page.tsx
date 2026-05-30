@@ -106,6 +106,7 @@ export default async function LotDetailPage({ params }: Props) {
     id:                     lot.id,
     lotNumber:              lot.lotNumber,
     misoType:               lot.misoType,
+    isPrototype:            lot.isPrototype,
     yieldRate:              moisture.yieldRate,
     status:                 lot.status,
     brewedAtISO:            lot.brewedAt.toISOString(),

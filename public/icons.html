@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>みそアイコン試作</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #F5F0E8;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      gap: 48px;
+      min-height: 100vh;
+      margin: 0;
+    }
+    h1 {
+      font-size: 1.2rem;
+      color: #5C3A00;
+      letter-spacing: 0.05em;
+      margin: 0;
+    }
+    .section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+    }
+    .label {
+      font-size: 0.85rem;
+      color: #8C5A00;
+      text-align: center;
+      line-height: 1.5;
+    }
+    .label strong {
+      display: block;
+      font-size: 1rem;
+      color: #4A2800;
+      margin-bottom: 4px;
+    }
+    .sizes {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .on-dark {
+      background: #2A1800;
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+    .size-label {
+      font-size: 0.7rem;
+      color: #B07040;
+      text-align: center;
+      margin-top: 4px;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 32px 48px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 24px;
+    }
+    hr {
+      width: 100%;
+      border: none;
+      border-top: 1px solid #E0D0B0;
+    }
+  </style>
+</head>
+<body>
+
+<h1>みそアイコン試作 — 麹菌 / 酵母菌</h1>
+
+<!-- 麹菌 -->
+<div class="card">
+  <div class="label">
+    <strong>麹菌（Aspergillus oryzae）</strong>
+    胞子頭から5方向に胞子鎖が放射し、菌柄・足細胞を持つ構造
+  </div>
+
+  <div class="sizes">
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64">
+        <defs>
+          <radialGradient id="k_v" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFCA6A"/>
+            <stop offset="100%" stop-color="#D56000"/>
+          </radialGradient>
+          <radialGradient id="k_s1" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FFB44D"/>
+            <stop offset="100%" stop-color="#C05000"/>
+          </radialGradient>
+          <radialGradient id="k_s2" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FF9C2E"/>
+            <stop offset="100%" stop-color="#A84000"/>
+          </radialGradient>
+          <radialGradient id="k_s3" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FF841A"/>
+            <stop offset="100%" stop-color="#903200"/>
+          </radialGradient>
+        </defs>
+        <line x1="50" y1="61" x2="50" y2="85" stroke="#8C3000" stroke-width="4" stroke-linecap="round"/>
+        <ellipse cx="50" cy="87" rx="9" ry="4" fill="#8C3000"/>
+        <circle cx="50" cy="33" r="5"   fill="url(#k_s1)"/>
+        <circle cx="50" cy="24" r="3.5" fill="url(#k_s2)"/>
+        <circle cx="50" cy="17" r="2.5" fill="url(#k_s3)"/>
+        <circle cx="65" cy="42" r="5"   fill="url(#k_s1)"/>
+        <circle cx="73" cy="37" r="3.5" fill="url(#k_s2)"/>
+        <circle cx="79" cy="34" r="2.5" fill="url(#k_s3)"/>
+        <circle cx="65" cy="58" r="5"   fill="url(#k_s1)"/>
+        <circle cx="73" cy="63" r="3.5" fill="url(#k_s2)"/>
+        <circle cx="79" cy="67" r="2.5" fill="url(#k_s3)"/>
+        <circle cx="35" cy="58" r="5"   fill="url(#k_s1)"/>
+        <circle cx="27" cy="63" r="3.5" fill="url(#k_s2)"/>
+        <circle cx="21" cy="67" r="2.5" fill="url(#k_s3)"/>
+        <circle cx="35" cy="42" r="5"   fill="url(#k_s1)"/>
+        <circle cx="27" cy="37" r="3.5" fill="url(#k_s2)"/>
+        <circle cx="21" cy="34" r="2.5" fill="url(#k_s3)"/>
+        <circle cx="50" cy="50" r="11" fill="url(#k_v)"/>
+        <circle cx="46" cy="46" r="3.5" fill="white" opacity="0.25"/>
+      </svg>
+      <div class="size-label">64px</div>
+    </div>
+
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="128" height="128">
+        <defs>
+          <radialGradient id="k_v2" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFCA6A"/>
+            <stop offset="100%" stop-color="#D56000"/>
+          </radialGradient>
+          <radialGradient id="k_s1b" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FFB44D"/>
+            <stop offset="100%" stop-color="#C05000"/>
+          </radialGradient>
+          <radialGradient id="k_s2b" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FF9C2E"/>
+            <stop offset="100%" stop-color="#A84000"/>
+          </radialGradient>
+          <radialGradient id="k_s3b" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FF841A"/>
+            <stop offset="100%" stop-color="#903200"/>
+          </radialGradient>
+        </defs>
+        <line x1="50" y1="61" x2="50" y2="85" stroke="#8C3000" stroke-width="4" stroke-linecap="round"/>
+        <ellipse cx="50" cy="87" rx="9" ry="4" fill="#8C3000"/>
+        <circle cx="50" cy="33" r="5"   fill="url(#k_s1b)"/>
+        <circle cx="50" cy="24" r="3.5" fill="url(#k_s2b)"/>
+        <circle cx="50" cy="17" r="2.5" fill="url(#k_s3b)"/>
+        <circle cx="65" cy="42" r="5"   fill="url(#k_s1b)"/>
+        <circle cx="73" cy="37" r="3.5" fill="url(#k_s2b)"/>
+        <circle cx="79" cy="34" r="2.5" fill="url(#k_s3b)"/>
+        <circle cx="65" cy="58" r="5"   fill="url(#k_s1b)"/>
+        <circle cx="73" cy="63" r="3.5" fill="url(#k_s2b)"/>
+        <circle cx="79" cy="67" r="2.5" fill="url(#k_s3b)"/>
+        <circle cx="35" cy="58" r="5"   fill="url(#k_s1b)"/>
+        <circle cx="27" cy="63" r="3.5" fill="url(#k_s2b)"/>
+        <circle cx="21" cy="67" r="2.5" fill="url(#k_s3b)"/>
+        <circle cx="35" cy="42" r="5"   fill="url(#k_s1b)"/>
+        <circle cx="27" cy="37" r="3.5" fill="url(#k_s2b)"/>
+        <circle cx="21" cy="34" r="2.5" fill="url(#k_s3b)"/>
+        <circle cx="50" cy="50" r="11" fill="url(#k_v2)"/>
+        <circle cx="46" cy="46" r="3.5" fill="white" opacity="0.25"/>
+      </svg>
+      <div class="size-label">128px</div>
+    </div>
+
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="256" height="256">
+        <defs>
+          <radialGradient id="k_v3" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFCA6A"/>
+            <stop offset="100%" stop-color="#D56000"/>
+          </radialGradient>
+          <radialGradient id="k_s1c" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FFB44D"/>
+            <stop offset="100%" stop-color="#C05000"/>
+          </radialGradient>
+          <radialGradient id="k_s2c" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FF9C2E"/>
+            <stop offset="100%" stop-color="#A84000"/>
+          </radialGradient>
+          <radialGradient id="k_s3c" cx="30%" cy="25%" r="70%">
+            <stop offset="0%" stop-color="#FF841A"/>
+            <stop offset="100%" stop-color="#903200"/>
+          </radialGradient>
+        </defs>
+        <line x1="50" y1="61" x2="50" y2="85" stroke="#8C3000" stroke-width="4" stroke-linecap="round"/>
+        <ellipse cx="50" cy="87" rx="9" ry="4" fill="#8C3000"/>
+        <circle cx="50" cy="33" r="5"   fill="url(#k_s1c)"/>
+        <circle cx="50" cy="24" r="3.5" fill="url(#k_s2c)"/>
+        <circle cx="50" cy="17" r="2.5" fill="url(#k_s3c)"/>
+        <circle cx="65" cy="42" r="5"   fill="url(#k_s1c)"/>
+        <circle cx="73" cy="37" r="3.5" fill="url(#k_s2c)"/>
+        <circle cx="79" cy="34" r="2.5" fill="url(#k_s3c)"/>
+        <circle cx="65" cy="58" r="5"   fill="url(#k_s1c)"/>
+        <circle cx="73" cy="63" r="3.5" fill="url(#k_s2c)"/>
+        <circle cx="79" cy="67" r="2.5" fill="url(#k_s3c)"/>
+        <circle cx="35" cy="58" r="5"   fill="url(#k_s1c)"/>
+        <circle cx="27" cy="63" r="3.5" fill="url(#k_s2c)"/>
+        <circle cx="21" cy="67" r="2.5" fill="url(#k_s3c)"/>
+        <circle cx="35" cy="42" r="5"   fill="url(#k_s1c)"/>
+        <circle cx="27" cy="37" r="3.5" fill="url(#k_s2c)"/>
+        <circle cx="21" cy="34" r="2.5" fill="url(#k_s3c)"/>
+        <circle cx="50" cy="50" r="11" fill="url(#k_v3)"/>
+        <circle cx="46" cy="46" r="3.5" fill="white" opacity="0.25"/>
+      </svg>
+      <div class="size-label">256px</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <!-- ダーク背景 -->
+  <div class="label">ダーク背景での確認</div>
+  <div class="on-dark">
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64">
+        <use href="#koji"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<!-- 酵母菌 -->
+<div class="card">
+  <div class="label">
+    <strong>酵母菌（Saccharomyces cerevisiae）</strong>
+    出芽中の2細胞構造。核・液胞・ファセットラインで立体感を表現
+  </div>
+
+  <div class="sizes">
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64">
+        <defs>
+          <radialGradient id="y_main" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFD080"/>
+            <stop offset="100%" stop-color="#C86000"/>
+          </radialGradient>
+          <radialGradient id="y_bud" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFBA50"/>
+            <stop offset="100%" stop-color="#B85500"/>
+          </radialGradient>
+          <radialGradient id="y_nuc" cx="40%" cy="35%" r="65%">
+            <stop offset="0%" stop-color="#FF9020"/>
+            <stop offset="100%" stop-color="#8C2800"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="66" cy="36" rx="14" ry="12" fill="url(#y_bud)" stroke="#A04800" stroke-width="1.5"/>
+        <line x1="54" y1="36" x2="78" y2="36" stroke="#B05500" stroke-width="0.6" opacity="0.3"/>
+        <line x1="58" y1="26" x2="74" y2="46" stroke="#B05500" stroke-width="0.6" opacity="0.3"/>
+        <ellipse cx="66" cy="37" rx="5" ry="4" fill="url(#y_nuc)" opacity="0.5"/>
+        <circle cx="60" cy="30" r="3" fill="white" opacity="0.22"/>
+        <ellipse cx="53" cy="48" rx="6" ry="4" transform="rotate(-48 53 48)" fill="#C96800" opacity="0.55"/>
+        <ellipse cx="40" cy="63" rx="22" ry="18" fill="url(#y_main)" stroke="#A04800" stroke-width="1.5"/>
+        <line x1="18" y1="63" x2="62" y2="63" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <line x1="26" y1="47" x2="54" y2="79" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <line x1="26" y1="79" x2="54" y2="47" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <ellipse cx="40" cy="65" rx="9" ry="7" fill="url(#y_nuc)" opacity="0.48"/>
+        <circle cx="31" cy="57" r="5.5" fill="white" opacity="0.38"/>
+        <circle cx="30" cy="51" r="4" fill="white" opacity="0.2"/>
+      </svg>
+      <div class="size-label">64px</div>
+    </div>
+
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="128" height="128">
+        <defs>
+          <radialGradient id="y_main2" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFD080"/>
+            <stop offset="100%" stop-color="#C86000"/>
+          </radialGradient>
+          <radialGradient id="y_bud2" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFBA50"/>
+            <stop offset="100%" stop-color="#B85500"/>
+          </radialGradient>
+          <radialGradient id="y_nuc2" cx="40%" cy="35%" r="65%">
+            <stop offset="0%" stop-color="#FF9020"/>
+            <stop offset="100%" stop-color="#8C2800"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="66" cy="36" rx="14" ry="12" fill="url(#y_bud2)" stroke="#A04800" stroke-width="1.5"/>
+        <line x1="54" y1="36" x2="78" y2="36" stroke="#B05500" stroke-width="0.6" opacity="0.3"/>
+        <line x1="58" y1="26" x2="74" y2="46" stroke="#B05500" stroke-width="0.6" opacity="0.3"/>
+        <ellipse cx="66" cy="37" rx="5" ry="4" fill="url(#y_nuc2)" opacity="0.5"/>
+        <circle cx="60" cy="30" r="3" fill="white" opacity="0.22"/>
+        <ellipse cx="53" cy="48" rx="6" ry="4" transform="rotate(-48 53 48)" fill="#C96800" opacity="0.55"/>
+        <ellipse cx="40" cy="63" rx="22" ry="18" fill="url(#y_main2)" stroke="#A04800" stroke-width="1.5"/>
+        <line x1="18" y1="63" x2="62" y2="63" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <line x1="26" y1="47" x2="54" y2="79" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <line x1="26" y1="79" x2="54" y2="47" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <ellipse cx="40" cy="65" rx="9" ry="7" fill="url(#y_nuc2)" opacity="0.48"/>
+        <circle cx="31" cy="57" r="5.5" fill="white" opacity="0.38"/>
+        <circle cx="30" cy="51" r="4" fill="white" opacity="0.2"/>
+      </svg>
+      <div class="size-label">128px</div>
+    </div>
+
+    <div>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="256" height="256">
+        <defs>
+          <radialGradient id="y_main3" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFD080"/>
+            <stop offset="100%" stop-color="#C86000"/>
+          </radialGradient>
+          <radialGradient id="y_bud3" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FFBA50"/>
+            <stop offset="100%" stop-color="#B85500"/>
+          </radialGradient>
+          <radialGradient id="y_nuc3" cx="40%" cy="35%" r="65%">
+            <stop offset="0%" stop-color="#FF9020"/>
+            <stop offset="100%" stop-color="#8C2800"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="66" cy="36" rx="14" ry="12" fill="url(#y_bud3)" stroke="#A04800" stroke-width="1.5"/>
+        <line x1="54" y1="36" x2="78" y2="36" stroke="#B05500" stroke-width="0.6" opacity="0.3"/>
+        <line x1="58" y1="26" x2="74" y2="46" stroke="#B05500" stroke-width="0.6" opacity="0.3"/>
+        <ellipse cx="66" cy="37" rx="5" ry="4" fill="url(#y_nuc3)" opacity="0.5"/>
+        <circle cx="60" cy="30" r="3" fill="white" opacity="0.22"/>
+        <ellipse cx="53" cy="48" rx="6" ry="4" transform="rotate(-48 53 48)" fill="#C96800" opacity="0.55"/>
+        <ellipse cx="40" cy="63" rx="22" ry="18" fill="url(#y_main3)" stroke="#A04800" stroke-width="1.5"/>
+        <line x1="18" y1="63" x2="62" y2="63" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <line x1="26" y1="47" x2="54" y2="79" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <line x1="26" y1="79" x2="54" y2="47" stroke="#B05500" stroke-width="0.6" opacity="0.22"/>
+        <ellipse cx="40" cy="65" rx="9" ry="7" fill="url(#y_nuc3)" opacity="0.48"/>
+        <circle cx="31" cy="57" r="5.5" fill="white" opacity="0.38"/>
+        <circle cx="30" cy="51" r="4" fill="white" opacity="0.2"/>
+      </svg>
+      <div class="size-label">256px</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

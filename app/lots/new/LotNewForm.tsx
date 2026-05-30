@@ -138,13 +138,23 @@ function Opt() {
 
 // ------- メインコンポーネント -------
 
-export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBucketNumbers, initialValues, brewPlanId }: {
+export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBucketNumbers, initialValues, brewPlanId, isPrototype, prototypeValues }: {
   moisture: MoistureSettings
   recipes: MisoRecipe[]
   weatherAvg: Record<string, number>
   suggestedBucketNumbers: string
   initialValues?: { misoType?: string; brewedAt?: string; bucketNumbers?: string }
   brewPlanId?: string
+  isPrototype?: boolean
+  prototypeValues?: {
+    targetTempSum: string
+    grainKg:       string
+    kojiKg:        string
+    soybeanKg:     string
+    saltKg:        string
+    seedWaterL:    string
+    shikomiKg:     string
+  }
 }) {
   const [form, setForm] = useState<FormState>(() => {
     const base: FormState = { ...INITIAL, bucketNumbers: initialValues?.bucketNumbers ?? suggestedBucketNumbers }
@@ -162,6 +172,15 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
         base.saltKg          = String(recipe.saltKg)
         base.taneKojiG       = String(recipe.taneKojiG)
       }
+    }
+    // 試作モード：シミュレーターからの値を自動セット
+    if (isPrototype && prototypeValues) {
+      if (prototypeValues.targetTempSum) base.targetTempSum = prototypeValues.targetTempSum
+      if (prototypeValues.grainKg)       base.mugiOrKomeKg  = prototypeValues.grainKg
+      if (prototypeValues.soybeanKg)     base.soybeanKg     = prototypeValues.soybeanKg
+      if (prototypeValues.saltKg)        base.saltKg        = prototypeValues.saltKg
+      if (prototypeValues.seedWaterL)    base.seedWaterL    = prototypeValues.seedWaterL
+      base.initialLocation = '暖房'
     }
     return base
   })
@@ -205,6 +224,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
     const strOpt  = (v: string) => v.trim() || null               // 任意文字列
 
     const data = {
+      isPrototype:   isPrototype ?? false,
       misoType:      form.misoType,
       brewedAt:      form.brewedAt,
       totalWeightKg: shikomiCalc,
@@ -248,12 +268,12 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
     })
   }
 
-  // 選択中レシピから品種情報を取得
+  // 選択中レシピから品種情報を取得（試作モードは裸麦固定）
   const selectedRecipe = recipes.find(r => r.name === form.misoType)
-  const grainLabel  = selectedRecipe?.grainLabel ?? '穀物'
-  const isBareMugi  = selectedRecipe?.grainLabel === '裸麦'
-  const isShiroMiso = form.misoType === '白みそ'
-  const showMizuame = (selectedRecipe?.mizuameKg ?? 0) > 0
+  const grainLabel  = isPrototype ? '裸麦' : (selectedRecipe?.grainLabel ?? '穀物')
+  const isBareMugi  = isPrototype ? true   : selectedRecipe?.grainLabel === '裸麦'
+  const isShiroMiso = isPrototype ? false  : form.misoType === '白みそ'
+  const showMizuame = isPrototype ? false  : (selectedRecipe?.mizuameKg ?? 0) > 0
   const e = (key: string) => errors[key]
 
   // 数値パーサ（0にフォールバック）
@@ -370,19 +390,35 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
           {/* 行1：品種 / 仕込み日 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>品種<Req /></Label>
+              <Label>
+                品種名<Req />
+                {isPrototype && (
+                  <span className="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-100 text-violet-700 border border-violet-200">
+                    試作
+                  </span>
+                )}
+              </Label>
               <div className="flex items-center gap-2">
-                <Select value={form.misoType} onValueChange={handleMisoTypeChange}>
-                  <SelectTrigger className="flex-1 min-h-[44px]">
-                    <SelectValue placeholder="選択してください" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {recipes.map(r => (
-                      <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {form.misoType && (
+                {isPrototype ? (
+                  <Input
+                    value={form.misoType}
+                    onChange={set('misoType')}
+                    placeholder="例：高麹歩合麦みそA"
+                    className="flex-1 min-h-[44px]"
+                  />
+                ) : (
+                  <Select value={form.misoType} onValueChange={handleMisoTypeChange}>
+                    <SelectTrigger className="flex-1 min-h-[44px]">
+                      <SelectValue placeholder="選択してください" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {recipes.map(r => (
+                        <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {!isPrototype && form.misoType && (
                   <span
                     className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap shrink-0"
                     style={getMisoTypeBadgeStyle(form.misoType)}

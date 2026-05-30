@@ -100,7 +100,8 @@ export interface LotDetailProps {
   agingNotes: AgingNoteItem[]
   brewStats: { kojiRatio: number; saltPercent: number; moisturePercent: number } | null
   brewRecord: BrewRecordData | null
-  buckets: BucketItem[]
+  buckets:      BucketItem[]
+  isPrototype?: boolean
 }
 
 // ── ステータスバッジ ────────────────────────────────────────
@@ -284,6 +285,7 @@ export default function LotDetail({
   brewStats,
   brewRecord,
   buckets: initialBuckets,
+  isPrototype,
 }: LotDetailProps) {
   const router = useRouter()
 
@@ -576,6 +578,11 @@ export default function LotDetail({
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{lotNumber}</h1>
+          {isPrototype && (
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-100 text-violet-700 border border-violet-200">
+              試作
+            </span>
+          )}
           <span
             className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
             style={getMisoTypeBadgeStyle(misoType)}

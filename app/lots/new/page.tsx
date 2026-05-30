@@ -22,9 +22,31 @@ function nextBucketPair(last: string | null): string {
 export default async function LotNewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ brewPlanId?: string }>
+  searchParams: Promise<{
+    brewPlanId?:   string
+    prototype?:    string
+    targetTempSum?: string
+    grainKg?:      string
+    kojiKg?:       string
+    soybeanKg?:    string
+    saltKg?:       string
+    seedWaterL?:   string
+    shikomiKg?:    string
+  }>
 }) {
-  const { brewPlanId } = await searchParams
+  const {
+    brewPlanId,
+    prototype,
+    targetTempSum: protoTargetTemp,
+    grainKg:       protoGrainKg,
+    kojiKg:        protoKojiKg,
+    soybeanKg:     protoSoybeanKg,
+    saltKg:        protoSaltKg,
+    seedWaterL:    protoSeedWaterL,
+    shikomiKg:     protoShikomiKg,
+  } = await searchParams
+
+  const isPrototype = prototype === 'true'
 
   const [moisture, recipes, weatherData, lastLot, brewPlan] = await Promise.all([
     getMoistureSettings(),
@@ -64,16 +86,30 @@ export default async function LotNewPage({
       }
     : undefined
 
+  const prototypeValues = isPrototype
+    ? {
+        targetTempSum: protoTargetTemp   ?? '',
+        grainKg:       protoGrainKg      ?? '',
+        kojiKg:        protoKojiKg       ?? '',
+        soybeanKg:     protoSoybeanKg    ?? '',
+        saltKg:        protoSaltKg       ?? '',
+        seedWaterL:    protoSeedWaterL   ?? '',
+        shikomiKg:     protoShikomiKg    ?? '',
+      }
+    : undefined
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 pb-16">
       <LotNewForm
-        key={brewPlanId ?? 'new'}
+        key={brewPlanId ?? (isPrototype ? 'prototype' : 'new')}
         moisture={moisture}
         recipes={recipes}
         weatherAvg={weatherAvg}
         suggestedBucketNumbers={suggestedBucketNumbers}
         initialValues={initialValues}
         brewPlanId={brewPlanId}
+        isPrototype={isPrototype}
+        prototypeValues={prototypeValues}
       />
     </div>
   )

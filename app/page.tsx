@@ -120,6 +120,7 @@ export default async function DashboardPage() {
       completedAtISO: lot.completedAt?.toISOString() ?? null,
       coloringRisk,
       status: lot.status,
+      isPrototype: lot.isPrototype,
       bucketNumbers: lot.bucketNumbers ?? null,
       buckets: lot.buckets.map(b => ({
         bucketNumber: b.bucketNumber,

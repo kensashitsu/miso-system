@@ -33,6 +33,7 @@ export interface LotCardProps {
     remainingKg:  number | null
     status:       string
   }>
+  isPrototype?: boolean
   variant?: 'completed' | 'needs-action'
   forceSignal?: { open: boolean } | null
   simConfig?: LotSimConfig
@@ -78,6 +79,7 @@ export default function LotCard({
   status,
   bucketNumbers,
   buckets,
+  isPrototype,
   variant,
   forceSignal,
   simConfig,
@@ -119,6 +121,11 @@ export default function LotCard({
           <div className="flex items-start justify-between gap-2">
             <CardTitle className="text-base font-bold text-gray-900 tracking-tight">{lotNumber}</CardTitle>
             <div className="flex flex-wrap gap-1 justify-end">
+              {isPrototype && (
+                <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-violet-100 text-violet-700 border border-violet-200">
+                  試作
+                </span>
+              )}
               <span
                 className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap"
                 style={getMisoTypeBadgeStyle(misoType)}

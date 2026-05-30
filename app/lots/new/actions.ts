@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 
+// 既存品種（非試作品の場合のバリデーション用）
 const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
 // 後方互換のため旧形式も含む（暖房XX℃・冷房XX℃はregexで別途検証）
 const STATIC_LOCATIONS = ['常温', '冷蔵庫'] as const
@@ -23,7 +24,8 @@ const nonNegNum = (label: string) =>
 
 const schema = z.object({
   // ① 基本情報
-  misoType:        z.enum(MISO_TYPES, { error: '品種を選択してください' }),
+  isPrototype:     z.boolean().default(false),
+  misoType:        z.string().min(1, '品種名を入力してください'),
   brewedAt:        z.string().min(1, '仕込み日を入力してください'),
   totalWeightKg:   positiveNum('仕込み総量'),
   targetTempSum:   positiveNum('目標積算温度'),
@@ -101,7 +103,8 @@ export async function createLot(input: unknown): Promise<ActionResult> {
       return tx.lot.create({
         data: {
           lotNumber,
-          misoType:      d.misoType,
+          misoType:    d.misoType,
+          isPrototype: d.isPrototype,
           brewedAt:      brewDate,
           totalWeightKg: d.totalWeightKg,
           targetTempSum: d.targetTempSum,

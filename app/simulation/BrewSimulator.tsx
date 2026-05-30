@@ -154,17 +154,51 @@ function MetricCard({
   )
 }
 
+// ── 原料逆算 ────────────────────────────────────────────────────────────────
+// 仕立量・麹歩合・塩分%・水分目標から全原料量を計算
+// 連立方程式の解析解（CLAUDE.md「試作シミュレーター」セクション参照）
+function calcIngredients(
+  shikomiKg: number,
+  kojiHo:    number,
+  saltPct:   number,
+  α:         number,   // kojiRatio
+  β:         number,   // soybeanRatio
+  mKoji:     number,   // 麦麹含水率
+  mSoy:      number,   // 蒸煮大豆水分率
+  M:         number,   // 目標水分率
+) {
+  const R = kojiHo / 10
+  const P = saltPct / 100
+  const soybeanKg  = shikomiKg * (1 - P - M) / (R * α * (1 - mKoji) + β * (1 - mSoy))
+  const grainKg    = R * soybeanKg
+  const saltKg     = P * shikomiKg
+  const kojiKg     = grainKg * α
+  const seedWaterL = M * shikomiKg - (grainKg * α * mKoji + soybeanKg * β * mSoy)
+  return { grainKg, kojiKg, soybeanKg, saltKg, seedWaterL }
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function BrewSimulator({
   baseKojiHo,
   baseSaltPct,
+  mugiKojiMoisture,
+  steamedSoyMoisture,
+  kojiRatio,
+  soybeanRatio,
+  targetMoisture,
 }: {
-  baseKojiHo: number
-  baseSaltPct: number
+  baseKojiHo:         number
+  baseSaltPct:        number
+  mugiKojiMoisture:   number
+  steamedSoyMoisture: number
+  kojiRatio:          number
+  soybeanRatio:       number
+  targetMoisture:     number
 }) {
-  const [kojiHo,  setKojiHo]  = useState(baseKojiHo)
-  const [saltPct, setSaltPct] = useState(baseSaltPct)
-  const [kojiQ,   setKojiQ]   = useState(6)
+  const [kojiHo,    setKojiHo]    = useState(baseKojiHo)
+  const [saltPct,   setSaltPct]   = useState(baseSaltPct)
+  const [kojiQ,     setKojiQ]     = useState(6)
+  const [shikomiKg, setShikomiKg] = useState(80)
 
   const result = useMemo(() => runModel(kojiHo,  saltPct, kojiQ), [kojiHo, saltPct, kojiQ])
   const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6), [baseKojiHo, baseSaltPct])
@@ -183,6 +217,35 @@ export default function BrewSimulator({
 
   const sweetnessPotential = kojiHo / baseKojiHo
   const phDiff = result.phFinal - base.phFinal
+
+  // 原料逆算
+  const ingredients = useMemo(() => calcIngredients(
+    shikomiKg, kojiHo, saltPct,
+    kojiRatio, soybeanRatio,
+    mugiKojiMoisture, steamedSoyMoisture,
+    targetMoisture,
+  ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisture])
+
+  // 「仕込む」ボタン用URL：収穫窓中央を目標積算温度に使用
+  const brewTargetTempSum = result.windowStart != null && result.windowEnd != null
+    ? Math.round((result.windowStart + result.windowEnd) / 2)
+    : result.windowStart != null
+      ? Math.round(result.windowStart * 1.2)
+      : 400
+
+  const brewUrl = (() => {
+    const p = new URLSearchParams({
+      prototype:    'true',
+      targetTempSum: String(brewTargetTempSum),
+      grainKg:      String(Math.round(ingredients.grainKg   * 10) / 10),
+      kojiKg:       String(Math.round(ingredients.kojiKg    * 10) / 10),
+      soybeanKg:    String(Math.round(ingredients.soybeanKg * 10) / 10),
+      saltKg:       String(Math.round(ingredients.saltKg    * 10) / 10),
+      seedWaterL:   String(Math.round(ingredients.seedWaterL * 10) / 10),
+      shikomiKg:    String(shikomiKg),
+    })
+    return `/lots/new?${p.toString()}`
+  })()
 
   const tPeakDays = Math.round(result.tPeak / 15)   // 暖房25℃: 15℃/日
 
@@ -324,6 +387,86 @@ export default function BrewSimulator({
           </div>
         </div>
       )}
+
+      {/* ── 原料逆算セクション ── */}
+      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 space-y-4">
+        <h2 className="text-sm font-semibold text-gray-700">原料逆算</h2>
+
+        {/* 仕立量スライダー */}
+        <div>
+          <div className="flex justify-between items-baseline mb-1.5">
+            <label className="text-sm text-gray-600">目標仕立量</label>
+            <span className="text-sm font-semibold text-gray-900 tabular-nums">{shikomiKg} kg</span>
+          </div>
+          <input
+            type="range" min={30} max={500} step={10}
+            value={shikomiKg}
+            onChange={e => setShikomiKg(parseInt(e.target.value))}
+            className="w-full accent-violet-500 h-1.5"
+          />
+          <div className="flex justify-between text-xs text-gray-400 mt-1">
+            <span>30 kg</span><span>500 kg</span>
+          </div>
+        </div>
+
+        {/* 原料一覧 */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left py-1.5 text-xs text-gray-400 font-medium">原料</th>
+                <th className="text-right py-1.5 text-xs text-gray-400 font-medium">計算値</th>
+                <th className="text-right py-1.5 text-xs text-gray-400 font-medium">備考</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {[
+                { label: '裸麦（穀物）',  value: ingredients.grainKg,    unit: 'kg',  note: `麹歩合 ${kojiHo.toFixed(1)}割` },
+                { label: '麦麹（参考）',  value: ingredients.kojiKg,     unit: 'kg',  note: `裸麦×${kojiRatio}` },
+                { label: '大豆',          value: ingredients.soybeanKg,  unit: 'kg',  note: '' },
+                { label: '塩',            value: ingredients.saltKg,     unit: 'kg',  note: `塩分 ${saltPct.toFixed(1)}%` },
+                { label: '種水',          value: ingredients.seedWaterL, unit: 'L',   note: `水分 ${(targetMoisture * 100).toFixed(1)}%に調整` },
+              ].map(({ label, value, unit, note }) => (
+                <tr key={label} className="hover:bg-gray-50/40">
+                  <td className="py-2 text-gray-700 font-medium">{label}</td>
+                  <td className="py-2 text-right tabular-nums font-semibold text-gray-900">
+                    {value < 0
+                      ? <span className="text-rose-500">計算不可</span>
+                      : `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`
+                    }
+                  </td>
+                  <td className="py-2 text-right text-xs text-muted-foreground">{note}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-gray-200 bg-gray-50/60">
+                <td className="py-2 font-semibold text-gray-700">仕立量合計</td>
+                <td className="py-2 text-right tabular-nums font-bold text-gray-900">{shikomiKg} kg</td>
+                <td className="py-2 text-right text-xs text-muted-foreground">
+                  目標積算温度 {brewTargetTempSum} ℃・日
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* 種水が負の場合の警告 */}
+        {ingredients.seedWaterL < 0 && (
+          <p className="text-xs text-rose-600 flex items-center gap-1">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            原料の水分だけで目標水分を超えています。塩分を増やすか麹歩合を下げてください。
+          </p>
+        )}
+
+        {/* 仕込むボタン */}
+        {ingredients.seedWaterL >= 0 && (
+          <a
+            href={brewUrl}
+            className="flex items-center justify-center gap-2 w-full rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 transition-colors"
+          >
+            この配合でロット登録へ →
+          </a>
+        )}
+      </div>
 
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
+import { getMoistureSettings } from '@/lib/settings'
 import BrewSimulator from './BrewSimulator'
 
 export const metadata: Metadata = {
@@ -9,16 +10,28 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export default async function SimulationPage() {
-  const recipe = await prisma.misoRecipe.findFirst({
-    where: { name: '無添加麦みそ' },
-  })
+  const [moisture, recipe] = await Promise.all([
+    getMoistureSettings(),
+    prisma.misoRecipe.findFirst({ where: { name: '無添加麦みそ' } }),
+  ])
 
-  const baseKojiHo = recipe
-    ? Math.round((recipe.grainKg / recipe.soybeanKg) * 10 * 10) / 10
-    : 24.1
-  const baseSaltPct = recipe
-    ? Math.round((recipe.saltKg / recipe.totalWeightKg) * 1000) / 10
-    : 10.9
+  const baseGrainKg   = recipe?.grainKg      ?? 650
+  const baseSoybeanKg = recipe?.soybeanKg    ?? 270
+  const baseSaltKg    = recipe?.saltKg       ?? 171
+  const baseTotalKg   = recipe?.totalWeightKg ?? 1572
+
+  const baseKojiHo  = Math.round((baseGrainKg / baseSoybeanKg) * 10 * 10) / 10
+  const baseSaltPct = Math.round((baseSaltKg / baseTotalKg) * 1000) / 10
+
+  // 蒸煮大豆水分率 = (soybeanRatio - 1 + 大豆含水率) / soybeanRatio
+  const steamedSoyMoisture =
+    (moisture.soybeanRatio - 1 + moisture.soybean) / moisture.soybeanRatio
+
+  // 無添加麦みそを基準とした目標水分率（種水なしの計算値）
+  const targetMoisture =
+    (baseGrainKg * moisture.kojiRatio * moisture.mugiKoji +
+     baseSoybeanKg * moisture.soybeanRatio * steamedSoyMoisture) /
+    baseTotalKg
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
@@ -28,7 +41,15 @@ export default async function SimulationPage() {
           裸麦・大豆・塩・水の配合を変えたときの熟成挙動を理論モデルで推計します（精度目安±30〜50%）
         </p>
       </div>
-      <BrewSimulator baseKojiHo={baseKojiHo} baseSaltPct={baseSaltPct} />
+      <BrewSimulator
+        baseKojiHo={baseKojiHo}
+        baseSaltPct={baseSaltPct}
+        mugiKojiMoisture={moisture.mugiKoji}
+        steamedSoyMoisture={steamedSoyMoisture}
+        kojiRatio={moisture.kojiRatio}
+        soybeanRatio={moisture.soybeanRatio}
+        targetMoisture={targetMoisture}
+      />
     </div>
   )
 }

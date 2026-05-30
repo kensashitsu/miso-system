@@ -22,6 +22,7 @@ model Lot {
   finalYieldKg   Float?                   // 完了時の確定歩留まり（kg）
   yieldRate      Float?                   // 歩留まり率（%）自動計算
   notes          String?
+  isPrototype    Boolean   @default(false)  // 試作品フラグ
   createdAt      DateTime  @default(now())
 
   brewRecord       BrewRecord?
