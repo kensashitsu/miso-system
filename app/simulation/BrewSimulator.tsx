@@ -376,7 +376,7 @@ export default function BrewSimulator({
               value={shikomiKg} min={1} max={2000} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
               onChange={setShikomiKg} />
             <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
-              value={kojiHo} min={15} max={45} step={0.5} unit="割" decimals={1}
+              value={kojiHo} min={5} max={100} step={kojiHo <= 30 ? 0.5 : 1} unit="割" decimals={kojiHo <= 30 ? 1 : 0}
               onChange={setKojiHo} />
             <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
               value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
