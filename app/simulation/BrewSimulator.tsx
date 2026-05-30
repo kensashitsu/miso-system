@@ -28,6 +28,9 @@ const Q10_MIC = 4.0
 const T_REF   = 25   // キャリブレーション基準温度（暖房℃）
 // 麹歩合1割あたりの塩分変化率（高麹歩合ほど低塩：実データ近似）
 const SALT_KOJI_RATE = 0.175
+// 収穫窓の糖閾値
+const WINDOW_SWEET   = 0.50  // 甘味重視：糖がピークの50%以上
+const WINDOW_BALANCE = 0.25  // 品質バランス：糖がピークの25%以上（600℃・日付近まで含む）
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -57,7 +60,7 @@ function fAwMaillard(aw: number): number {
   return Math.max(0, 1 - Math.abs(aw - 0.77) / 0.15)
 }
 
-function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: number): ModelOutput {
+function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: number, bThreshold: number = WINDOW_SWEET): ModelOutput {
   const aw      = 0.99 - 0.015 * saltPct
   const kAmy    = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / KOJI_HO_BASE)
   const kMic    = Math.max(0.0001, K_MIC_BASE * (aw - AW_MIN_MIC) / (AW_BASE - AW_MIN_MIC))
@@ -95,7 +98,7 @@ function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: numbe
     const pH        = PH_INITIAL - (PH_INITIAL - phFinal) * C
     const maillard  = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
 
-    const inWindow = Braw > 0.5 * bMax && AAnorm > 30 && pH >= 4.8
+    const inWindow = Braw > bThreshold * bMax && AAnorm > 30 && pH >= 4.8
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
 
@@ -279,6 +282,9 @@ export default function BrewSimulator({
   const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温'>('暖房')
   const [brewMonth,        setBrewMonth]        = useState(() => new Date().getMonth() + 1)
   const [linkSalt,         setLinkSalt]         = useState(true)
+  const [windowMode,       setWindowMode]       = useState<'sweet' | 'balance'>('balance')
+
+  const bThreshold = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
 
   const handleKojiHoChange = (v: number) => {
     setKojiHo(v)
@@ -302,8 +308,8 @@ export default function BrewSimulator({
     : (weatherMonthlyTempC[brewMonth] ?? 14)
 
   // 出麹評価は固定（6=標準）。result・base とも同じ温度で比較（配合の差だけを見る）
-  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp), [kojiHo, saltPct, locTemp])
-  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp), [baseKojiHo, baseSaltPct, locTemp])
+  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp, bThreshold), [kojiHo, saltPct, locTemp, bThreshold])
+  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp, bThreshold), [baseKojiHo, baseSaltPct, locTemp, bThreshold])
 
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
@@ -682,7 +688,30 @@ export default function BrewSimulator({
         </ResponsiveContainer>
       </div>
 
-      {/* ── 収穫窓アラート ── */}
+      {/* ── 収穫窓モード切替 + アラート ── */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500">収穫窓モード</span>
+        <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
+          <button
+            type="button"
+            onClick={() => setWindowMode('balance')}
+            className={`px-3 py-1.5 transition-colors ${windowMode === 'balance' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+          >
+            品質バランス
+          </button>
+          <button
+            type="button"
+            onClick={() => setWindowMode('sweet')}
+            className={`px-3 py-1.5 transition-colors ${windowMode === 'sweet' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+          >
+            甘味重視
+          </button>
+        </div>
+        <span className="text-xs text-gray-400">
+          {windowMode === 'balance' ? '糖 ≥ 25%（実際の完成タイミングに対応）' : '糖 ≥ 50%（甘味のピーク付近）'}
+        </span>
+      </div>
+
       {isWindowMissing ? (
         <div className="rounded-lg px-4 py-3 text-sm flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -751,7 +780,7 @@ export default function BrewSimulator({
         <p className="font-medium text-gray-600">モデルの前提と限界</p>
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
-        <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8</p>
+        <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>アミノ酸ピーク：タンパク質の90%がアミノ酸に変換された時点（AA=90%）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
       </div>
