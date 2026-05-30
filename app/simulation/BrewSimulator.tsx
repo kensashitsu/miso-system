@@ -30,9 +30,9 @@ const T_REF   = 25   // キャリブレーション基準温度（暖房℃）
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
   x:        number   // 積算温度（℃・日）
-  A:        number   // デンプン残存 0〜100%
+  A:        number   // デンプン残存 100〜0%
   B:        number   // 糖（B_max = 100 に正規化）
-  AA:       number   // アミノ酸蓄積 0〜100%
+  protein:  number   // タンパク質残存 100〜0%
   pH:       number
   maillard: number   // 着色指数 0〜100（B × AA × f_aw）
 }
@@ -86,7 +86,8 @@ function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: numbe
       : kAmy * T * Math.exp(-kAmy * T)
     const Bnorm     = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
     const C         = Math.max(0, 1 - A - Math.max(0, Braw))
-    const AAnorm    = (1 - Math.exp(-kPro * T)) * 100
+    const AAnorm    = (1 - Math.exp(-kPro * T)) * 100   // 収穫窓・着色指数の内部計算用
+    const protein   = Math.exp(-kPro * T) * 100          // タンパク質残存 = 100 - AA
     const pH        = PH_INITIAL - (PH_INITIAL - phFinal) * C
     const maillard  = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
 
@@ -98,7 +99,7 @@ function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: numbe
       x: T,
       A: A * 100,
       B: Bnorm,
-      AA: AAnorm,
+      protein,
       pH,
       maillard,
     })
@@ -127,8 +128,8 @@ function ChartTooltip({
         {T} ℃・日
       </p>
       <p style={{ color: '#9CA3AF', margin: 0 }}>デンプン残存：{d.A.toFixed(1)}%</p>
+      <p style={{ color: '#5DCAA5', margin: 0 }}>タンパク質残存：{d.protein.toFixed(1)}%</p>
       <p style={{ color: '#C8963E', margin: 0 }}>糖（相対）：{d.B.toFixed(1)}%</p>
-      <p style={{ color: '#5DCAA5', margin: 0 }}>アミノ酸：{d.AA.toFixed(1)}%</p>
       <p style={{ color: '#E07B7B', margin: 0 }}>着色指数：{d.maillard.toFixed(1)}</p>
       <p style={{ color: '#9B7FC8', margin: 0 }}>pH：{d.pH.toFixed(2)}</p>
     </div>
@@ -528,8 +529,8 @@ export default function BrewSimulator({
         <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
           {[
             { color: '#9CA3AF', label: 'デンプン残存', dash: '4 2' },
+            { color: '#5DCAA5', label: 'タンパク質残存', dash: '4 2' },
             { color: '#C8963E', label: '糖（甘味源）' },
-            { color: '#5DCAA5', label: 'アミノ酸（旨味源）' },
             { color: '#E07B7B', label: '着色指数', dash: '2 2' },
             { color: '#9B7FC8', label: 'pH（右軸）' },
           ].map(({ color, label, dash }) => (
@@ -618,8 +619,8 @@ export default function BrewSimulator({
             />
 
             <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="protein"  stroke="#5DCAA5" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="AA"       stroke="#5DCAA5" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
@@ -695,7 +696,7 @@ export default function BrewSimulator({
         <p className="font-medium text-gray-600">モデルの前提と限界</p>
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
-        <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸 ≥ 30% かつ pH ≥ 4.8</p>
+        <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
       </div>
     </div>
