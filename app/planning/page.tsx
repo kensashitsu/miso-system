@@ -9,6 +9,7 @@ import BrewPlanList from './BrewPlanList'
 import DemandChart from './DemandChart'
 import WeatherSimulator from './WeatherSimulator'
 import ForecastUpdater from './ForecastUpdater'
+import BufferDaySuggestion from './BufferDaySuggestion'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,7 +62,7 @@ function enrichShipmentMap(
 }
 
 export default async function PlanningPage() {
-  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans] = await Promise.all([
+  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
@@ -85,6 +86,8 @@ export default async function PlanningPage() {
     prisma.systemSetting.findMany({ where: { key: { startsWith: 'forecast_mape_' } } }),
     // 仮登録リスト（仮登録・本登録済の両方を取得）
     prisma.brewPlan.findMany({ orderBy: { brewDate: 'asc' } }),
+    // 月末在庫スナップショットの蓄積数
+    prisma.monthlyInventorySnapshot.count(),
   ])
 
   // 熟成中ロットを品種別に集計（Bucketがある場合は残量で計算）
@@ -256,6 +259,12 @@ export default async function PlanningPage() {
           fridgeTemp={moisture.fridgeTemp}
         />
       </div>
+
+      <BufferDaySuggestion
+        currentBufferDays={moisture.brewBufferDays}
+        shipmentMap={shipmentMap}
+        snapshotCount={snapshotCount}
+      />
 
       <BrewSuggestions
         recipes={recipeList}
