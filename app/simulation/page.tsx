@@ -88,7 +88,9 @@ export default async function SimulationPage() {
       <BrewSimulator
         baseKojiHo={baseKojiHo}
         baseSaltPct={baseSaltPct}
+        hadakaMugiMoisture={moisture.hadakaMugi}
         mugiKojiMoisture={moisture.mugiKoji}
+        soybeanRawMoisture={moisture.soybean}
         steamedSoyMoisture={steamedSoyMoisture}
         kojiRatio={moisture.kojiRatio}
         soybeanRatio={moisture.soybeanRatio}

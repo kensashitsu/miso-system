@@ -225,7 +225,9 @@ function calcIngredients(
 export default function BrewSimulator({
   baseKojiHo,
   baseSaltPct,
+  hadakaMugiMoisture,
   mugiKojiMoisture,
+  soybeanRawMoisture,
   steamedSoyMoisture,
   kojiRatio,
   soybeanRatio,
@@ -234,7 +236,9 @@ export default function BrewSimulator({
 }: {
   baseKojiHo:                number
   baseSaltPct:               number
+  hadakaMugiMoisture:        number
   mugiKojiMoisture:          number
+  soybeanRawMoisture:        number
   steamedSoyMoisture:        number
   kojiRatio:                 number
   soybeanRatio:              number
@@ -286,6 +290,15 @@ export default function BrewSimulator({
     mugiKojiMoisture, steamedSoyMoisture,
     targetMoisturePct / 100,
   ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
+
+  // 各原料の水分量（kg）
+  const waterIn = {
+    grain:    ingredients.grainKg       * hadakaMugiMoisture,
+    koji:     ingredients.kojiKg        * mugiKojiMoisture,
+    soybean:  ingredients.soybeanKg     * soybeanRawMoisture,
+    mushi:    ingredients.mushiDaizuKg  * steamedSoyMoisture,
+    seedWater: Math.max(0, ingredients.seedWaterL),
+  }
 
   // 「仕込む」ボタン用URL：収穫窓中央を目標積算温度に使用
   const brewTargetTempSum = result.windowStart != null && result.windowEnd != null
@@ -352,7 +365,7 @@ export default function BrewSimulator({
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left pb-1.5 text-xs text-gray-400 font-medium">処理前</th>
-                  <th className="text-right pb-1.5 text-xs text-gray-400 font-medium"></th>
+                  <th className="text-right pb-1.5 text-xs text-gray-400 font-medium">重量</th>
                   <th className="pb-1.5 w-4"></th>
                   <th className="text-left pb-1.5 text-xs text-gray-400 font-medium pl-1">処理後</th>
                   <th className="text-right pb-1.5 text-xs text-gray-400 font-medium">重量</th>
@@ -362,32 +375,51 @@ export default function BrewSimulator({
                 {/* 裸麦 → 麦麹 */}
                 <tr className="border-b border-gray-50">
                   <td className="py-1.5 text-gray-600">裸麦</td>
-                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.grainKg, 'kg')}</td>
-                  <td className="py-1.5 text-center text-gray-300 text-xs">→</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.grainKg, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.grain, 'kg')}</div>
+                  </td>
+                  <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
                   <td className="py-1.5 text-gray-500 pl-1">麦麹</td>
-                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.kojiKg, 'kg')}</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.kojiKg, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.koji, 'kg')}</div>
+                  </td>
                 </tr>
                 {/* 大豆 → 蒸煮大豆 */}
                 <tr className="border-b border-gray-50">
                   <td className="py-1.5 text-gray-600">大豆</td>
-                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.soybeanKg, 'kg')}</td>
-                  <td className="py-1.5 text-center text-gray-300 text-xs">→</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.soybeanKg, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.soybean, 'kg')}</div>
+                  </td>
+                  <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
                   <td className="py-1.5 text-gray-500 pl-1">蒸煮大豆</td>
-                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.mushi, 'kg')}</div>
+                  </td>
                 </tr>
                 {/* 塩 */}
                 <tr className="border-b border-gray-50">
                   <td className="py-1.5 text-gray-600">塩</td>
-                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.saltKg, 'kg')}</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.saltKg, 'kg')}</div>
+                    <div className="text-xs text-gray-300">水 0</div>
+                  </td>
                   <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">塩分 {saltPct.toFixed(1)}%</td>
                 </tr>
                 {/* 種水 */}
                 <tr className="border-b border-gray-50">
                   <td className="py-1.5 text-gray-600">種水</td>
-                  <td className="py-1.5 text-right tabular-nums font-semibold text-gray-900">
+                  <td className="py-1.5 text-right">
                     {ingredients.seedWaterL < 0
                       ? <span className="text-rose-500 text-xs">計算不可</span>
-                      : fmtQty(ingredients.seedWaterL, 'L')}
+                      : <>
+                          <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.seedWaterL, 'L')}</div>
+                          <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.seedWater, 'kg')}</div>
+                        </>
+                    }
                   </td>
                   <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">水分 {targetMoisturePct.toFixed(1)}%調整</td>
                 </tr>
