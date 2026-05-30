@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
+import { applyQ10 } from '@/lib/tempCalc'
 import BrewSimulator from './BrewSimulator'
 
 export const metadata: Metadata = {
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export default async function SimulationPage() {
-  const [moisture, recipe, brewRecords] = await Promise.all([
+  const [moisture, recipe, brewRecords, weatherAvgResult] = await Promise.all([
     getMoistureSettings(),
     prisma.misoRecipe.findFirst({ where: { name: '無添加麦みそ' } }),
     // 無添加麦みその実績仕込みデータ（直近20件）
@@ -33,6 +34,7 @@ export default async function SimulationPage() {
       orderBy: { brewedAt: 'desc' },
       take: 20,
     }),
+    prisma.weatherCache.aggregate({ _avg: { effectiveTemp: true } }),
   ])
 
   const baseGrainKg   = recipe?.grainKg       ?? 650
@@ -46,6 +48,10 @@ export default async function SimulationPage() {
   // 蒸煮大豆水分率 = (soybeanRatio - 1 + 大豆含水率) / soybeanRatio
   const steamedSoyMoisture =
     (moisture.soybeanRatio - 1 + moisture.soybean) / moisture.soybeanRatio
+
+  // 常温の年間平均有効積算温度（Q10補正済み）
+  const rawAvgEffective = weatherAvgResult._avg.effectiveTemp ?? 4
+  const weatherDailyAvg = applyQ10(rawAvgEffective, moisture.q10Value, moisture.heatingDefaultTemp)
 
   // 実際の仕込みデータから目標水分率を計算
   // 水分(%) = (麹×麹水分率 + 蒸煮大豆×蒸煮大豆水分率 + 種水 + 種味噌×種味噌水分率) / 仕立量
@@ -96,6 +102,9 @@ export default async function SimulationPage() {
         soybeanRatio={moisture.soybeanRatio}
         targetMoisture={targetMoisture}
         targetMoistureSampleCount={targetMoistureSampleCount}
+        room1Temp={moisture.room1Temp}
+        room2Temp={moisture.room2Temp}
+        weatherDailyAvg={weatherDailyAvg}
       />
     </div>
   )

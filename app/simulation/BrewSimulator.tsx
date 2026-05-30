@@ -233,6 +233,9 @@ export default function BrewSimulator({
   soybeanRatio,
   targetMoisture,
   targetMoistureSampleCount,
+  room1Temp,
+  room2Temp,
+  weatherDailyAvg,
 }: {
   baseKojiHo:                number
   baseSaltPct:               number
@@ -244,6 +247,9 @@ export default function BrewSimulator({
   soybeanRatio:              number
   targetMoisture:            number
   targetMoistureSampleCount: number
+  room1Temp:                 number
+  room2Temp:                 number
+  weatherDailyAvg:           number
 }) {
   const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
   const [saltPct,           setSaltPct]           = useState(baseSaltPct)
@@ -251,6 +257,13 @@ export default function BrewSimulator({
   const [targetMoisturePct, setTargetMoisturePct] = useState(
     Math.round(targetMoisture * 1000) / 10
   )
+  const [selectedLocation,  setSelectedLocation]  = useState<'暖房' | '冷房' | '常温'>('暖房')
+
+  const dailyAccum = selectedLocation === '暖房'
+    ? room1Temp - 10
+    : selectedLocation === '冷房'
+    ? Math.max(room2Temp - 10, 0)
+    : weatherDailyAvg
 
   // 出麹評価は固定（6=標準）
   const result = useMemo(() => runModel(kojiHo, saltPct, 6), [kojiHo, saltPct])
@@ -320,7 +333,7 @@ export default function BrewSimulator({
     return `/lots/new?${p.toString()}`
   })()
 
-  const tPeakDays = Math.round(result.tPeak / 15)   // 暖房25℃: 15℃/日
+  const tPeakDays = dailyAccum > 0 ? Math.round(result.tPeak / dailyAccum) : null
 
   // 収穫窓の警告レベル
   const isWindowNarrow = windowRatio != null && windowRatio < 0.7
@@ -457,9 +470,28 @@ export default function BrewSimulator({
 
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
-        <h2 className="text-sm font-semibold text-gray-700 mb-0.5">発酵進行度</h2>
+        <div className="flex items-center gap-3 mb-0.5">
+          <h2 className="text-sm font-semibold text-gray-700">発酵進行度</h2>
+          <div className="ml-auto flex rounded border border-gray-200 overflow-hidden text-xs">
+            {(['暖房', '冷房', '常温'] as const).map(loc => (
+              <button
+                key={loc}
+                type="button"
+                onClick={() => setSelectedLocation(loc)}
+                className={`px-2.5 py-1 transition-colors ${
+                  selectedLocation === loc
+                    ? 'bg-violet-600 text-white'
+                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                {loc}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground mb-4">
           X軸：麦みそ比（1.0 = 無添加麦みそ基準 600 ℃・日）　右Y軸：pH
+          <span className="text-violet-600">{selectedLocation}：{dailyAccum.toFixed(1)} ℃/日換算</span>
         </p>
 
         {/* 凡例 */}
@@ -583,9 +615,9 @@ export default function BrewSimulator({
           <div>
             <span className="font-medium">収穫窓：</span>
             麦みそ比 {windowStartR?.toFixed(2)}〜{windowEndR?.toFixed(2) ?? '（範囲内で終了せず）'}
-            {result.windowStart != null && (
+            {result.windowStart != null && dailyAccum > 0 && (
               <span className="ml-1 text-xs">
-                （約 {Math.round(result.windowStart / 15)}〜{result.windowEnd != null ? Math.round(result.windowEnd / 15) : '—'} 日・暖房時）
+                （約 {Math.round(result.windowStart / dailyAccum)}〜{result.windowEnd != null ? Math.round(result.windowEnd / dailyAccum) : '—'} 日・{selectedLocation}）
               </span>
             )}
           </div>
@@ -597,7 +629,7 @@ export default function BrewSimulator({
         <MetricCard
           label="糖ピーク（麦みそ比）"
           value={`${tPeakRatio.toFixed(2)}倍`}
-          sub={`${Math.round(result.tPeak)} ℃・日 / 暖房約${tPeakDays}日`}
+          sub={`${Math.round(result.tPeak)} ℃・日 / ${selectedLocation}約${tPeakDays ?? '—'}日`}
           diffText={
             Math.abs(tPeakRatio - basePeakRatio) > 0.01
               ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`

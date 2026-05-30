@@ -25,7 +25,7 @@ const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
 // 常温の有効積算温度にQ10補正を適用する
 // effectiveTemp = max(avgTempC - 10, 0) を受け取り、Q10補正後の値を返す
 // effectiveTemp > 0 のとき avgTempC = effectiveTemp + BASE_TEMP として逆算
-function applyQ10(effectiveTemp: number, q10Value: number, heatingBaseTemp: number): number {
+export function applyQ10(effectiveTemp: number, q10Value: number, heatingBaseTemp: number): number {
   if (effectiveTemp <= 0 || q10Value === 1) return effectiveTemp
   const avgTempC  = effectiveTemp + BASE_TEMP
   const q10Factor = Math.pow(q10Value, (avgTempC - heatingBaseTemp) / 10)
