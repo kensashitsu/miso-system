@@ -456,70 +456,6 @@ export default function BrewSimulator({
         </div>
       </div>
 
-      {/* ── サマリーカード ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <MetricCard
-          label="糖ピーク（麦みそ比）"
-          value={`${tPeakRatio.toFixed(2)}倍`}
-          sub={`${Math.round(result.tPeak)} ℃・日 / 暖房約${tPeakDays}日`}
-          diffText={
-            Math.abs(tPeakRatio - basePeakRatio) > 0.01
-              ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
-              : '基準と同等'
-          }
-          diffGood={null}
-        />
-        <MetricCard
-          label="最終pH（到達下限）"
-          value={result.phFinal.toFixed(2)}
-          sub={result.phFinal < 4.8 ? '酸味が強くなる' : result.phFinal < 5.0 ? 'やや酸味あり' : '穏やかな酸味'}
-          diffText={`基準比 ${phDiff >= 0 ? '+' : ''}${phDiff.toFixed(2)}`}
-          diffGood={phDiff >= 0 ? true : false}
-        />
-        <MetricCard
-          label="甘味ポテンシャル"
-          value={`${sweetnessPotential.toFixed(2)}倍`}
-          sub="基準（無添加麦みそ）比"
-          diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
-          diffGood={sweetnessPotential >= 1 ? true : false}
-        />
-        <MetricCard
-          label="収穫窓の広さ"
-          value={windowWidth != null ? `${windowWidth} ℃・日` : '—'}
-          sub={windowRatio != null ? `基準比 ${(windowRatio * 100).toFixed(0)}%` : '窓が開かない'}
-          diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
-          diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
-        />
-      </div>
-
-      {/* ── 収穫窓アラート ── */}
-      {isWindowMissing ? (
-        <div className="rounded-lg px-4 py-3 text-sm flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>この配合では収穫窓が検出されませんでした。塩分を上げるか麹歩合を下げてください。</span>
-        </div>
-      ) : (
-        <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-2 ${
-          isWindowNarrow
-            ? 'bg-amber-50 border border-amber-200 text-amber-800'
-            : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-        }`}>
-          {isWindowNarrow
-            ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            : <Info className="h-4 w-4 shrink-0 mt-0.5" />
-          }
-          <div>
-            <span className="font-medium">収穫窓：</span>
-            麦みそ比 {windowStartR?.toFixed(2)}〜{windowEndR?.toFixed(2) ?? '（範囲内で終了せず）'}
-            {result.windowStart != null && (
-              <span className="ml-1 text-xs">
-                （約 {Math.round(result.windowStart / 15)}〜{result.windowEnd != null ? Math.round(result.windowEnd / 15) : '—'} 日・暖房時）
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
         <h2 className="text-sm font-semibold text-gray-700 mb-0.5">発酵進行度</h2>
@@ -627,6 +563,70 @@ export default function BrewSimulator({
             <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* ── 収穫窓アラート ── */}
+      {isWindowMissing ? (
+        <div className="rounded-lg px-4 py-3 text-sm flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>この配合では収穫窓が検出されませんでした。塩分を上げるか麹歩合を下げてください。</span>
+        </div>
+      ) : (
+        <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-2 ${
+          isWindowNarrow
+            ? 'bg-amber-50 border border-amber-200 text-amber-800'
+            : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+        }`}>
+          {isWindowNarrow
+            ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+            : <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          }
+          <div>
+            <span className="font-medium">収穫窓：</span>
+            麦みそ比 {windowStartR?.toFixed(2)}〜{windowEndR?.toFixed(2) ?? '（範囲内で終了せず）'}
+            {result.windowStart != null && (
+              <span className="ml-1 text-xs">
+                （約 {Math.round(result.windowStart / 15)}〜{result.windowEnd != null ? Math.round(result.windowEnd / 15) : '—'} 日・暖房時）
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── サマリーカード ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <MetricCard
+          label="糖ピーク（麦みそ比）"
+          value={`${tPeakRatio.toFixed(2)}倍`}
+          sub={`${Math.round(result.tPeak)} ℃・日 / 暖房約${tPeakDays}日`}
+          diffText={
+            Math.abs(tPeakRatio - basePeakRatio) > 0.01
+              ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
+              : '基準と同等'
+          }
+          diffGood={null}
+        />
+        <MetricCard
+          label="最終pH（到達下限）"
+          value={result.phFinal.toFixed(2)}
+          sub={result.phFinal < 4.8 ? '酸味が強くなる' : result.phFinal < 5.0 ? 'やや酸味あり' : '穏やかな酸味'}
+          diffText={`基準比 ${phDiff >= 0 ? '+' : ''}${phDiff.toFixed(2)}`}
+          diffGood={phDiff >= 0 ? true : false}
+        />
+        <MetricCard
+          label="甘味ポテンシャル"
+          value={`${sweetnessPotential.toFixed(2)}倍`}
+          sub="基準（無添加麦みそ）比"
+          diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
+          diffGood={sweetnessPotential >= 1 ? true : false}
+        />
+        <MetricCard
+          label="収穫窓の広さ"
+          value={windowWidth != null ? `${windowWidth} ℃・日` : '—'}
+          sub={windowRatio != null ? `基準比 ${(windowRatio * 100).toFixed(0)}%` : '窓が開かない'}
+          diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
+          diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
+        />
       </div>
 
       {/* ── モデル注記 ── */}
