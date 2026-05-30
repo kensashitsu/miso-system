@@ -9,7 +9,7 @@ import { deleteBrewPlan } from '@/app/planning/brew-plan-actions'
 import type { BrewPlanItem } from './BrewPlanList'
 
 export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
-  const [isOpen, setIsOpen] = useState(true)
+  const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
 
   if (plans.length === 0) return null
