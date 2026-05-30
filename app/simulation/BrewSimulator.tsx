@@ -21,6 +21,11 @@ const PH_INITIAL   = 6.8       // 仕込み直後pH
 const T_COMPLETE   = 600       // 基準完成積算温度（℃・日）
 const T_MAX        = 900
 const STEP         = 5
+// 酵素と微生物のQ10（温度感受性の違い）
+// アミラーゼ Q10≈2.0、微生物（糖消費）Q10≈4.0 の差が低温仕込みで甘味を生む
+const Q10_ENZ = 2.0
+const Q10_MIC = 4.0
+const T_REF   = 25   // キャリブレーション基準温度（暖房℃）
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -48,11 +53,13 @@ function fAwMaillard(aw: number): number {
   return Math.max(0, 1 - Math.abs(aw - 0.77) / 0.15)
 }
 
-function runModel(kojiHo: number, saltPct: number, kojiQ: number): ModelOutput {
+function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: number): ModelOutput {
   const aw      = 0.99 - 0.015 * saltPct
   const kAmy    = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / KOJI_HO_BASE)
   const kMic    = Math.max(0.0001, K_MIC_BASE * (aw - AW_MIN_MIC) / (AW_BASE - AW_MIN_MIC))
-  const r       = kMic / kAmy
+  // 酵素（Q10≈2）と微生物（Q10≈4）の温度感受性の差でrを補正
+  // 低温ほど微生物がより減速 → r低下 → 糖が長く残る
+  const r       = (kMic / kAmy) * Math.pow(Q10_MIC / Q10_ENZ, (locTemp - T_REF) / 10)
   const kPro    = 0.5 * kAmy
   const phFinal = 4.5 + 0.05 * saltPct
   const fMaillard = fAwMaillard(aw)
@@ -236,6 +243,7 @@ export default function BrewSimulator({
   room1Temp,
   room2Temp,
   weatherDailyAvg,
+  weatherAvgTempC,
 }: {
   baseKojiHo:                number
   baseSaltPct:               number
@@ -250,6 +258,7 @@ export default function BrewSimulator({
   room1Temp:                 number
   room2Temp:                 number
   weatherDailyAvg:           number
+  weatherAvgTempC:           number   // 年間平均気温（℃）：常温のlocTemp推計用
 }) {
   const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
   const [saltPct,           setSaltPct]           = useState(baseSaltPct)
@@ -265,9 +274,14 @@ export default function BrewSimulator({
     ? Math.max(room2Temp - 10, 0)
     : weatherDailyAvg
 
-  // 出麹評価は固定（6=標準）
-  const result = useMemo(() => runModel(kojiHo, saltPct, 6), [kojiHo, saltPct])
-  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6), [baseKojiHo, baseSaltPct])
+  // 仕込み温度（℃）：Q10補正でrを調整するために使用
+  const locTemp = selectedLocation === '暖房' ? room1Temp
+    : selectedLocation === '冷房' ? room2Temp
+    : weatherAvgTempC
+
+  // 出麹評価は固定（6=標準）。result・base とも同じ温度で比較（配合の差だけを見る）
+  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp), [kojiHo, saltPct, locTemp])
+  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp), [baseKojiHo, baseSaltPct, locTemp])
 
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
@@ -489,7 +503,7 @@ export default function BrewSimulator({
         </div>
         <p className="text-xs text-muted-foreground mb-4">
           X軸：積算温度（℃・日）　右Y軸：pH
-          <span className="text-violet-600">{selectedLocation}：{dailyAccum.toFixed(1)} ℃/日換算</span>
+          <span className="text-violet-600 ml-1">{selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算</span>
         </p>
 
         {/* 凡例 */}
@@ -664,6 +678,7 @@ export default function BrewSimulator({
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ 50%（相対）かつアミノ酸 ≥ 30% かつ pH ≥ 4.8</p>
+        <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
       </div>
     </div>
   )

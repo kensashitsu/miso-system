@@ -49,9 +49,11 @@ export default async function SimulationPage() {
   const steamedSoyMoisture =
     (moisture.soybeanRatio - 1 + moisture.soybean) / moisture.soybeanRatio
 
-  // 常温の年間平均有効積算温度（Q10補正済み）
+  // 常温の年間平均有効積算温度（Q10補正済み）と年間平均気温
   const rawAvgEffective = weatherAvgResult._avg.effectiveTemp ?? 4
   const weatherDailyAvg = applyQ10(rawAvgEffective, moisture.q10Value, moisture.heatingDefaultTemp)
+  // rawAvgEffective = avg(max(avgTempC-10, 0)) なので +10 で年間平均気温を近似
+  const weatherAvgTempC = rawAvgEffective + 10
 
   // 実際の仕込みデータから目標水分率を計算
   // 水分(%) = (麹×麹水分率 + 蒸煮大豆×蒸煮大豆水分率 + 種水 + 種味噌×種味噌水分率) / 仕立量
@@ -105,6 +107,7 @@ export default async function SimulationPage() {
         room1Temp={moisture.room1Temp}
         room2Temp={moisture.room2Temp}
         weatherDailyAvg={weatherDailyAvg}
+        weatherAvgTempC={weatherAvgTempC}
       />
     </div>
   )
