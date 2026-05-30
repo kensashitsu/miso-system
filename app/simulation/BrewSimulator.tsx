@@ -136,7 +136,15 @@ function Stepper({
   step: number; unit: string; decimals?: number
   onChange: (v: number) => void
 }) {
+  // フォーカス中は文字列として保持し、確定時にのみ親へ通知する
+  const [draft, setDraft] = useState<string | null>(null)
   const round = (v: number) => Math.round(v * 10 ** decimals) / 10 ** decimals
+  const fmt   = (v: number) => decimals > 0 ? v.toFixed(decimals) : String(v)
+  const commit = (raw: string) => {
+    const v = parseFloat(raw)
+    if (!isNaN(v)) onChange(Math.min(max, Math.max(min, round(v))))
+    setDraft(null)
+  }
   const btnCls = 'w-7 h-7 rounded border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-500 text-base flex items-center justify-center transition-colors select-none'
   return (
     <div className="flex items-center gap-2 py-2.5 border-b border-gray-50 last:border-b-0">
@@ -147,11 +155,14 @@ function Stepper({
       <div className="flex items-center gap-1 shrink-0">
         <button type="button" onClick={() => onChange(Math.max(min, round(value - step)))} className={btnCls}>−</button>
         <input
-          type="number"
-          value={decimals > 0 ? value.toFixed(decimals) : String(value)}
-          min={min} max={max} step={step}
-          onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) onChange(Math.min(max, Math.max(min, round(v)))) }}
-          className="w-16 text-center tabular-nums font-semibold text-sm border border-gray-200 rounded px-1 py-1 text-gray-900 bg-white"
+          type="text"
+          inputMode="decimal"
+          value={draft !== null ? draft : fmt(value)}
+          onFocus={e => { setDraft(fmt(value)); setTimeout(() => e.target.select(), 0) }}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={e => commit(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { commit((e.target as HTMLInputElement).value); (e.target as HTMLInputElement).blur() } }}
+          className="w-16 text-center tabular-nums font-semibold text-sm border border-gray-200 rounded px-1 py-1 text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-violet-400 focus:border-violet-400"
         />
         <button type="button" onClick={() => onChange(Math.min(max, round(value + step)))} className={btnCls}>+</button>
         <span className="text-xs text-gray-400 w-6 shrink-0">{unit}</span>
