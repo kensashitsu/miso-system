@@ -252,7 +252,6 @@ export default function BrewSimulator({
   room2Temp,
   weatherMonthlyDailyAvg,
   weatherMonthlyTempC,
-  baseGrainRatioPct,
 }: {
   baseKojiHo:                number
   baseSaltPct:               number
@@ -268,7 +267,6 @@ export default function BrewSimulator({
   room2Temp:                 number
   weatherMonthlyDailyAvg:    Record<number, number>
   weatherMonthlyTempC:       Record<number, number>
-  baseGrainRatioPct:         number
 }) {
   const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
   const [saltPct,           setSaltPct]           = useState(baseSaltPct)
@@ -278,8 +276,6 @@ export default function BrewSimulator({
   )
   const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温'>('暖房')
   const [brewMonth,        setBrewMonth]        = useState(() => new Date().getMonth() + 1)
-  const [isNoSoybean,      setIsNoSoybean]      = useState(false)
-  const [grainRatioPct,    setGrainRatioPct]    = useState(Math.round(baseGrainRatioPct * 10) / 10)
 
   const dailyAccum = selectedLocation === '暖房'
     ? room1Temp - 10
@@ -292,25 +288,9 @@ export default function BrewSimulator({
     : selectedLocation === '冷房' ? room2Temp
     : (weatherMonthlyTempC[brewMonth] ?? 14)
 
-  // 大豆なしモード：穀物比率→等価麹歩合に変換してモデルに渡す
-  const effectiveKojiHo = isNoSoybean
-    ? baseKojiHo * (grainRatioPct / baseGrainRatioPct)
-    : kojiHo
-
   // 出麹評価は固定（6=標準）。result・base とも同じ温度で比較（配合の差だけを見る）
-  const result = useMemo(() => runModel(effectiveKojiHo, saltPct, 6, locTemp), [effectiveKojiHo, saltPct, locTemp])
+  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp), [kojiHo, saltPct, locTemp])
   const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp), [baseKojiHo, baseSaltPct, locTemp])
-
-  // 大豆なし原料逆算：重量バランスから種水を計算
-  const ingredientsNoSoy = useMemo(() => {
-    if (!isNoSoybean) return null
-    const grainKg    = grainRatioPct / 100 * shikomiKg
-    const kojiKg     = grainKg * kojiRatio
-    const saltKg     = saltPct / 100 * shikomiKg
-    const seedWaterL = shikomiKg - kojiKg - saltKg
-    const moistureResultPct = (kojiKg * mugiKojiMoisture + Math.max(0, seedWaterL)) / shikomiKg * 100
-    return { grainKg, kojiKg, saltKg, seedWaterL, moistureResultPct }
-  }, [isNoSoybean, grainRatioPct, shikomiKg, kojiRatio, saltPct, mugiKojiMoisture])
 
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
@@ -361,19 +341,14 @@ export default function BrewSimulator({
       : 400
 
   const brewUrl = (() => {
-    const ing = isNoSoybean && ingredientsNoSoy
-      ? { grainKg: ingredientsNoSoy.grainKg, kojiKg: ingredientsNoSoy.kojiKg,
-          soybeanKg: 0, saltKg: ingredientsNoSoy.saltKg, seedWaterL: ingredientsNoSoy.seedWaterL }
-      : { grainKg: ingredients.grainKg, kojiKg: ingredients.kojiKg,
-          soybeanKg: ingredients.soybeanKg, saltKg: ingredients.saltKg, seedWaterL: ingredients.seedWaterL }
     const p = new URLSearchParams({
       prototype:     'true',
       targetTempSum: String(brewTargetTempSum),
-      grainKg:       String(Math.round(ing.grainKg    * 10) / 10),
-      kojiKg:        String(Math.round(ing.kojiKg     * 10) / 10),
-      soybeanKg:     String(Math.round(ing.soybeanKg  * 10) / 10),
-      saltKg:        String(Math.round(ing.saltKg     * 10) / 10),
-      seedWaterL:    String(Math.round(ing.seedWaterL * 10) / 10),
+      grainKg:       String(Math.round(ingredients.grainKg    * 10) / 10),
+      kojiKg:        String(Math.round(ingredients.kojiKg     * 10) / 10),
+      soybeanKg:     String(Math.round(ingredients.soybeanKg  * 10) / 10),
+      saltKg:        String(Math.round(ingredients.saltKg     * 10) / 10),
+      seedWaterL:    String(Math.round(ingredients.seedWaterL * 10) / 10),
       shikomiKg:     String(shikomiKg),
     })
     return `/lots/new?${p.toString()}`
@@ -394,53 +369,28 @@ export default function BrewSimulator({
 
           {/* 左：配合設定 */}
           <div className="p-5 sm:border-r border-b sm:border-b-0 border-gray-100">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="text-sm font-semibold text-gray-700">配合設定
-                <span className="text-xs font-normal text-gray-400 ml-2">裸麦使用・水飴なし</span>
-              </h2>
-              <button
-                type="button"
-                onClick={() => setIsNoSoybean(v => !v)}
-                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                  isNoSoybean
-                    ? 'bg-amber-100 text-amber-700 border-amber-300'
-                    : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
-                }`}
-              >
-                大豆なし
-              </button>
-            </div>
+            <h2 className="text-sm font-semibold text-gray-700 mb-1">配合設定
+              <span className="text-xs font-normal text-gray-400 ml-2">裸麦使用・水飴なし</span>
+            </h2>
             <Stepper label="仕立量"
               value={shikomiKg} min={1} max={2000} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
               onChange={setShikomiKg} />
-            {isNoSoybean ? (
-              <Stepper label="穀物比率" sub="穀物（麦）/ 仕立量"
-                value={grainRatioPct} min={10} max={70} step={1} unit="%" decimals={0}
-                onChange={setGrainRatioPct} />
-            ) : (
-              <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
-                value={kojiHo} min={5} max={100} step={kojiHo <= 30 ? 0.5 : 1} unit="割" decimals={kojiHo <= 30 ? 1 : 0}
-                onChange={setKojiHo} />
-            )}
+            <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
+              value={kojiHo} min={10} max={50} step={0.5} unit="割" decimals={1}
+              onChange={setKojiHo} />
             <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
               value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
               onChange={setSaltPct} />
-            {!isNoSoybean && (
-              <Stepper
-                label="目標水分"
-                sub={targetMoistureSampleCount > 0
-                  ? `実績${targetMoistureSampleCount}件平均`
-                  : 'レシピ参考値'}
-                value={targetMoisturePct} min={35} max={55} step={0.5} unit="%" decimals={1}
-                onChange={setTargetMoisturePct} />
-            )}
+            <Stepper
+              label="目標水分"
+              sub={targetMoistureSampleCount > 0
+                ? `実績${targetMoistureSampleCount}件平均`
+                : 'レシピ参考値'}
+              value={targetMoisturePct} min={35} max={55} step={0.5} unit="%" decimals={1}
+              onChange={setTargetMoisturePct} />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2">
               <p className="text-xs text-gray-400">水分活性 aw = {result.aw.toFixed(3)}</p>
-              {isNoSoybean && ingredientsNoSoy != null ? (
-                <p className="text-xs text-gray-400">水分 = {ingredientsNoSoy.moistureResultPct.toFixed(1)}%（計算値）</p>
-              ) : (
-                <p className="text-xs text-gray-400">対水食塩濃度 = {(saltPct / targetMoisturePct * 100).toFixed(1)}%</p>
-              )}
+              <p className="text-xs text-gray-400">対水食塩濃度 = {(saltPct / targetMoisturePct * 100).toFixed(1)}%</p>
             </div>
           </div>
 
@@ -472,29 +422,25 @@ export default function BrewSimulator({
                     <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.koji.toFixed(1)}%</div>
                   </td>
                 </tr>
-                {/* 大豆 → 蒸煮大豆（大豆ありモードのみ） */}
-                {!isNoSoybean && (
-                  <tr className="border-b border-gray-50">
-                    <td className="py-1.5 text-gray-600">大豆</td>
-                    <td className="py-1.5 text-right">
-                      <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.soybeanKg, 'kg')}</div>
-                      <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.soybean.toFixed(1)}%</div>
-                    </td>
-                    <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
-                    <td className="py-1.5 text-gray-500 pl-1">蒸煮大豆</td>
-                    <td className="py-1.5 text-right">
-                      <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</div>
-                      <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.mushi.toFixed(1)}%</div>
-                    </td>
-                  </tr>
-                )}
+                {/* 大豆 → 蒸煮大豆 */}
+                <tr className="border-b border-gray-50">
+                  <td className="py-1.5 text-gray-600">大豆</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.soybeanKg, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.soybean.toFixed(1)}%</div>
+                  </td>
+                  <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
+                  <td className="py-1.5 text-gray-500 pl-1">蒸煮大豆</td>
+                  <td className="py-1.5 text-right">
+                    <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.mushi.toFixed(1)}%</div>
+                  </td>
+                </tr>
                 {/* 塩 */}
                 <tr className="border-b border-gray-50">
                   <td className="py-1.5 text-gray-600">塩</td>
                   <td className="py-1.5 text-right">
-                    <div className="tabular-nums font-semibold text-gray-900">
-                      {fmtQty(isNoSoybean ? (ingredientsNoSoy?.saltKg ?? 0) : ingredients.saltKg, 'kg')}
-                    </div>
+                    <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.saltKg, 'kg')}</div>
                     <div className="text-xs text-gray-300">水分 0%</div>
                   </td>
                   <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">塩分 {saltPct.toFixed(1)}%</td>
@@ -503,18 +449,12 @@ export default function BrewSimulator({
                 <tr className="border-b border-gray-50">
                   <td className="py-1.5 text-gray-600">種水</td>
                   <td className="py-1.5 text-right">
-                    {(() => {
-                      const wl = isNoSoybean ? (ingredientsNoSoy?.seedWaterL ?? 0) : ingredients.seedWaterL
-                      return wl < 0
-                        ? <span className="text-rose-500 text-xs">計算不可</span>
-                        : <div className="tabular-nums font-semibold text-gray-900">{fmtQty(wl, 'L')}</div>
-                    })()}
+                    {ingredients.seedWaterL < 0
+                      ? <span className="text-rose-500 text-xs">計算不可</span>
+                      : <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.seedWaterL, 'L')}</div>
+                    }
                   </td>
-                  <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">
-                    {isNoSoybean
-                      ? '残量（重量バランス）'
-                      : `水分 ${targetMoisturePct.toFixed(1)}%調整`}
-                  </td>
+                  <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">水分 {targetMoisturePct.toFixed(1)}%調整</td>
                 </tr>
                 {/* 仕立量合計 */}
                 <tr className="border-t border-gray-200">
@@ -530,12 +470,10 @@ export default function BrewSimulator({
               </tbody>
             </table>
 
-            {(isNoSoybean ? (ingredientsNoSoy?.seedWaterL ?? 0) < 0 : ingredients.seedWaterL < 0) ? (
+            {ingredients.seedWaterL < 0 ? (
               <p className="text-xs text-rose-600 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                {isNoSoybean
-                  ? '穀物比率が高すぎます。穀物比率または塩分を下げてください。'
-                  : '原料水分が目標を超えています。塩分を増やすか麹歩合を下げてください。'}
+                原料水分が目標を超えています。塩分を増やすか麹歩合を下げてください。
               </p>
             ) : (
               <a href={brewUrl}
