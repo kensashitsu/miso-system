@@ -329,10 +329,7 @@ export default function BrewSimulator({
 
   return (
     <>
-    <div
-      className="space-y-5"
-      style={{ paddingBottom: isDrawerOpen ? 'calc(55vh + 64px)' : '56px' }}
-    >
+    <div className="space-y-5 pb-16">
 
       {/* ── 配合設定 × 原料逆算 2カラム統合カード ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
