@@ -556,11 +556,11 @@ export default function BrewSimulator({
               label={{ value: '4.8', position: 'right', fontSize: 9, fill: '#FCA5A5' }}
             />
 
-            <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" dot={false} isAnimationActive={false} />
-            <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} isAnimationActive={false} />
-            <Line yAxisId="left"  dataKey="AA"       stroke="#5DCAA5" strokeWidth={2}   dot={false} isAnimationActive={false} />
-            <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} isAnimationActive={false} />
-            <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+            <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="AA"       stroke="#5DCAA5" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
