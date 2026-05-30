@@ -10,28 +10,72 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic'
 
 export default async function SimulationPage() {
-  const [moisture, recipe] = await Promise.all([
+  const [moisture, recipe, brewRecords] = await Promise.all([
     getMoistureSettings(),
     prisma.misoRecipe.findFirst({ where: { name: '無添加麦みそ' } }),
+    // 無添加麦みその実績仕込みデータ（直近20件）
+    prisma.lot.findMany({
+      where: {
+        misoType:    '無添加麦みそ',
+        brewRecord:  { isNot: null },
+      },
+      select: {
+        brewRecord: {
+          select: {
+            kojiKg:     true,
+            soybeanKg:  true,
+            seedWaterL: true,
+            shikomiKg:  true,
+            seedMisoKg: true,
+          },
+        },
+      },
+      orderBy: { brewedAt: 'desc' },
+      take: 20,
+    }),
   ])
 
-  const baseGrainKg   = recipe?.grainKg      ?? 650
-  const baseSoybeanKg = recipe?.soybeanKg    ?? 270
-  const baseSaltKg    = recipe?.saltKg       ?? 171
+  const baseGrainKg   = recipe?.grainKg       ?? 650
+  const baseSoybeanKg = recipe?.soybeanKg     ?? 270
+  const baseSaltKg    = recipe?.saltKg        ?? 171
   const baseTotalKg   = recipe?.totalWeightKg ?? 1572
 
   const baseKojiHo  = Math.round((baseGrainKg / baseSoybeanKg) * 10 * 10) / 10
-  const baseSaltPct = Math.round((baseSaltKg / baseTotalKg) * 1000) / 10
+  const baseSaltPct = Math.round((baseSaltKg  / baseTotalKg)   * 1000) / 10
 
   // 蒸煮大豆水分率 = (soybeanRatio - 1 + 大豆含水率) / soybeanRatio
   const steamedSoyMoisture =
     (moisture.soybeanRatio - 1 + moisture.soybean) / moisture.soybeanRatio
 
-  // 無添加麦みそを基準とした目標水分率（種水なしの計算値）
-  const targetMoisture =
-    (baseGrainKg * moisture.kojiRatio * moisture.mugiKoji +
-     baseSoybeanKg * moisture.soybeanRatio * steamedSoyMoisture) /
-    baseTotalKg
+  // 実際の仕込みデータから目標水分率を計算
+  // 水分(%) = (麹×麹水分率 + 蒸煮大豆×蒸煮大豆水分率 + 種水 + 種味噌×種味噌水分率) / 仕立量
+  const validRecords = brewRecords
+    .map(l => l.brewRecord)
+    .filter((br): br is NonNullable<typeof br> =>
+      br != null && br.shikomiKg > 0 && br.kojiKg > 0
+    )
+
+  let targetMoisture: number
+  let targetMoistureSampleCount: number
+
+  if (validRecords.length > 0) {
+    const moistures = validRecords.map(br =>
+      (br.kojiKg     * moisture.mugiKoji +
+       br.soybeanKg  * moisture.soybeanRatio * steamedSoyMoisture +
+       br.seedWaterL +
+       br.seedMisoKg * moisture.seedMiso
+      ) / br.shikomiKg
+    )
+    targetMoisture = moistures.reduce((a, b) => a + b, 0) / moistures.length
+    targetMoistureSampleCount = validRecords.length
+  } else {
+    // 実績なし → レシピから計算（種水なし）
+    targetMoisture =
+      (baseGrainKg * moisture.kojiRatio * moisture.mugiKoji +
+       baseSoybeanKg * moisture.soybeanRatio * steamedSoyMoisture) /
+      baseTotalKg
+    targetMoistureSampleCount = 0
+  }
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
@@ -49,6 +93,7 @@ export default async function SimulationPage() {
         kojiRatio={moisture.kojiRatio}
         soybeanRatio={moisture.soybeanRatio}
         targetMoisture={targetMoisture}
+        targetMoistureSampleCount={targetMoistureSampleCount}
       />
     </div>
   )

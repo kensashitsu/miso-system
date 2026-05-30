@@ -218,19 +218,25 @@ export default function BrewSimulator({
   kojiRatio,
   soybeanRatio,
   targetMoisture,
+  targetMoistureSampleCount,
 }: {
-  baseKojiHo:         number
-  baseSaltPct:        number
-  mugiKojiMoisture:   number
-  steamedSoyMoisture: number
-  kojiRatio:          number
-  soybeanRatio:       number
-  targetMoisture:     number
+  baseKojiHo:                number
+  baseSaltPct:               number
+  mugiKojiMoisture:          number
+  steamedSoyMoisture:        number
+  kojiRatio:                 number
+  soybeanRatio:              number
+  targetMoisture:            number
+  targetMoistureSampleCount: number
 }) {
-  const [kojiHo,    setKojiHo]    = useState(baseKojiHo)
-  const [saltPct,   setSaltPct]   = useState(baseSaltPct)
-  const [kojiQ,     setKojiQ]     = useState(6)
-  const [shikomiKg, setShikomiKg] = useState(80)
+  const [kojiHo,           setKojiHo]           = useState(baseKojiHo)
+  const [saltPct,          setSaltPct]          = useState(baseSaltPct)
+  const [kojiQ,            setKojiQ]            = useState(6)
+  const [shikomiKg,        setShikomiKg]        = useState(80)
+  // 目標水分%：実績データから初期化、ユーザーが微調整可能
+  const [targetMoisturePct, setTargetMoisturePct] = useState(
+    Math.round(targetMoisture * 1000) / 10
+  )
 
   const result = useMemo(() => runModel(kojiHo,  saltPct, kojiQ), [kojiHo, saltPct, kojiQ])
   const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6), [baseKojiHo, baseSaltPct])
@@ -250,13 +256,13 @@ export default function BrewSimulator({
   const sweetnessPotential = kojiHo / baseKojiHo
   const phDiff = result.phFinal - base.phFinal
 
-  // 原料逆算
+  // 原料逆算（目標水分%をユーザー調整値で使用）
   const ingredients = useMemo(() => calcIngredients(
     shikomiKg, kojiHo, saltPct,
     kojiRatio, soybeanRatio,
     mugiKojiMoisture, steamedSoyMoisture,
-    targetMoisture,
-  ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisture])
+    targetMoisturePct / 100,
+  ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
 
   // 「仕込む」ボタン用URL：収穫窓中央を目標積算温度に使用
   const brewTargetTempSum = result.windowStart != null && result.windowEnd != null
@@ -311,6 +317,13 @@ export default function BrewSimulator({
             <Stepper label="仕立量"
               value={shikomiKg} min={30} max={500} step={10} unit="kg" decimals={0}
               onChange={setShikomiKg} />
+            <Stepper
+              label="目標水分"
+              sub={targetMoistureSampleCount > 0
+                ? `実績${targetMoistureSampleCount}件平均`
+                : 'レシピ参考値'}
+              value={targetMoisturePct} min={35} max={55} step={0.5} unit="%" decimals={1}
+              onChange={setTargetMoisturePct} />
             <p className="text-xs text-gray-400 mt-2">水分活性 aw = {result.aw.toFixed(3)}</p>
           </div>
 
@@ -324,7 +337,7 @@ export default function BrewSimulator({
                   { label: '麦麹（参考）',  value: ingredients.kojiKg,     unit: 'kg', note: `裸麦×${kojiRatio}` },
                   { label: '大豆',          value: ingredients.soybeanKg,  unit: 'kg', note: '' },
                   { label: '塩',            value: ingredients.saltKg,     unit: 'kg', note: `塩分 ${saltPct.toFixed(1)}%` },
-                  { label: '種水',          value: ingredients.seedWaterL, unit: 'L',  note: `水分 ${(targetMoisture * 100).toFixed(1)}%調整` },
+                  { label: '種水',          value: ingredients.seedWaterL, unit: 'L',  note: `水分 ${targetMoisturePct.toFixed(1)}%調整` },
                 ].map(({ label, value, unit, note }) => (
                   <tr key={label}>
                     <td className="py-1.5 text-gray-600">{label}</td>
