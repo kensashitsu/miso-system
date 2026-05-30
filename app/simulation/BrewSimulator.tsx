@@ -291,13 +291,12 @@ export default function BrewSimulator({
     targetMoisturePct / 100,
   ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
 
-  // 各原料の水分量（kg）
-  const waterIn = {
-    grain:    ingredients.grainKg       * hadakaMugiMoisture,
-    koji:     ingredients.kojiKg        * mugiKojiMoisture,
-    soybean:  ingredients.soybeanKg     * soybeanRawMoisture,
-    mushi:    ingredients.mushiDaizuKg  * steamedSoyMoisture,
-    seedWater: Math.max(0, ingredients.seedWaterL),
+  // 各原料の含水率（%表示用）
+  const moisturePct = {
+    grain:    hadakaMugiMoisture  * 100,
+    koji:     mugiKojiMoisture    * 100,
+    soybean:  soybeanRawMoisture  * 100,
+    mushi:    steamedSoyMoisture  * 100,
   }
 
   // 「仕込む」ボタン用URL：収穫窓中央を目標積算温度に使用
@@ -377,13 +376,13 @@ export default function BrewSimulator({
                   <td className="py-1.5 text-gray-600">裸麦</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.grainKg, 'kg')}</div>
-                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.grain, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">{moisturePct.grain.toFixed(1)}%</div>
                   </td>
                   <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
                   <td className="py-1.5 text-gray-500 pl-1">麦麹</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.kojiKg, 'kg')}</div>
-                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.koji, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">{moisturePct.koji.toFixed(1)}%</div>
                   </td>
                 </tr>
                 {/* 大豆 → 蒸煮大豆 */}
@@ -391,13 +390,13 @@ export default function BrewSimulator({
                   <td className="py-1.5 text-gray-600">大豆</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.soybeanKg, 'kg')}</div>
-                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.soybean, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">{moisturePct.soybean.toFixed(1)}%</div>
                   </td>
                   <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
                   <td className="py-1.5 text-gray-500 pl-1">蒸煮大豆</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.mushiDaizuKg, 'kg')}</div>
-                    <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.mushi, 'kg')}</div>
+                    <div className="tabular-nums text-xs text-sky-600">{moisturePct.mushi.toFixed(1)}%</div>
                   </td>
                 </tr>
                 {/* 塩 */}
@@ -405,7 +404,7 @@ export default function BrewSimulator({
                   <td className="py-1.5 text-gray-600">塩</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.saltKg, 'kg')}</div>
-                    <div className="text-xs text-gray-300">水 0</div>
+                    <div className="text-xs text-gray-300">0%</div>
                   </td>
                   <td colSpan={3} className="py-1.5 text-right text-xs text-gray-400">塩分 {saltPct.toFixed(1)}%</td>
                 </tr>
@@ -417,7 +416,7 @@ export default function BrewSimulator({
                       ? <span className="text-rose-500 text-xs">計算不可</span>
                       : <>
                           <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.seedWaterL, 'L')}</div>
-                          <div className="tabular-nums text-xs text-sky-600">水 {fmtQty(waterIn.seedWater, 'kg')}</div>
+                          <div className="tabular-nums text-xs text-sky-600">100%</div>
                         </>
                     }
                   </td>
