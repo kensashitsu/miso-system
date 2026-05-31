@@ -863,6 +863,12 @@ const nextConfig: NextConfig = {
 | `K_AMY_BASE` | 0.00420 / (℃・日) | 拘束①②を満たすr=2.0から逆算 |
 | `K_MIC_BASE` | 0.00840 / (℃・日) | 同上（aw=0.83・塩分10.9%時点） |
 | `T_PEAK_BASE` | 165 ℃・日 | 文献値：完成積算温度の約28% |
+| `Q10_ENZ` | 2.0 | アミラーゼの温度感受性 |
+| `Q10_MIC` | 4.0 | 微生物（糖消費）の温度感受性 |
+| `T_REF` | 25 ℃ | キャリブレーション基準温度（暖房デフォルト） |
+| `KOJI_HO_BASE` | 24.1 割 | 無添加麦みそ基準麹歩合 |
+| `SALT_KOJI_RATE` | 0.175 %/割 | 塩分自動連動の傾き（麹歩合1割↑→塩分0.175%↓） |
+| `SOKKO_BA_CLOSE` | 0.75 | 速醸収穫窓の閉じ条件（B×AA積のしきい値） |
 
 **キャリブレーション拘束条件**:
 - ① `T_peak = 165 ℃・日`（r=2.0 → `ln(2)/(kAmy×1) = 165`）
@@ -870,56 +876,107 @@ const nextConfig: NextConfig = {
 
 ### コアモデル式（T = 積算温度 ℃・日）
 
+#### 通常熟成モード（暖房・冷房・常温）
+
 ```
-aw(塩分%)    = 0.99 − 0.015 × 塩分%
-k_amy(kojiQ) = 0.00420 × (kojiQ / 6.0)
-k_mic(aw)    = 0.00840 × (aw − 0.75) / 0.08   ← aw=0.75未満は微生物ほぼ停止
-k_pro        = 0.5 × k_amy × (麹歩合 / 24.1)   ← 麦麹はアミラーゼ優位
-pH_final     = 4.5 + 0.05 × 塩分%
-r            = k_mic / k_amy
+aw(塩分%)     = 0.99 − 0.015 × 塩分%
+k_amy         = 0.00420 × (kojiQ / 6.0) × (麹歩合 / 24.1)   ← 麹歩合で酵素量を反映
+k_mic(aw)     = 0.00840 × (aw − 0.75) / 0.08                 ← aw=0.75未満は微生物ほぼ停止
+k_pro         = 0.5 × k_amy                                    ← 麹歩合はk_amyに含む
+pH_final      = 4.5 + 0.05 × 塩分%
 
-A(T)  = exp(−k_amy × T)
-B(T)  = 1/(r−1) × (exp(−k_amy×T) − exp(−k_mic×T))   ※r≈1はL'Hôpital適用
-C(T)  = 1 − A(T) − B(T)
-AA(T) = 1 − exp(−k_pro × T)                            （0〜1）
-pH(T) = 6.8 − (6.8 − pH_final) × C(T)
+# 仕込み温度による酵素・微生物のQ10差分補正（低温ほど微生物が相対的に減速）
+r = (k_mic / k_amy) × (Q10_MIC / Q10_ENZ) ^ ((locTemp − T_REF) / 10)
 
-T_peak = ln(r) / (k_amy × (r−1))    （糖ピーク到達時刻）
-麦みそ比 = T_peak / 600              （無添加麦みそ基準との相対比）
+A(T)     = exp(−k_amy × T)
+B(T)     = 1/(r−1) × (exp(−k_amy×T) − exp(−k_mic×T))   ※r≈1はL'Hôpital適用
+C(T)     = 1 − A(T) − B(T)
+protein  = exp(−k_pro × T)                                  （タンパク質残存 0→1）
+AA(T)    = 1 − protein                                      （アミノ酸蓄積 0→1）
+pH(T)    = 6.8 − (6.8 − pH_final) × C(T)
+
+T_peak   = ln(r) / (k_amy × (r−1))    （糖ピーク到達時刻）
+T_AApeak = ln(10) / k_pro              （アミノ酸90%変換の積算温度）
+```
+
+#### 速醸モード（50〜65℃の加温熟成）
+
+```
+# 高温でアミラーゼを活性化・微生物を死滅させる手法（西京みそ等）
+k_amy_sokko = K_AMY_BASE × (kojiQ/6.0) × (麹歩合/24.1) × Q10_ENZ^((locTemp−T_REF)/10)
+k_mic       = 0（微生物死滅）
+k_pro_sokko = 0.5 × k_amy_sokko
+
+A(T)    = exp(−k_amy_sokko × T)
+B(T)    = 1 − A(T)    （単調増加、ピークなし）
+C(T)    = 0
+AA(T)   = 1 − exp(−k_pro_sokko × T)
+pH(T)   = 6.8（一定・酸生成なし）
+bMax    = 1（全デンプンが糖に変換）
 ```
 
 ### 着色指数（Maillard）
 
 ```
 f_aw_maillard(aw) = max(0, 1 − |aw − 0.77| / 0.15)   ← aw≈0.77で最大・釣り鐘型
-着色指数(T) = B(T)/B_max × AA(T) × f_aw_maillard(aw) × 100
+着色指数(T) = (B/bMax) × (AA/100%) × f_aw_maillard(aw) × 100
 ```
-
-**awのMaillardへの二重効果**:
-- 微生物活性：aw高いほど活発（k_mic増加）
-- Maillard着色：aw≈0.77で最速、それ以上/以下は遅い
-- → 白みそ域（aw≈0.92）はMaillardが遅い＝着色しにくい、が説明できる
 
 ### 収穫窓の定義
 
+**モード切替可能**（UIのトグルで切替、グラフの緑エリアがアニメーション）：
+
+| モード | 糖の閾値 | 用途 |
+|--------|---------|------|
+| **品質バランス**（デフォルト） | B ≥ 25% of B_max | 無添加麦みそ等の実際の仕上がり（600℃・日付近）に対応 |
+| **甘味重視** | B ≥ 50% of B_max | 甘味のピーク付近を狙う仕込み |
+
+**共通条件**: AA(T) ≥ 30% かつ pH ≥ 4.8
+
+**速醸モードの追加条件**: B × AA > 0.75 で収穫窓を閉じる（高温でのMaillard基質過剰＝着色リスク）
+
+### 甘味ポテンシャル（サマリーカード）
+
 ```
-収穫窓 = { T | B(T) > 0.5×B_max  かつ  AA(T) > 30%  かつ  pH(T) ≥ 4.8 }
+甘味ポテンシャル = (result.bMax × ingredients.grainKg)
+                ÷ (base.bMax   × baseIngredients.grainKg)
 ```
 
-| 条件 | 意味 |
-|------|------|
-| B > 50% of B_max | 甘味が十分にある |
-| AA > 30% | 旨味が最低限ある |
-| pH ≥ 4.8 | 過発酵（酸味過多）でない |
+- `bMax`：デンプンのうちピーク時に糖になる割合（効率）
+- `grainKg`：仕立量あたりの穀物量（デンプン絶対量の代理）
+- 両方を掛け合わせることで「麹歩合が高いほど甘い」を正しく反映
+- `base` は同じ温度・同じモードでの基準配合（無添加麦みそ）との比較
 
 ### 麹歩合と塩分の役割
 
 | 変数 | 主な効果 |
 |------|---------|
-| 麹歩合↑ | k_pro↑（AA蓄積が速い）・甘味ポテンシャル↑（糖産生量↑） |
+| 麹歩合↑ | k_amy↑（酵素量増）→ 糖生産速度↑・甘味ポテンシャル↑ |
+| 麹歩合↑ | 塩分が自動連動で低下（0.175%/割）→ aw↑ → k_mic↑（相殺） |
 | 塩分↑ | aw↓ → k_mic↓（糖消費が遅い）→ 収穫窓が広くなる |
-| 塩分↓ | aw↑ → k_mic↑（糖消費が速い）→ 収穫窓が狭くなる |
+| 低温仕込み | Q10差分でk_micがk_amyより大きく減速 → r低下 → 糖が長く残る |
 | 出麹評価 | UIから削除・内部で6固定（標準） |
+
+### 塩分自動連動
+
+```
+塩分% = baseSaltPct + (baseKojiHo − kojiHo) × 0.175
+```
+
+- 麹歩合変更時に自動計算（高麹歩合ほど低塩の一般論を反映）
+- UIの「連動」トグルでOFF可能（手動調整したい場合）
+
+### 場所セレクタと温度効果
+
+| 選択肢 | locTemp | dailyAccum | 特記 |
+|--------|---------|-----------|------|
+| 暖房 | room1Temp | room1Temp − 10 | 設定画面の暖房温度 |
+| 冷房 | room2Temp | max(room2Temp − 10, 0) | 設定画面の冷房温度 |
+| 常温 | 月平均気温（WeatherCache） | 月平均Q10補正済み | **仕込み開始月**を1〜12月で選択 |
+| 速醸 | sokkoTemp（45〜65℃） | sokkoTemp − 10 | 特別モデル（kMic=0）を使用 |
+
+`locTemp` は `r` の Q10差分補正に使用。グラフ説明文に温度・℃/日換算を表示。
+速醸時はグラフ X軸を 0〜300 ℃・日に縮小（約2〜7日相当）。
 
 ### 除外した例外パラメータ（対象外の品種への対応）
 
@@ -927,7 +984,7 @@ f_aw_maillard(aw) = max(0, 1 − |aw − 0.77| / 0.15)   ← aw≈0.77で最大�
 |------|---------|
 | 田舎みそ | 水飴（B₀オフセット）がA→B→Cの出発点を変える |
 | 山吹みそ | 砕米の表面積効果でk_amyが実態と乖離 |
-| 白みそ | アルコール添加でk_mic≈0・酵素分解のみで完成 |
+| 白みそ（通常熟成） | アルコール添加でk_mic≈0 → 速醸モードで代替可 |
 
 ### 原料逆算（仕立量から全原料を計算）
 
@@ -936,21 +993,16 @@ f_aw_maillard(aw) = max(0, 1 − |aw − 0.77| / 0.15)   ← aw≈0.77で最大�
 ```
 R = 麹歩合/10、P = 塩分%/100、M = 目標水分率
 
-soybeanKg  = 仕立量 × (1 − P − M) / (R×1.2×(1−mugiKoji) + 2.3×(1−steamedSoyMoisture))
-grainKg    = R × soybeanKg
-saltKg     = P × 仕立量
-kojiKg     = grainKg × kojiRatio          （参考値）
-mushiDaizuKg = soybeanKg × soybeanRatio   （参考値）
-seedWaterL = M × 仕立量 − (grainKg×1.2×mugiKoji + soybeanKg×2.3×steamedSoyMoisture)
+soybeanKg    = 仕立量 × (1 − P − M) / (R×1.2×(1−mugiKoji) + 2.3×(1−steamedSoyMoisture))
+grainKg      = R × soybeanKg
+saltKg       = P × 仕立量
+kojiKg       = grainKg × kojiRatio
+mushiDaizuKg = soybeanKg × soybeanRatio
+seedWaterL   = M × 仕立量 − (grainKg×1.2×mugiKoji + soybeanKg×2.3×steamedSoyMoisture)
 ```
 
 **目標水分率（M）の決定**：過去の無添加麦みそBrewRecord（直近20件）から実測平均で算出。
 データがない場合はレシピ計算値（種水なし）にフォールバック。
-
-```typescript
-moisture = (kojiKg × mugiKoji + soybeanKg × soybeanRatio × steamedSoyMoisture
-          + seedWaterL + seedMisoKg × seedMiso) / shikomiKg
-```
 
 仕立量≤10kgのとき原料表示を kg→g・L→mL に自動切り替え。
 
@@ -977,16 +1029,36 @@ moisture = (kojiKg × mugiKoji + soybeanKg × soybeanRatio × steamedSoyMoisture
 
 目標積算温度 = 収穫窓の中央値 `(windowStart + windowEnd) / 2`
 
+### グラフ仕様（Recharts ComposedChart）
+
+- **X軸**：積算温度（℃・日）の絶対値（通常 0〜900、速醸 0〜300）
+- **左Y軸**：0〜110%（各反応の進行度）
+- **右Y軸**：pH 4.0〜7.2
+
+| ライン | 色 | スタイル | 内容 |
+|--------|-----|---------|------|
+| デンプン残存 | グレー | 破線 | A(T) × 100% |
+| タンパク質残存 | ティール | 破線 | protein(T) × 100% |
+| 糖（甘味源） | オレンジ | 実線 | B正規化（B_max=100%） |
+| アミノ酸（旨味源） | エメラルド | 実線 | AA(T) × 100% |
+| 着色指数 | ピンク | 破線 | maillard指数 |
+| pH（右軸） | 紫 | 実線 | pH(T) |
+
+**縦線**：糖ピーク（オレンジ）・アミノ酸ピーク（AA=90%、エメラルド）・基準完成600℃・日（グレー）
+**収穫窓ハイライト**：緑のReferenceArea。モード切替時にx1/x2を400ms ease-outでアニメーション（requestAnimationFrame補間）。
+
 ### UI構成（BrewSimulator.tsx）
 
 - **Stepper入力**：[−] 数値 [+] 形式。フォーカス時に全選択・blur/Enterで確定
-- **2カラムカード**：左=配合設定（仕立量→麹歩合→塩分→目標水分）、右=原料逆算テーブル
-- **グラフアニメーション**：400ms ease-out
-- **ページ順序**：配合設定→グラフ→収穫窓アラート→サマリーカード→モデル注記
+- **2カラムカード**：左=配合設定（仕立量→麹歩合→塩分[連動]→目標水分）、右=原料逆算テーブル
+- **場所セレクタ**：暖房/冷房/常温（月セレクト）/速醸（温度セレクト）
+- **収穫窓モード**：品質バランス / 甘味重視 切替トグル
+- **グラフアニメーション**：ライン 400ms ease-out、収穫窓エリア requestAnimationFrame補間
+- **ページ順序**：配合設定カード→グラフ→収穫窓モード+アラート→サマリーカード→モデル注記
 
 ### ファイル構成
 
 | ファイル | 役割 |
 |---------|------|
-| `app/simulation/page.tsx` | サーバー：レシピ・MoistureSettings・過去BrewRecord（直近20件）を取得、目標水分率を計算 |
-| `app/simulation/BrewSimulator.tsx` | クライアント：Stepper UI・モデル計算・原料逆算・Rechartsグラフ・試作登録ボタン |
+| `app/simulation/page.tsx` | サーバー：レシピ・MoistureSettings・BrewRecord直近20件・WeatherCache月別平均を取得 |
+| `app/simulation/BrewSimulator.tsx` | クライアント：Stepper UI・モデル計算（通常/速醸）・原料逆算・Rechartsグラフ・試作登録ボタン |
