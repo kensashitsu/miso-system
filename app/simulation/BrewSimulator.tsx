@@ -60,60 +60,76 @@ function fAwMaillard(aw: number): number {
   return Math.max(0, 1 - Math.abs(aw - 0.77) / 0.15)
 }
 
-function runModel(kojiHo: number, saltPct: number, kojiQ: number, locTemp: number, bThreshold: number = WINDOW_SWEET): ModelOutput {
+function runModel(
+  kojiHo: number, saltPct: number, kojiQ: number, locTemp: number,
+  bThreshold: number = WINDOW_SWEET, isSokko: boolean = false
+): ModelOutput {
   const aw      = 0.99 - 0.015 * saltPct
-  const kAmy    = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / KOJI_HO_BASE)
-  const kMic    = Math.max(0.0001, K_MIC_BASE * (aw - AW_MIN_MIC) / (AW_BASE - AW_MIN_MIC))
-  // 酵素（Q10≈2）と微生物（Q10≈4）の温度感受性の差でrを補正
-  // 低温ほど微生物がより減速 → r低下 → 糖が長く残る
-  const r       = (kMic / kAmy) * Math.pow(Q10_MIC / Q10_ENZ, (locTemp - T_REF) / 10)
-  const kPro    = 0.5 * kAmy
-  const phFinal = 4.5 + 0.05 * saltPct
+  const kAmyBase = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / KOJI_HO_BASE)
   const fMaillard = fAwMaillard(aw)
 
-  // 糖ピーク時刻
-  const tPeak = Math.abs(r - 1) > 0.001
-    ? Math.log(r) / (kAmy * (r - 1))
-    : 1 / kAmy   // r≈1 の極限（L'Hôpital）
+  let kAmy: number, kMic: number, r: number, phFinal: number
 
-  // B_max (A₀=1 に正規化)
-  const bMax = Math.abs(r - 1) > 0.001
-    ? (1 / (r - 1)) * (Math.exp(-kAmy * tPeak) - Math.exp(-kMic * tPeak))
-    : kAmy * tPeak * Math.exp(-kAmy * tPeak)
+  if (isSokko) {
+    // 速醸：高温でアミラーゼを活性化、微生物は死滅（kMic=0）
+    kAmy    = kAmyBase * Math.pow(Q10_ENZ, (locTemp - T_REF) / 10)
+    kMic    = 0
+    r       = 0
+    phFinal = PH_INITIAL  // 微生物がいないのでpHは変化しない
+  } else {
+    kAmy    = kAmyBase
+    kMic    = Math.max(0.0001, K_MIC_BASE * (aw - AW_MIN_MIC) / (AW_BASE - AW_MIN_MIC))
+    r       = (kMic / kAmy) * Math.pow(Q10_MIC / Q10_ENZ, (locTemp - T_REF) / 10)
+    phFinal = 4.5 + 0.05 * saltPct
+  }
+
+  const kPro = 0.5 * kAmy
+
+  // 糖ピーク時刻・B_max
+  let tPeak: number, bMax: number
+  if (isSokko) {
+    // 速醸: B = 1 - exp(-kAmy×T)（単調増加、ピークなし）
+    tPeak = T_MAX
+    bMax  = 1
+  } else if (Math.abs(r - 1) > 0.001) {
+    tPeak = Math.log(r) / (kAmy * (r - 1))
+    bMax  = (1 / (r - 1)) * (Math.exp(-kAmy * tPeak) - Math.exp(-kMic * tPeak))
+  } else {
+    tPeak = 1 / kAmy
+    bMax  = kAmy * tPeak * Math.exp(-kAmy * tPeak)
+  }
 
   const points: ChartPoint[] = []
   let windowStart: number | null = null
   let windowEnd:   number | null = null
 
   for (let i = 0; i <= T_MAX / STEP; i++) {
-    const T    = i * STEP
-    const A    = Math.exp(-kAmy * T)
-    const Braw = Math.abs(r - 1) > 0.001
-      ? (1 / (r - 1)) * (Math.exp(-kAmy * T) - Math.exp(-kMic * T))
-      : kAmy * T * Math.exp(-kAmy * T)
-    const Bnorm     = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
-    const C         = Math.max(0, 1 - A - Math.max(0, Braw))
-    const AAnorm    = (1 - Math.exp(-kPro * T)) * 100   // 収穫窓・着色指数の内部計算用
-    const protein   = Math.exp(-kPro * T) * 100          // タンパク質残存 = 100 - AA
-    const pH        = PH_INITIAL - (PH_INITIAL - phFinal) * C
-    const maillard  = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
+    const T = i * STEP
+    const A = Math.exp(-kAmy * T)
+
+    let Braw: number
+    if (isSokko) {
+      Braw = 1 - A  // 全デンプンが糖へ（微生物消費なし）
+    } else if (Math.abs(r - 1) > 0.001) {
+      Braw = (1 / (r - 1)) * (Math.exp(-kAmy * T) - Math.exp(-kMic * T))
+    } else {
+      Braw = kAmy * T * Math.exp(-kAmy * T)
+    }
+
+    const Bnorm   = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
+    const C       = Math.max(0, 1 - A - Math.max(0, Braw))
+    const AAnorm  = (1 - Math.exp(-kPro * T)) * 100
+    const protein = Math.exp(-kPro * T) * 100
+    const pH      = PH_INITIAL - (PH_INITIAL - phFinal) * C
+    const maillard = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
 
     const inWindow = Braw > bThreshold * bMax && AAnorm > 30 && pH >= 4.8
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
 
-    points.push({
-      x: T,
-      A: A * 100,
-      B: Bnorm,
-      protein,
-      AA: AAnorm,
-      pH,
-      maillard,
-    })
+    points.push({ x: T, A: A * 100, B: Bnorm, protein, AA: AAnorm, pH, maillard })
   }
 
-  // AA=90%（タンパク質の90%変換）に必要な積算温度
   const tAAPeak = Math.log(10) / kPro
 
   return { points, tPeak, tAAPeak, bMax, aw, phFinal, windowStart, windowEnd }
@@ -279,11 +295,13 @@ export default function BrewSimulator({
   const [targetMoisturePct, setTargetMoisturePct] = useState(
     Math.round(targetMoisture * 1000) / 10
   )
-  const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温'>('暖房')
+  const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温' | '速醸'>('暖房')
   const [brewMonth,        setBrewMonth]        = useState(() => new Date().getMonth() + 1)
+  const [sokkoTemp,        setSokkoTemp]        = useState(55)
   const [linkSalt,         setLinkSalt]         = useState(true)
   const [windowMode,       setWindowMode]       = useState<'sweet' | 'balance'>('balance')
 
+  const isSokko    = selectedLocation === '速醸'
   const bThreshold = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
 
   const handleKojiHoChange = (v: number) => {
@@ -296,20 +314,23 @@ export default function BrewSimulator({
     }
   }
 
-  const dailyAccum = selectedLocation === '暖房'
-    ? room1Temp - 10
-    : selectedLocation === '冷房'
-    ? Math.max(room2Temp - 10, 0)
-    : (weatherMonthlyDailyAvg[brewMonth] ?? 4)
+  const dailyAccum = selectedLocation === '暖房' ? room1Temp - 10
+    : selectedLocation === '冷房'  ? Math.max(room2Temp - 10, 0)
+    : selectedLocation === '常温'  ? (weatherMonthlyDailyAvg[brewMonth] ?? 4)
+    : sokkoTemp - 10  // 速醸
 
   // 仕込み温度（℃）：Q10補正でrを調整するために使用
   const locTemp = selectedLocation === '暖房' ? room1Temp
-    : selectedLocation === '冷房' ? room2Temp
-    : (weatherMonthlyTempC[brewMonth] ?? 14)
+    : selectedLocation === '冷房'  ? room2Temp
+    : selectedLocation === '常温'  ? (weatherMonthlyTempC[brewMonth] ?? 14)
+    : sokkoTemp  // 速醸
 
-  // 出麹評価は固定（6=標準）。result・base とも同じ温度で比較（配合の差だけを見る）
-  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp, bThreshold), [kojiHo, saltPct, locTemp, bThreshold])
-  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp, bThreshold), [baseKojiHo, baseSaltPct, locTemp, bThreshold])
+  // 速醸時はグラフ範囲を縮小（全変化が数日分に収まる）
+  const chartMax = isSokko ? 300 : T_MAX
+
+  // 出麹評価は固定（6=標準）。result・base とも同じ温度・同じモードで比較
+  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp, bThreshold, isSokko), [kojiHo, saltPct, locTemp, bThreshold, isSokko])
+  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp, bThreshold, isSokko), [baseKojiHo, baseSaltPct, locTemp, bThreshold, isSokko])
 
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
@@ -573,14 +594,14 @@ export default function BrewSimulator({
         <div className="flex flex-wrap items-center gap-2 mb-0.5">
           <h2 className="text-sm font-semibold text-gray-700">発酵進行度</h2>
           <div className="ml-auto flex rounded border border-gray-200 overflow-hidden text-xs">
-            {(['暖房', '冷房', '常温'] as const).map(loc => (
+            {(['暖房', '冷房', '常温', '速醸'] as const).map(loc => (
               <button
                 key={loc}
                 type="button"
                 onClick={() => setSelectedLocation(loc)}
                 className={`px-2.5 py-1 transition-colors ${
                   selectedLocation === loc
-                    ? 'bg-violet-600 text-white'
+                    ? loc === '速醸' ? 'bg-rose-500 text-white' : 'bg-violet-600 text-white'
                     : 'bg-white text-gray-500 hover:bg-gray-50'
                 }`}
               >
@@ -600,15 +621,30 @@ export default function BrewSimulator({
                   <option key={m} value={m}>{m}月</option>
                 ))}
               </select>
-              <span className="text-gray-400">
-                （月平均 {(weatherMonthlyTempC[brewMonth] ?? 14).toFixed(1)}℃）
-              </span>
+              <span className="text-gray-400">（月平均 {(weatherMonthlyTempC[brewMonth] ?? 14).toFixed(1)}℃）</span>
+            </div>
+          )}
+          {selectedLocation === '速醸' && (
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-gray-500">加温温度</span>
+              <select
+                value={sokkoTemp}
+                onChange={e => setSokkoTemp(Number(e.target.value))}
+                className="border border-rose-200 rounded px-1.5 py-0.5 bg-white text-gray-700 text-xs"
+              >
+                {[45, 48, 50, 52, 55, 58, 60, 63, 65].map(t => (
+                  <option key={t} value={t}>{t}℃</option>
+                ))}
+              </select>
+              <span className="text-gray-400">微生物死滅・酵素のみ活性</span>
             </div>
           )}
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          X軸：積算温度（℃・日）　右Y軸：pH
-          <span className="text-violet-600 ml-1">{selectedLocation}（{locTemp.toFixed(1)}℃）：{dailyAccum.toFixed(1)} ℃/日換算</span>
+          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{chartMax}℃・日表示</span>}　右Y軸：pH
+          <span className={`ml-1 ${isSokko ? 'text-rose-500' : 'text-violet-600'}`}>
+            {selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算
+          </span>
         </p>
 
         {/* 凡例 */}
@@ -640,8 +676,10 @@ export default function BrewSimulator({
             <XAxis
               dataKey="x"
               type="number"
-              domain={[0, T_MAX]}
-              ticks={[0, 150, 300, 450, 600, 750, 900]}
+              domain={[0, chartMax]}
+              ticks={isSokko
+                ? [0, 50, 100, 150, 200, 250, 300]
+                : [0, 150, 300, 450, 600, 750, 900]}
               tickFormatter={v => v === 0 ? '0' : String(v)}
               tick={{ fontSize: 10, fill: '#9CA3AF' }}
               axisLine={false} tickLine={false}
@@ -818,6 +856,7 @@ export default function BrewSimulator({
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>アミノ酸ピーク：タンパク質の90%がアミノ酸に変換された時点（AA=90%）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
+        <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
       </div>
     </div>
   )
