@@ -31,8 +31,8 @@ const SALT_KOJI_RATE = 0.175
 // 収穫窓の糖閾値
 const WINDOW_SWEET   = 0.50  // 甘味重視：糖がピークの50%以上
 const WINDOW_BALANCE = 0.25  // 品質バランス：糖がピークの25%以上（600℃・日付近まで含む）
-// 速醸の収穫窓：着色指数がこの値を超えたら閉じる（激しい着色＝品質劣化）
-const MAILLARD_SOKKO_MAX = 20
+// 速醸の収穫窓：糖×アミノ酸の積がこの値を超えたら閉じる（Maillard基質が過剰＝着色リスク）
+const SOKKO_BA_CLOSE = 0.75
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -125,9 +125,9 @@ function runModel(
     const pH      = PH_INITIAL - (PH_INITIAL - phFinal) * C
     const maillard = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
 
-    // 速醸は着色指数がしきい値を超えたら収穫窓を閉じる（着色＝品質劣化）
+    // 速醸は「糖×アミノ酸 > 0.75」でMaillard基質が過剰になったら収穫窓を閉じる
     const inWindow = Braw > bThreshold * bMax && AAnorm > 30 && pH >= 4.8
-      && (!isSokko || maillard < MAILLARD_SOKKO_MAX)
+      && (!isSokko || (Bnorm / 100) * (AAnorm / 100) < SOKKO_BA_CLOSE)
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
 
@@ -860,7 +860,7 @@ export default function BrewSimulator({
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>アミノ酸ピーク：タンパク質の90%がアミノ酸に変換された時点（AA=90%）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
-        <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は着色指数 ≥ {MAILLARD_SOKKO_MAX} で閉じる（高温での激しい着色＝品質劣化のモデル化）。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
+        <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は糖×アミノ酸の積 ≥ {SOKKO_BA_CLOSE}（Maillard基質が過剰になる時点）で閉じる。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
       </div>
     </div>
   )
