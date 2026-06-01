@@ -283,6 +283,33 @@ function MetricCard({
   )
 }
 
+// ── ライン設定（凡例・グラフ共通） ───────────────────────────────────────────
+type DotShape = 'circle' | 'diamond' | 'triangle' | 'square' | null
+
+const LINE_CONFIG = [
+  { key: 'A',        color: '#9CA3AF', label: 'デンプン残存',           dash: '4 2',    shape: null       as DotShape, sw: 1.2, axis: 'left'  as const },
+  { key: 'protein',  color: '#5DCAA5', label: 'タンパク質残存',         dash: '4 2',    shape: null       as DotShape, sw: 1.2, axis: 'left'  as const },
+  { key: 'bitter',   color: '#B07D47', label: '苦味ペプチド（中間体）', dash: '3 2',    shape: 'diamond'  as DotShape, sw: 1.5, axis: 'left'  as const },
+  { key: 'B',        color: '#C8963E', label: '糖（甘味源）',           dash: undefined, shape: 'circle'  as DotShape, sw: 2.5, axis: 'left'  as const },
+  { key: 'AA',       color: '#34D399', label: 'アミノ酸（旨味源）',     dash: undefined, shape: 'triangle' as DotShape, sw: 2.5, axis: 'left'  as const },
+  { key: 'alcohol',  color: '#6B8FBF', label: 'アルコール（推定）',     dash: '2 3',    shape: 'square'  as DotShape, sw: 1.5, axis: 'left'  as const },
+  { key: 'maillard', color: '#E07B7B', label: '着色指数',               dash: '2 2',    shape: null       as DotShape, sw: 1.2, axis: 'left'  as const },
+  { key: 'pH',       color: '#9B7FC8', label: 'pH（右軸）',             dash: undefined, shape: null      as DotShape, sw: 1.5, axis: 'right' as const },
+]
+
+// 凡例・グラフのマーカー描画（中心座標を受け取りSVG要素を返す）
+function renderMarker(shape: DotShape, color: string, cx: number, cy: number, k: string) {
+  if (shape === 'circle')
+    return <circle key={k} cx={cx} cy={cy} r={4} fill={color} stroke="white" strokeWidth={1.5} />
+  if (shape === 'diamond')
+    return <polygon key={k} points={`${cx},${cy-5} ${cx+4},${cy} ${cx},${cy+5} ${cx-4},${cy}`} fill={color} stroke="white" strokeWidth={1} />
+  if (shape === 'triangle')
+    return <polygon key={k} points={`${cx},${cy-5} ${cx+4.5},${cy+3} ${cx-4.5},${cy+3}`} fill={color} stroke="white" strokeWidth={1} />
+  if (shape === 'square')
+    return <rect key={k} x={cx-3.5} y={cy-3.5} width={7} height={7} fill={color} stroke="white" strokeWidth={1} />
+  return null
+}
+
 // ── 原料逆算 ────────────────────────────────────────────────────────────────
 // 仕立量・麹歩合・塩分%・水分目標から全原料量を計算
 // 連立方程式の解析解（CLAUDE.md「試作シミュレーター」セクション参照）
@@ -350,6 +377,13 @@ export default function BrewSimulator({
   const [sokkoTemp,        setSokkoTemp]        = useState(55)
   const [linkSalt,         setLinkSalt]         = useState(true)
   const [windowMode,       setWindowMode]       = useState<'sweet' | 'balance'>('balance')
+  const [hiddenLines,      setHiddenLines]      = useState<Set<string>>(new Set())
+  const toggleLine = (key: string) => setHiddenLines(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    return next
+  })
+  const dotInterval = isSokko ? 10 : 30
 
   const isSokko    = selectedLocation === '速醸'
   const bThreshold = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
@@ -702,29 +736,39 @@ export default function BrewSimulator({
           )}
         </p>
 
-        {/* 凡例 */}
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5 mb-4">
-          {[
-            { color: '#9CA3AF', label: 'デンプン残存', dash: '4 2' },
-            { color: '#5DCAA5', label: 'タンパク質残存', dash: '4 2' },
-            { color: '#B07D47', label: '苦味ペプチド（中間体）', dash: '3 2' },
-            { color: '#C8963E', label: '糖（甘味源）' },
-            { color: '#34D399', label: 'アミノ酸（旨味源）' },
-            { color: '#6B8FBF', label: 'アルコール（推定）', dash: '2 3' },
-            { color: '#E07B7B', label: '着色指数', dash: '2 2' },
-            { color: '#9B7FC8', label: 'pH（右軸）' },
-          ].map(({ color, label, dash }) => (
-            <span key={label} className="flex items-center gap-1.5 text-xs text-gray-500">
-              <svg width="18" height="8" style={{ flexShrink: 0 }}>
-                <line x1="0" y1="4" x2="18" y2="4" stroke={color} strokeWidth={2} strokeDasharray={dash} />
-              </svg>
-              {label}
-            </span>
-          ))}
+        {/* 凡例（クリックで表示/非表示切替） */}
+        <div className="flex flex-wrap gap-x-3 gap-y-1.5 mb-4 items-center">
+          {LINE_CONFIG.map(({ key, color, label, dash, shape, sw }) => {
+            const hidden = hiddenLines.has(key)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleLine(key)}
+                title={hidden ? '表示する' : '非表示にする'}
+                className={`flex items-center gap-1.5 text-xs transition-opacity select-none ${hidden ? 'opacity-25' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <svg width="28" height="10" style={{ flexShrink: 0 }}>
+                  <line x1="0" y1="5" x2="28" y2="5" stroke={color} strokeWidth={sw} strokeDasharray={dash} />
+                  {shape && renderMarker(shape, color, 14, 5, `leg-${key}`)}
+                </svg>
+                {label}
+              </button>
+            )
+          })}
           <span className="flex items-center gap-1.5 text-xs text-gray-500">
             <span style={{ display: 'inline-block', width: 12, height: 12, background: '#D1FAE5', border: '1px solid #6EE7B7', borderRadius: 2 }} />
             収穫窓
           </span>
+          {hiddenLines.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setHiddenLines(new Set())}
+              className="ml-1 text-xs text-violet-500 hover:text-violet-700 underline"
+            >
+              全て表示
+            </button>
+          )}
         </div>
 
         <ResponsiveContainer width="100%" height={300}>
@@ -836,14 +880,22 @@ export default function BrewSimulator({
               label={{ value: '4.8', position: 'right', fontSize: 9, fill: '#FCA5A5' }}
             />
 
-            <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="protein"  stroke="#5DCAA5" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="bitter"   stroke="#B07D47" strokeWidth={1.5} strokeDasharray="3 2" dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="AA"       stroke="#34D399" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="alcohol"  stroke="#6B8FBF" strokeWidth={1.5} strokeDasharray="2 3" dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} animationDuration={400} animationEasing="ease-out" />
-            <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} animationDuration={400} animationEasing="ease-out" />
+            {/* 細い補助ライン（ドットなし） */}
+            <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.2} strokeDasharray="4 2" dot={false} hide={hiddenLines.has('A')}        animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="protein"  stroke="#5DCAA5" strokeWidth={1.2} strokeDasharray="4 2" dot={false} hide={hiddenLines.has('protein')}   animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.2} strokeDasharray="2 2" dot={false} hide={hiddenLines.has('maillard')}  animationDuration={400} animationEasing="ease-out" />
+            {/* 中太ライン（◆ダイヤ） */}
+            <Line yAxisId="left"  dataKey="bitter"   stroke="#B07D47" strokeWidth={1.5} strokeDasharray="3 2" hide={hiddenLines.has('bitter')}   animationDuration={400} animationEasing="ease-out"
+              dot={(p: any) => p.cx == null || p.index % dotInterval !== 0 ? null : renderMarker('diamond',  '#B07D47', p.cx, p.cy, `bi${p.index}`)} />
+            {/* 中太ライン（■スクエア） */}
+            <Line yAxisId="left"  dataKey="alcohol"  stroke="#6B8FBF" strokeWidth={1.5} strokeDasharray="2 3" hide={hiddenLines.has('alcohol')}  animationDuration={400} animationEasing="ease-out"
+              dot={(p: any) => p.cx == null || p.index % dotInterval !== 0 ? null : renderMarker('square',   '#6B8FBF', p.cx, p.cy, `al${p.index}`)} />
+            {/* 太い主ライン（●サークル・▲トライアングル） */}
+            <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2.5} hide={hiddenLines.has('B')}         animationDuration={400} animationEasing="ease-out"
+              dot={(p: any) => p.cx == null || p.index % dotInterval !== 0 ? null : renderMarker('circle',   '#C8963E', p.cx, p.cy, `B${p.index}`)} />
+            <Line yAxisId="left"  dataKey="AA"       stroke="#34D399" strokeWidth={2.5} hide={hiddenLines.has('AA')}        animationDuration={400} animationEasing="ease-out"
+              dot={(p: any) => p.cx == null || p.index % dotInterval !== 0 ? null : renderMarker('triangle', '#34D399', p.cx, p.cy, `AA${p.index}`)} />
+            <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} hide={hiddenLines.has('pH')}  animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
