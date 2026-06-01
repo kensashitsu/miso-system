@@ -33,6 +33,9 @@ const WINDOW_SWEET   = 0.50  // 甘味重視：糖がピークの50%以上
 const WINDOW_BALANCE = 0.25  // 品質バランス：糖がピークの25%以上（600℃・日付近まで含む）
 // 速醸の収穫窓：糖×アミノ酸の積がこの値を超えたら閉じる（Maillard基質が過剰＝着色リスク）
 const SOKKO_BA_CLOSE = 0.75
+// 苦味ペプチド→アミノ酸の分解レート比（kPeptidase = kPro × R_BITTER）
+// r=2 のとき苦味ピーク = ln(2)/kPro（糖ピーク計算と対称的な構造）
+const R_BITTER = 2.0
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -40,20 +43,23 @@ type ChartPoint = {
   A:        number   // デンプン残存 100〜0%
   B:        number   // 糖（B_max = 100 に正規化）
   protein:  number   // タンパク質残存 100〜0%
-  AA:       number   // アミノ酸蓄積 0〜100%
+  bitter:   number   // 苦味ペプチド（タンパク質の何%が苦味中間体として存在するか）
+  AA:       number   // アミノ酸蓄積 0〜100%（二段階: タンパク質→苦味ペプチド→アミノ酸）
   pH:       number
   maillard: number   // 着色指数 0〜100（B × AA × f_aw）
 }
 
 type ModelOutput = {
-  points:      ChartPoint[]
-  tPeak:       number
-  tAAPeak:     number    // AA=90%（タンパク質の90%がアミノ酸に変換）の積算温度
-  bMax:        number
-  aw:          number
-  phFinal:     number
-  windowStart: number | null   // ℃・日
-  windowEnd:   number | null
+  points:       ChartPoint[]
+  tPeak:        number
+  tAAPeak:      number    // AA=90%（タンパク質の90%がアミノ酸に変換）の積算温度（二段階モデル）
+  tBitterPeak:  number    // 苦味ペプチドがピークに達する積算温度
+  bitterMax:    number    // 苦味ペプチドのピーク値（%）
+  bMax:         number
+  aw:           number
+  phFinal:      number
+  windowStart:  number | null   // ℃・日
+  windowEnd:    number | null
 }
 
 // ── コアモデル関数 ────────────────────────────────────────────────────────────
@@ -91,6 +97,9 @@ function runModel(
   // raw kMic ではなく kMicEff をB計算に使うことで r < 1 でも B(T) が常に非負になる
   const kMicEff = isSokko ? 0 : kAmy * r
 
+  // タンパク質→苦味ペプチド→アミノ酸の二段階分解レート
+  const kPeptidase = kPro * R_BITTER  // 苦味ペプチドの分解レート（kPro の R_BITTER 倍）
+
   // 糖ピーク時刻・B_max
   let tPeak: number, bMax: number
   if (isSokko) {
@@ -104,6 +113,11 @@ function runModel(
     tPeak = 1 / kAmy
     bMax  = kAmy * tPeak * Math.exp(-kAmy * tPeak)
   }
+
+  // 苦味ピーク時刻・最大苦味（タンパク質→苦味ペプチド→アミノ酸 と同型の中間極大）
+  const tBitterPeak  = Math.log(R_BITTER) / (kPro * (R_BITTER - 1))  // = ln(2)/kPro
+  const bitterAtPeak = Math.max(0, (1 / (R_BITTER - 1)) * (Math.exp(-kPro * tBitterPeak) - Math.exp(-kPeptidase * tBitterPeak)))
+  const bitterMax    = bitterAtPeak * 100
 
   const points: ChartPoint[] = []
   let windowStart: number | null = null
@@ -122,10 +136,17 @@ function runModel(
       Braw = kAmy * T * Math.exp(-kAmy * T)
     }
 
+    // 苦味ペプチド（タンパク質の何%が苦味中間体として存在するか）
+    const proteinFrac = Math.exp(-kPro * T)
+    const bitterRaw   = Math.max(0, (1 / (R_BITTER - 1)) * (proteinFrac - Math.exp(-kPeptidase * T)))
+    const bitter      = bitterRaw * 100
+    // アミノ酸：二段階反応の最終生成物（= 1 - タンパク質残存 - 苦味ペプチド）
+    // R_BITTER=2 のとき AA = (1 - exp(-kPro×T))² と等価
+    const AAnorm  = Math.max(0, (1 - proteinFrac - bitterRaw)) * 100
+    const protein = proteinFrac * 100
+
     const Bnorm   = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
     const C       = Math.max(0, 1 - A - Math.max(0, Braw))
-    const AAnorm  = (1 - Math.exp(-kPro * T)) * 100
-    const protein = Math.exp(-kPro * T) * 100
     const pH      = PH_INITIAL - (PH_INITIAL - phFinal) * C
     const maillard = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
 
@@ -135,12 +156,13 @@ function runModel(
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
 
-    points.push({ x: T, A: A * 100, B: Bnorm, protein, AA: AAnorm, pH, maillard })
+    points.push({ x: T, A: A * 100, B: Bnorm, protein, bitter, AA: AAnorm, pH, maillard })
   }
 
-  const tAAPeak = Math.log(10) / kPro
+  // AA=90% は二段階モデルで (1-exp(-kPro×T))² = 0.9 → T = -ln(1-√0.9)/kPro
+  const tAAPeak = -Math.log(1 - Math.sqrt(0.9)) / kPro
 
-  return { points, tPeak, tAAPeak, bMax, aw, phFinal, windowStart, windowEnd }
+  return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, windowStart, windowEnd }
 }
 
 // ── カスタムツールチップ ──────────────────────────────────────────────────────
@@ -164,6 +186,7 @@ function ChartTooltip({
       </p>
       <p style={{ color: '#9CA3AF', margin: 0 }}>デンプン残存：{d.A.toFixed(1)}%</p>
       <p style={{ color: '#5DCAA5', margin: 0 }}>タンパク質残存：{d.protein.toFixed(1)}%</p>
+      <p style={{ color: '#B07D47', margin: 0 }}>苦味ペプチド：{d.bitter.toFixed(1)}%</p>
       <p style={{ color: '#C8963E', margin: 0 }}>糖（相対）：{d.B.toFixed(1)}%</p>
       <p style={{ color: '#34D399', margin: 0 }}>アミノ酸蓄積：{d.AA.toFixed(1)}%</p>
       <p style={{ color: '#E07B7B', margin: 0 }}>着色指数：{d.maillard.toFixed(1)}</p>
@@ -660,6 +683,7 @@ export default function BrewSimulator({
           {[
             { color: '#9CA3AF', label: 'デンプン残存', dash: '4 2' },
             { color: '#5DCAA5', label: 'タンパク質残存', dash: '4 2' },
+            { color: '#B07D47', label: '苦味ペプチド（中間体）', dash: '3 2' },
             { color: '#C8963E', label: '糖（甘味源）' },
             { color: '#34D399', label: 'アミノ酸（旨味源）' },
             { color: '#E07B7B', label: '着色指数', dash: '2 2' },
@@ -744,8 +768,16 @@ export default function BrewSimulator({
               stroke="#F59E0B" strokeWidth={1.5}
               label={{ value: '糖ピーク', position: 'insideTopRight', fontSize: 9, fill: '#F59E0B' }}
             />
+            {/* 縦線：苦味ペプチドピーク */}
+            {result.tBitterPeak <= chartMax && (
+              <ReferenceLine
+                yAxisId="left" x={result.tBitterPeak}
+                stroke="#B07D47" strokeWidth={1} strokeDasharray="2 3"
+                label={{ value: '苦味ピーク', position: 'insideTopRight', fontSize: 9, fill: '#B07D47' }}
+              />
+            )}
             {/* 縦線：アミノ酸ピーク（AA=90%、グラフ範囲内のみ表示） */}
-            {result.tAAPeak <= T_MAX && (
+            {result.tAAPeak <= chartMax && (
               <ReferenceLine
                 yAxisId="left" x={result.tAAPeak}
                 stroke="#34D399" strokeWidth={1.5}
@@ -761,6 +793,7 @@ export default function BrewSimulator({
 
             <Line yAxisId="left"  dataKey="A"        stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="protein"  stroke="#5DCAA5" strokeWidth={1.5} strokeDasharray="4 2" dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="bitter"   stroke="#B07D47" strokeWidth={1.5} strokeDasharray="3 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="AA"       stroke="#34D399" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} animationDuration={400} animationEasing="ease-out" />
@@ -862,7 +895,8 @@ export default function BrewSimulator({
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
-        <p>アミノ酸ピーク：タンパク質の90%がアミノ酸に変換された時点（AA=90%）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
+        <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
+        <p>アミノ酸ピーク：二段階モデルでAA=90%に達する時点（旧一段階モデルより約30%遅い）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
         <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は糖×アミノ酸の積 ≥ {SOKKO_BA_CLOSE}（Maillard基質が過剰になる時点）で閉じる。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
       </div>
