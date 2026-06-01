@@ -36,6 +36,11 @@ const SOKKO_BA_CLOSE = 0.75
 // 苦味ペプチド→アミノ酸の分解レート比（kPeptidase = kPro × R_BITTER）
 // r=2 のとき苦味ピーク = ln(2)/kPro（糖ピーク計算と対称的な構造）
 const R_BITTER = 2.0
+// アルコール生成モデル（酵母活性の塩分・温度依存）
+const F_YEAST_BASE      = 0.40   // 塩分5%・適温時の最大酵母比率（糖→アルコールの割合）
+const F_YEAST_SALT_RATE = 0.020  // 塩分1%あたりの酵母比率低下量
+const YEAST_SUPPRESS_TEMP = 35   // 酵母が抑制され始める温度（℃）
+const YEAST_DEATH_TEMP    = 50   // 酵母が死滅する温度（℃、速醸領域）
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -45,8 +50,9 @@ type ChartPoint = {
   protein:  number   // タンパク質残存 100〜0%
   bitter:   number   // 苦味ペプチド（タンパク質の何%が苦味中間体として存在するか）
   AA:       number   // アミノ酸蓄積 0〜100%（二段階: タンパク質→苦味ペプチド→アミノ酸）
+  alcohol:  number   // アルコール蓄積（初期デンプンのうちアルコールへ転換された割合%）
   pH:       number
-  maillard: number   // 着色指数 0〜100（B × AA × f_aw）
+  maillard: number   // 着色指数（累積値）
 }
 
 type ModelOutput = {
@@ -58,6 +64,7 @@ type ModelOutput = {
   bMax:         number
   aw:           number
   phFinal:      number
+  fYeast:       number    // 酵母比率（糖→アルコールの割合。塩分・温度補正済み）
   windowStart:  number | null   // ℃・日
   windowEnd:    number | null
 }
@@ -99,6 +106,12 @@ function runModel(
 
   // タンパク質→苦味ペプチド→アミノ酸の二段階分解レート
   const kPeptidase = kPro * R_BITTER  // 苦味ペプチドの分解レート（kPro の R_BITTER 倍）
+
+  // 酵母比率：糖のうちアルコールへ転換される割合（塩分↑・温度↑で低下）
+  const fYeastSalt = Math.max(0.05, Math.min(F_YEAST_BASE, F_YEAST_BASE - F_YEAST_SALT_RATE * (saltPct - 5)))
+  const fYeastTemp = isSokko ? 0
+    : Math.max(0, Math.min(1, (YEAST_DEATH_TEMP - locTemp) / (YEAST_DEATH_TEMP - YEAST_SUPPRESS_TEMP)))
+  const fYeast = fYeastSalt * fYeastTemp
 
   // 糖ピーク時刻・B_max
   let tPeak: number, bMax: number
@@ -148,6 +161,7 @@ function runModel(
 
     const Bnorm   = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
     const C       = Math.max(0, 1 - A - Math.max(0, Braw))
+    const alcohol = C * fYeast * 100   // 初期デンプンのうちアルコールへ転換された割合（%）
     const pH = PH_INITIAL - (PH_INITIAL - phFinal) * C
     // 着色（Maillard）は不可逆：瞬間反応速度を時間積分して累積着色量を算出
     // 正規化: rate=1.0 が T_MAX℃・日ずっと続いた場合を100%とする
@@ -160,13 +174,13 @@ function runModel(
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
 
-    points.push({ x: T, A: A * 100, B: Bnorm, protein, bitter, AA: AAnorm, pH, maillard })
+    points.push({ x: T, A: A * 100, B: Bnorm, protein, bitter, AA: AAnorm, alcohol, pH, maillard })
   }
 
   // AA=90% は二段階モデルで (1-exp(-kPro×T))² = 0.9 → T = -ln(1-√0.9)/kPro
   const tAAPeak = -Math.log(1 - Math.sqrt(0.9)) / kPro
 
-  return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, windowStart, windowEnd }
+  return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast, windowStart, windowEnd }
 }
 
 // ── カスタムツールチップ ──────────────────────────────────────────────────────
@@ -193,6 +207,7 @@ function ChartTooltip({
       <p style={{ color: '#B07D47', margin: 0 }}>苦味ペプチド：{d.bitter.toFixed(1)}%</p>
       <p style={{ color: '#C8963E', margin: 0 }}>糖（相対）：{d.B.toFixed(1)}%</p>
       <p style={{ color: '#34D399', margin: 0 }}>アミノ酸蓄積：{d.AA.toFixed(1)}%</p>
+      <p style={{ color: '#6B8FBF', margin: 0 }}>アルコール（推定）：{d.alcohol.toFixed(1)}%</p>
       <p style={{ color: '#E07B7B', margin: 0 }}>着色指数：{d.maillard.toFixed(1)}</p>
       <p style={{ color: '#9B7FC8', margin: 0 }}>pH：{d.pH.toFixed(2)}</p>
     </div>
@@ -680,6 +695,11 @@ export default function BrewSimulator({
           <span className={`ml-1 ${isSokko ? 'text-rose-500' : 'text-violet-600'}`}>
             {selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算
           </span>
+          {!isSokko && (
+            <span className="ml-2 text-blue-400">
+              酵母比率 {(result.fYeast * 100).toFixed(0)}%（塩分{saltPct.toFixed(1)}%・{locTemp.toFixed(0)}℃補正）
+            </span>
+          )}
         </p>
 
         {/* 凡例 */}
@@ -690,6 +710,7 @@ export default function BrewSimulator({
             { color: '#B07D47', label: '苦味ペプチド（中間体）', dash: '3 2' },
             { color: '#C8963E', label: '糖（甘味源）' },
             { color: '#34D399', label: 'アミノ酸（旨味源）' },
+            { color: '#6B8FBF', label: 'アルコール（推定）', dash: '2 3' },
             { color: '#E07B7B', label: '着色指数', dash: '2 2' },
             { color: '#9B7FC8', label: 'pH（右軸）' },
           ].map(({ color, label, dash }) => (
@@ -820,6 +841,7 @@ export default function BrewSimulator({
             <Line yAxisId="left"  dataKey="bitter"   stroke="#B07D47" strokeWidth={1.5} strokeDasharray="3 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="B"        stroke="#C8963E" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="AA"       stroke="#34D399" strokeWidth={2}   dot={false} animationDuration={400} animationEasing="ease-out" />
+            <Line yAxisId="left"  dataKey="alcohol"  stroke="#6B8FBF" strokeWidth={1.5} strokeDasharray="2 3" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="left"  dataKey="maillard" stroke="#E07B7B" strokeWidth={1.5} strokeDasharray="2 2" dot={false} animationDuration={400} animationEasing="ease-out" />
             <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
@@ -921,6 +943,7 @@ export default function BrewSimulator({
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
         <p>アミノ酸ピーク：二段階モデルでAA=90%に達する時点（旧一段階モデルより約30%遅い）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
+        <p>アルコール（推定）：C（酸・アルコール混合）に酵母比率を乗じた値。酵母比率は「塩分5%・35℃以下で最大40%」を基準に塩分・温度で補正（塩分1%↑→比率2%↓・35℃超で抑制・50℃で死滅）。初期デンプン量に対する割合で表示。速醸は酵母死滅のためアルコール生成なし。精度±50〜80%。</p>
         <p>着色指数：Maillard反応による褐変は不可逆のため、瞬間反応速度（糖×アミノ酸×水分活性係数）の時間積分（累積値）で表示。単調増加。100%＝速度が常に最大の場合に{T_MAX}℃・日で到達する理論最大着色量。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
         <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は糖×アミノ酸の積 ≥ {SOKKO_BA_CLOSE}（Maillard基質が過剰になる時点）で閉じる。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
