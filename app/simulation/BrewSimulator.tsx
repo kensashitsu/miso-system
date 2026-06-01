@@ -940,6 +940,47 @@ export default function BrewSimulator({
             <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} hide={hiddenLines.has('pH')}  animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
         </ResponsiveContainer>
+
+        {/* ── 香気傾向（グラフカード内） ── */}
+        <div className="border-t border-gray-100 mt-4 pt-4">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <span className="text-xs font-semibold text-gray-600">香気傾向</span>
+            <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">定性・精度±100%</span>
+            <span className="text-xs text-gray-400">評価点：収穫窓中央 or {T_COMPLETE}℃・日　縦線＝基準配合</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {([
+              { key: 'roasted', label: '焦香',     sub: 'カラメル・焦げ',     val: result.aromaRoasted, base: base.aromaRoasted, color: '#C8963E' },
+              { key: 'fruity',  label: '花果様香', sub: 'フルーティー・エステル', val: result.aromaFruity,  base: base.aromaFruity,  color: '#34D399' },
+              { key: 'sour',    label: '酸香',     sub: '酸味・発酵臭',       val: result.aromaSour,    base: base.aromaSour,    color: '#9B7FC8' },
+            ] as const).map(({ key, label, sub, val, base: bVal, color }) => {
+              const diff = val - bVal
+              const qualLabel = val < 10 ? '弱い' : val < 30 ? 'やや弱い' : val < 55 ? '中程度' : val < 75 ? 'やや強い' : '強い'
+              return (
+                <div key={key}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-600">{label}
+                      <span className="text-gray-400 ml-1">（{sub}）</span>
+                    </span>
+                    <span className="tabular-nums text-gray-500">
+                      {Math.abs(diff) >= 1 && (
+                        <span className={`mr-1 font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-500'}`}>
+                          {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)}
+                        </span>
+                      )}
+                      {qualLabel}
+                    </span>
+                  </div>
+                  <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden relative">
+                    <div className="absolute top-0 bottom-0 w-px bg-gray-400 z-10" style={{ left: `${Math.min(100, bVal)}%` }} />
+                    <div className="h-full rounded-full transition-all duration-400 ease-out"
+                      style={{ width: `${Math.min(100, val)}%`, backgroundColor: color, opacity: 0.65 }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       </div>
 
       {/* ── 収穫窓モード切替 + アラート ── */}
@@ -1027,55 +1068,6 @@ export default function BrewSimulator({
           diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
           diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
         />
-      </div>
-
-      {/* ── 香気傾向 ── */}
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          <h2 className="text-sm font-semibold text-gray-700">香気傾向</h2>
-          <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-2 py-0.5">定性のみ・精度±100%</span>
-          <span className="text-xs text-gray-400">評価点：収穫窓中央 or {T_COMPLETE}℃・日</span>
-        </div>
-        <div className="space-y-4">
-          {([
-            { key: 'roasted', label: '焦香',       sub: 'カラメル・焦げ',     val: result.aromaRoasted, base: base.aromaRoasted, color: '#C8963E' },
-            { key: 'fruity',  label: '花果様香',   sub: 'フルーティー・エステル', val: result.aromaFruity,  base: base.aromaFruity,  color: '#34D399' },
-            { key: 'sour',    label: '酸香',       sub: '酸味・発酵臭',       val: result.aromaSour,    base: base.aromaSour,    color: '#9B7FC8' },
-          ] as const).map(({ key, label, sub, val, base: bVal, color }) => {
-            const diff = val - bVal
-            const qualLabel = val < 10 ? '弱い' : val < 30 ? 'やや弱い' : val < 55 ? '中程度' : val < 75 ? 'やや強い' : '強い'
-            return (
-              <div key={key}>
-                <div className="flex items-center justify-between text-xs mb-1">
-                  <span className="text-gray-700 font-medium">{label}
-                    <span className="text-gray-400 font-normal ml-1">（{sub}）</span>
-                  </span>
-                  <span className="tabular-nums text-gray-600">
-                    {val.toFixed(1)}
-                    {Math.abs(diff) >= 1 && (
-                      <span className={`ml-1.5 font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-500'}`}>
-                        {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)}
-                      </span>
-                    )}
-                    <span className="ml-1.5 text-gray-400">{qualLabel}</span>
-                  </span>
-                </div>
-                <div className="h-3 bg-gray-100 rounded-full overflow-hidden relative">
-                  {/* 基準配合マーカー */}
-                  <div className="absolute top-0 bottom-0 w-px bg-gray-400 z-10" style={{ left: `${Math.min(100, bVal)}%` }} />
-                  {/* 現在値バー */}
-                  <div className="h-full rounded-full transition-all duration-400 ease-out"
-                    style={{ width: `${Math.min(100, val)}%`, backgroundColor: color, opacity: 0.65 }} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-        <p className="text-xs text-gray-400 mt-3">
-          縦線＝基準配合（{baseKojiHo.toFixed(1)}割・{baseSaltPct.toFixed(1)}%・暖房）。
-          焦香：累積Maillard値。花果様香：アルコール×温度係数（{FRUIT_OPT_TEMP}℃最大）。酸香：乳酸菌由来酸成分。
-          いずれも傾向比較用。定量的な信頼性はありません。
-        </p>
       </div>
 
       {/* ── モデル注記 ── */}
