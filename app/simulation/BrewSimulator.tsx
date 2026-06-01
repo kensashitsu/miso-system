@@ -41,6 +41,11 @@ const F_YEAST_BASE      = 0.40   // 塩分5%・適温時の最大酵母比率（
 const F_YEAST_SALT_RATE = 0.020  // 塩分1%あたりの酵母比率低下量
 const YEAST_SUPPRESS_TEMP = 35   // 酵母が抑制され始める温度（℃）
 const YEAST_DEATH_TEMP    = 50   // 酵母が死滅する温度（℃、速醸領域）
+// 香気傾向モデル
+const FRUIT_OPT_TEMP   = 28   // 花果様香（エステル）生成の最適温度（℃）
+const FRUIT_AROMA_RANGE = 15  // 最適温度からの許容偏差（℃）
+const FRUIT_AROMA_SCALE = 2.5 // 花果様香スケール係数（アルコール→0-100換算）
+const SOUR_AROMA_SCALE  = 100 / 70  // 酸香スケール係数（最大70%酸生成→100換算）
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -61,12 +66,15 @@ type ModelOutput = {
   tAAPeak:      number    // AA=90%（タンパク質の90%がアミノ酸に変換）の積算温度（二段階モデル）
   tBitterPeak:  number    // 苦味ペプチドがピークに達する積算温度
   bitterMax:    number    // 苦味ペプチドのピーク値（%）
-  bMax:         number
-  aw:           number
-  phFinal:      number
-  fYeast:       number    // 酵母比率（糖→アルコールの割合。塩分・温度補正済み）
-  windowStart:  number | null   // ℃・日
-  windowEnd:    number | null
+  bMax:          number
+  aw:            number
+  phFinal:       number
+  fYeast:        number    // 酵母比率（糖→アルコールの割合。塩分・温度補正済み）
+  aromaRoasted:  number    // 焦香傾向（0-100、収穫窓中央での累積Maillard）
+  aromaFruity:   number    // 花果様香傾向（0-100、アルコール×温度係数）
+  aromaSour:     number    // 酸香傾向（0-100、酸成分量）
+  windowStart:   number | null   // ℃・日
+  windowEnd:     number | null
 }
 
 // ── コアモデル関数 ────────────────────────────────────────────────────────────
@@ -182,7 +190,33 @@ function runModel(
   // AA=90% は二段階モデルで (1-exp(-kPro×T))² = 0.9 → T = -ln(1-√0.9)/kPro
   const tAAPeak = -Math.log(1 - Math.sqrt(0.9)) / kPro
 
-  return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast, windowStart, windowEnd }
+  // ── 香気傾向（収穫窓中央 or T_COMPLETE での評価） ──
+  const evalT   = windowStart != null && windowEnd != null
+    ? (windowStart + windowEnd) / 2
+    : windowStart != null ? Math.min(windowStart * 1.2, T_MAX)
+    : isSokko ? T_MAX / 3 : T_COMPLETE
+  const evalIdx = Math.min(Math.round(evalT / STEP), points.length - 1)
+
+  // 焦香：累積Maillard値をそのまま使用
+  const aromaRoasted = Math.min(100, points[evalIdx].maillard)
+
+  // evalT での C（酸・アルコール総生成量）を解析的に再計算
+  const Ae  = Math.exp(-kAmy * evalT)
+  const Braw_e = isSokko ? (1 - Ae)
+    : Math.abs(r - 1) > 0.001
+      ? Math.max(0, (1 / (r - 1)) * (Ae - Math.exp(-kMicEff * evalT)))
+      : kAmy * evalT * Ae
+  const Ce = Math.max(0, 1 - Ae - Braw_e)
+
+  // 花果様香：アルコール × 酵母エステル生成の温度係数（28℃付近で最大）
+  const fruitFactor = Math.max(0, 1 - Math.abs(locTemp - FRUIT_OPT_TEMP) / FRUIT_AROMA_RANGE)
+  const aromaFruity = Math.min(100, Ce * fYeast * fruitFactor * 100 * FRUIT_AROMA_SCALE)
+
+  // 酸香：酸成分量（C × 乳酸菌比率）
+  const aromaSour   = Math.min(100, Ce * (1 - fYeast) * 100 * SOUR_AROMA_SCALE)
+
+  return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast,
+    aromaRoasted, aromaFruity, aromaSour, windowStart, windowEnd }
 }
 
 // ── カスタムツールチップ ──────────────────────────────────────────────────────
@@ -987,6 +1021,55 @@ export default function BrewSimulator({
           diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
           diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
         />
+      </div>
+
+      {/* ── 香気傾向 ── */}
+      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <h2 className="text-sm font-semibold text-gray-700">香気傾向</h2>
+          <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-2 py-0.5">定性のみ・精度±100%</span>
+          <span className="text-xs text-gray-400">評価点：収穫窓中央 or {T_COMPLETE}℃・日</span>
+        </div>
+        <div className="space-y-4">
+          {([
+            { key: 'roasted', label: '焦香',       sub: 'カラメル・焦げ',     val: result.aromaRoasted, base: base.aromaRoasted, color: '#C8963E' },
+            { key: 'fruity',  label: '花果様香',   sub: 'フルーティー・エステル', val: result.aromaFruity,  base: base.aromaFruity,  color: '#34D399' },
+            { key: 'sour',    label: '酸香',       sub: '酸味・発酵臭',       val: result.aromaSour,    base: base.aromaSour,    color: '#9B7FC8' },
+          ] as const).map(({ key, label, sub, val, base: bVal, color }) => {
+            const diff = val - bVal
+            const qualLabel = val < 10 ? '弱い' : val < 30 ? 'やや弱い' : val < 55 ? '中程度' : val < 75 ? 'やや強い' : '強い'
+            return (
+              <div key={key}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-gray-700 font-medium">{label}
+                    <span className="text-gray-400 font-normal ml-1">（{sub}）</span>
+                  </span>
+                  <span className="tabular-nums text-gray-600">
+                    {val.toFixed(1)}
+                    {Math.abs(diff) >= 1 && (
+                      <span className={`ml-1.5 font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-500'}`}>
+                        {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)}
+                      </span>
+                    )}
+                    <span className="ml-1.5 text-gray-400">{qualLabel}</span>
+                  </span>
+                </div>
+                <div className="h-3 bg-gray-100 rounded-full overflow-hidden relative">
+                  {/* 基準配合マーカー */}
+                  <div className="absolute top-0 bottom-0 w-px bg-gray-400 z-10" style={{ left: `${Math.min(100, bVal)}%` }} />
+                  {/* 現在値バー */}
+                  <div className="h-full rounded-full transition-all duration-400 ease-out"
+                    style={{ width: `${Math.min(100, val)}%`, backgroundColor: color, opacity: 0.65 }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <p className="text-xs text-gray-400 mt-3">
+          縦線＝基準配合（{baseKojiHo.toFixed(1)}割・{baseSaltPct.toFixed(1)}%・暖房）。
+          焦香：累積Maillard値。花果様香：アルコール×温度係数（{FRUIT_OPT_TEMP}℃最大）。酸香：乳酸菌由来酸成分。
+          いずれも傾向比較用。定量的な信頼性はありません。
+        </p>
       </div>
 
       {/* ── モデル注記 ── */}
