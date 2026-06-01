@@ -197,9 +197,6 @@ function runModel(
     : isSokko ? T_MAX / 3 : T_COMPLETE
   const evalIdx = Math.min(Math.round(evalT / STEP), points.length - 1)
 
-  // 焦香：累積Maillard値をそのまま使用
-  const aromaRoasted = Math.min(100, points[evalIdx].maillard)
-
   // evalT での C（酸・アルコール総生成量）を解析的に再計算
   const Ae  = Math.exp(-kAmy * evalT)
   const Braw_e = isSokko ? (1 - Ae)
@@ -207,6 +204,15 @@ function runModel(
       ? Math.max(0, (1 / (r - 1)) * (Ae - Math.exp(-kMicEff * evalT)))
       : kAmy * evalT * Ae
   const Ce = Math.max(0, 1 - Ae - Braw_e)
+
+  // 焦香：evalT時点の瞬間Maillard速度（B×AA×fAw）で算出
+  // 累積値は/T_MAX正規化で絶対値が小さすぎるため瞬間速度を使用
+  // スケール係数3: 基準配合（kojiHo≈24、salt≈11%、暖房24℃）で中程度(~50)になるよう調整
+  const Bnorm_e   = Math.max(0, bMax > 0 ? (Braw_e / bMax) : 0)
+  const protein_e = Math.exp(-kPro * evalT)
+  const bitter_e  = Math.max(0, (1 / (R_BITTER - 1)) * (protein_e - Math.exp(-kPeptidase * evalT)))
+  const AA_e      = Math.max(0, 1 - protein_e - bitter_e)
+  const aromaRoasted = Math.min(100, Bnorm_e * AA_e * fMaillard * 100 * 3)
 
   // 花果様香：アルコール × 酵母エステル生成の温度係数（28℃付近で最大）
   const fruitFactor = Math.max(0, 1 - Math.abs(locTemp - FRUIT_OPT_TEMP) / FRUIT_AROMA_RANGE)
