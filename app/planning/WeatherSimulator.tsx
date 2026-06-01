@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { addDays, differenceInDays, format, subDays } from 'date-fns'
 import {
   ComposedChart, Area, Line, LabelList,
@@ -282,6 +282,16 @@ export default function WeatherSimulator({
 
   const [mobileTab, setMobileTab] = useState<'config' | 'result'>('config')
 
+  const [chartHeight, setChartHeight] = useState(260)
+  useEffect(() => {
+    function update() {
+      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 9 / 16) : 260)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
   return (
     <section>
       <div className="flex items-center justify-between mb-4">
@@ -495,7 +505,7 @@ export default function WeatherSimulator({
           {/* グラフ */}
           {chartData.length > 0 ? (
             <>
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="100%" height={chartHeight}>
                 <ComposedChart data={chartData} margin={{ top: 24, right: 16, left: -8, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis

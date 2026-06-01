@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import {
   LineChart,
   Line,
@@ -23,6 +24,16 @@ interface Props {
 }
 
 export default function TempChart({ data, targetTempSum, q10Value }: Props) {
+  const [chartHeight, setChartHeight] = useState(240)
+  useEffect(() => {
+    function update() {
+      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 9 / 16) : 240)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
   if (data.length === 0) {
     return (
       <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
@@ -38,7 +49,7 @@ export default function TempChart({ data, targetTempSum, q10Value }: Props) {
         Q10補正あり（係数：{q10Value}）― 常温期間の積算温度に適用
       </p>
     )}
-    <ResponsiveContainer width="100%" height={240}>
+    <ResponsiveContainer width="100%" height={chartHeight}>
       <LineChart data={data} margin={{ top: 24, right: 16, left: -8, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
         <XAxis

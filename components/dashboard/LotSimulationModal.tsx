@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import {
   ComposedChart, Area, Line, LabelList,
@@ -140,6 +140,16 @@ export default function LotSimulationModal({
   } = simConfig
 
   const [initLocType, initLocTemp] = parseInitialLoc(currentLocation)
+  const [chartHeight, setChartHeight] = useState(240)
+  useEffect(() => {
+    function update() {
+      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 9 / 16) : 240)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
   const [locType, setLocType] = useState<LocType>(initLocType)
   const [locTemp, setLocTemp] = useState<number>(
     initLocType === '暖房' ? (initLocTemp ?? heatingDefaultTemp) :
@@ -366,7 +376,7 @@ export default function LotSimulationModal({
           {/* グラフ（WeatherSimulator と同一デザイン） */}
           {chartData.length > 0 && (
             <>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={chartHeight}>
                 <ComposedChart data={chartData} margin={{ top: 24, right: 16, left: -8, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis
