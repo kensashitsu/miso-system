@@ -120,8 +120,9 @@ function runModel(
   const bitterMax    = bitterAtPeak * 100
 
   const points: ChartPoint[] = []
-  let windowStart: number | null = null
-  let windowEnd:   number | null = null
+  let windowStart:        number | null = null
+  let windowEnd:          number | null = null
+  let cumulativeMaillard: number        = 0  // 着色は不可逆なので累積積分で表現
 
   for (let i = 0; i <= T_MAX / STEP; i++) {
     const T = i * STEP
@@ -147,8 +148,11 @@ function runModel(
 
     const Bnorm   = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
     const C       = Math.max(0, 1 - A - Math.max(0, Braw))
-    const pH      = PH_INITIAL - (PH_INITIAL - phFinal) * C
-    const maillard = (Bnorm / 100) * (AAnorm / 100) * fMaillard * 100
+    const pH = PH_INITIAL - (PH_INITIAL - phFinal) * C
+    // 着色（Maillard）は不可逆：瞬間反応速度を時間積分して累積着色量を算出
+    // 正規化: rate=1.0 が T_MAX℃・日ずっと続いた場合を100%とする
+    cumulativeMaillard += (Bnorm / 100) * (AAnorm / 100) * fMaillard * STEP
+    const maillard = cumulativeMaillard * 100 / T_MAX
 
     // 速醸は「糖×アミノ酸 > 0.75」でMaillard基質が過剰になったら収穫窓を閉じる
     const inWindow = Braw > bThreshold * bMax && AAnorm > 30 && pH >= 4.8
@@ -897,6 +901,7 @@ export default function BrewSimulator({
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
         <p>アミノ酸ピーク：二段階モデルでAA=90%に達する時点（旧一段階モデルより約30%遅い）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
+        <p>着色指数：Maillard反応による褐変は不可逆のため、瞬間反応速度（糖×アミノ酸×水分活性係数）の時間積分（累積値）で表示。単調増加。100%＝速度が常に最大の場合に{T_MAX}℃・日で到達する理論最大着色量。</p>
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
         <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は糖×アミノ酸の積 ≥ {SOKKO_BA_CLOSE}（Maillard基質が過剰になる時点）で閉じる。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
       </div>
