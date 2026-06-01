@@ -168,8 +168,10 @@ function runModel(
     cumulativeMaillard += (Bnorm / 100) * (AAnorm / 100) * fMaillard * STEP
     const maillard = cumulativeMaillard * 100 / T_MAX
 
-    // 速醸は「糖×アミノ酸 > 0.75」でMaillard基質が過剰になったら収穫窓を閉じる
-    const inWindow = Braw > bThreshold * bMax && AAnorm > 30 && pH >= 4.8
+    // 旨味条件：protein < 70%（タンパク質の30%以上が分解開始）
+    // 二段階モデルでAAnorm単独では低麹歩合時に条件未達になるため、
+    // 苦味ペプチドを含む総分解量（= 1 - protein）で判定する
+    const inWindow = Braw > bThreshold * bMax && protein < 70 && pH >= 4.8
       && (!isSokko || (Bnorm / 100) * (AAnorm / 100) < SOKKO_BA_CLOSE)
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
@@ -992,7 +994,7 @@ export default function BrewSimulator({
         <p className="font-medium text-gray-600">モデルの前提と限界</p>
         <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
-        <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつアミノ酸蓄積 ≥ 30%（タンパク質残存 ≤ 70%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
+        <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつタンパク質残存 ≤ 70%（苦味ペプチドを含む総分解量 ≥ 30%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
         <p>アミノ酸ピーク：二段階モデルでAA=90%に達する時点（旧一段階モデルより約30%遅い）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>アルコール（推定）：C（酸・アルコール混合）に酵母比率を乗じた値。酵母比率は「塩分5%・35℃以下で最大40%」を基準に塩分・温度で補正（塩分1%↑→比率2%↓・35℃超で抑制・50℃で死滅）。初期デンプン量に対する割合で表示。速醸は酵母死滅のためアルコール生成なし。精度±50〜80%。</p>
