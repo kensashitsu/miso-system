@@ -87,6 +87,10 @@ function runModel(
 
   const kPro = 0.5 * kAmy
 
+  // Q10補正込みの有効微生物レート（r = kMic/kAmy × Q10_factor なので kMicEff = kAmy × r）
+  // raw kMic ではなく kMicEff をB計算に使うことで r < 1 でも B(T) が常に非負になる
+  const kMicEff = isSokko ? 0 : kAmy * r
+
   // 糖ピーク時刻・B_max
   let tPeak: number, bMax: number
   if (isSokko) {
@@ -95,7 +99,7 @@ function runModel(
     bMax  = 1
   } else if (Math.abs(r - 1) > 0.001) {
     tPeak = Math.log(r) / (kAmy * (r - 1))
-    bMax  = (1 / (r - 1)) * (Math.exp(-kAmy * tPeak) - Math.exp(-kMic * tPeak))
+    bMax  = (1 / (r - 1)) * (Math.exp(-kAmy * tPeak) - Math.exp(-kMicEff * tPeak))
   } else {
     tPeak = 1 / kAmy
     bMax  = kAmy * tPeak * Math.exp(-kAmy * tPeak)
@@ -113,7 +117,7 @@ function runModel(
     if (isSokko) {
       Braw = 1 - A  // 全デンプンが糖へ（微生物消費なし）
     } else if (Math.abs(r - 1) > 0.001) {
-      Braw = (1 / (r - 1)) * (Math.exp(-kAmy * T) - Math.exp(-kMic * T))
+      Braw = (1 / (r - 1)) * (Math.exp(-kAmy * T) - Math.exp(-kMicEff * T))
     } else {
       Braw = kAmy * T * Math.exp(-kAmy * T)
     }
