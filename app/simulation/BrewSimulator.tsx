@@ -707,8 +707,9 @@ export default function BrewSimulator({
         </div>
 
         <ResponsiveContainer width="100%" height={300}>
-          <ComposedChart data={result.points} margin={{ top: 4, right: 52, left: -12, bottom: 0 }}>
+          <ComposedChart data={result.points} margin={{ top: 22, right: 52, left: -12, bottom: 0 }}>
             <CartesianGrid strokeDasharray="2 4" stroke="#F3F4F6" vertical={false} />
+            {/* 下軸：積算温度（℃・日） */}
             <XAxis
               dataKey="x"
               type="number"
@@ -718,6 +719,25 @@ export default function BrewSimulator({
                 : [0, 150, 300, 450, 600, 750, 900]}
               tickFormatter={v => v === 0 ? '0' : String(v)}
               tick={{ fontSize: 10, fill: '#9CA3AF' }}
+              axisLine={false} tickLine={false}
+            />
+            {/* 上軸：日数換算（常温は月平均での近似） */}
+            <XAxis
+              xAxisId={1}
+              dataKey="x"
+              type="number"
+              orientation="top"
+              domain={[0, chartMax]}
+              ticks={isSokko
+                ? [0, 50, 100, 150, 200, 250, 300]
+                : [0, 150, 300, 450, 600, 750, 900]}
+              tickFormatter={v => {
+                if (v === 0) return '0日'
+                if (dailyAccum <= 0) return '—'
+                const days = Math.round(v / dailyAccum)
+                return selectedLocation === '常温' ? `≈${days}日` : `${days}日`
+              }}
+              tick={{ fontSize: 9, fill: '#B0B8C4' }}
               axisLine={false} tickLine={false}
             />
             <YAxis
