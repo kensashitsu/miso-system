@@ -117,9 +117,9 @@ export default function LotCard({
     <>
     <Link href={`/lots/${id}`} className="block hover:opacity-90 transition-opacity">
       <Card className={cardCls}>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 px-3 sm:px-6 pt-3 sm:pt-6">
           <div className="flex items-start justify-between gap-2">
-            <CardTitle className="text-base font-bold text-gray-900 tracking-tight">{lotNumber}</CardTitle>
+            <CardTitle className="text-sm sm:text-base font-bold text-gray-900 tracking-tight">{lotNumber}</CardTitle>
             <div className="flex flex-wrap gap-1 justify-end">
               {isPrototype && (
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap bg-violet-100 text-violet-700 border border-violet-200">
@@ -151,7 +151,7 @@ export default function LotCard({
           )}
         </CardHeader>
 
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 px-3 sm:px-6 pb-3 sm:pb-6">
           {/* 熟成度・進捗バー */}
           <div>
             <div className="flex justify-between text-sm mb-1">

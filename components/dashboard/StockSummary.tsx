@@ -25,7 +25,6 @@ function KgCell({ value }: { value: number | null }) {
 export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiData, hasApiError }: StockSummaryProps) {
   const [isOpen, setIsOpen] = useState(false)
 
-  // 合計計算
   const rows = MISO_TYPES.map(type => {
     const stock      = agedStockMap[type] ?? null
     const aged       = stock?.agedKg ?? null
@@ -45,42 +44,57 @@ export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiD
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
-        className="w-full flex items-center justify-between mb-3 group"
+        className="w-full flex items-start justify-between mb-3 group gap-2"
       >
-        <h2 className="text-base font-semibold text-gray-700">品種別在庫サマリー</h2>
-        <span className="flex items-center gap-1 text-xs text-gray-400 group-hover:text-gray-600 transition-colors">
+        <div className="text-left">
+          <h2 className="text-base font-semibold text-gray-700">品種別在庫サマリー</h2>
+          {/* 折りたたみ時：合計をインラインで表示 */}
+          {!isOpen && (
+            <p className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-x-3">
+              {sumFermenting > 0 && (
+                <span>熟成中 <span className="font-semibold text-gray-800">{sumFermenting.toLocaleString()}</span>kg</span>
+              )}
+              {sumAged != null && (
+                <span>熟成済 <span className="font-semibold text-gray-800">{sumAged.toLocaleString()}</span>kg</span>
+              )}
+              {sumTotal != null && (
+                <span>合計 <span className="font-semibold text-gray-800">{sumTotal.toLocaleString()}</span>kg</span>
+              )}
+            </p>
+          )}
+        </div>
+        <span className="flex items-center gap-1 text-xs text-gray-400 group-hover:text-gray-600 transition-colors shrink-0 mt-0.5">
           {isOpen ? <><ChevronUp className="h-4 w-4" />閉じる</> : <><ChevronDown className="h-4 w-4" />開く</>}
         </span>
       </button>
 
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
-        {/* APIバッジ */}
-        <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-          {hasApiData ? (
-            <span className="inline-flex items-center rounded-full border border-emerald-200/60 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-              在庫API連携中
-            </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full border border-dashed border-gray-200 bg-gray-50 px-2.5 py-0.5 text-xs text-gray-400">
-              {hasApiError ? 'データ取得エラー' : '在庫API未設定'}
-            </span>
-          )}
-        </div>
+      {/* テーブルは展開時のみ表示 */}
+      {isOpen && (
+        <div className="rounded-xl border border-gray-100 bg-white shadow-sm">
+          {/* APIバッジ */}
+          <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+            {hasApiData ? (
+              <span className="inline-flex items-center rounded-full border border-emerald-200/60 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                在庫API連携中
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full border border-dashed border-gray-200 bg-gray-50 px-2.5 py-0.5 text-xs text-gray-400">
+                {hasApiError ? 'データ取得エラー' : '在庫API未設定'}
+              </span>
+            )}
+          </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left py-2.5 pr-3 px-4 text-gray-400 font-medium text-xs tracking-wider uppercase">品種</th>
-                <th className="text-right py-2.5 px-3 text-gray-400 font-medium text-xs tracking-wider uppercase">熟成中ロット</th>
-                <th className="text-right py-2.5 px-3 text-gray-400 font-medium text-xs tracking-wider uppercase">熟成済在庫</th>
-                <th className="text-right py-2.5 px-3 text-gray-400 font-medium text-xs tracking-wider uppercase">小分け製品在庫</th>
-                <th className="text-right py-2.5 pl-3 pr-4 text-gray-400 font-medium text-xs tracking-wider uppercase">工場内合計</th>
-              </tr>
-            </thead>
-
-            {/* 品種別行（開いているときのみ） */}
-            {isOpen && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2.5 pr-2 px-4 text-gray-400 font-medium text-xs tracking-wider uppercase">品種</th>
+                  <th className="text-right py-2.5 px-2 text-gray-400 font-medium text-xs tracking-wider uppercase">熟成中</th>
+                  <th className="text-right py-2.5 px-2 text-gray-400 font-medium text-xs tracking-wider uppercase hidden sm:table-cell">熟成済在庫</th>
+                  <th className="text-right py-2.5 px-2 text-gray-400 font-medium text-xs tracking-wider uppercase hidden sm:table-cell">小分け在庫</th>
+                  <th className="text-right py-2.5 pl-2 pr-4 text-gray-400 font-medium text-xs tracking-wider uppercase">合計</th>
+                </tr>
+              </thead>
               <tbody>
                 {MISO_TYPES.map(type => {
                   const stock      = agedStockMap[type] ?? null
@@ -90,34 +104,32 @@ export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiD
                   const total      = aged != null ? aged + (packaged ?? 0) + fermenting : null
                   return (
                     <tr key={type} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
-                      <td className="py-2.5 pr-3 px-4 text-sm font-medium text-gray-700">{type}</td>
-                      <td className="py-2.5 px-3 text-right tabular-nums">
+                      <td className="py-2.5 pr-2 px-4 text-sm font-medium text-gray-700 whitespace-nowrap">{type}</td>
+                      <td className="py-2.5 px-2 text-right tabular-nums">
                         <KgCell value={fermenting > 0 ? fermenting : null} />
                       </td>
-                      <td className="py-2.5 px-3 text-right tabular-nums"><KgCell value={aged} /></td>
-                      <td className="py-2.5 px-3 text-right tabular-nums"><KgCell value={packaged} /></td>
-                      <td className="py-2.5 pl-3 pr-4 text-right tabular-nums"><KgCell value={total} /></td>
+                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={aged} /></td>
+                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={packaged} /></td>
+                      <td className="py-2.5 pl-2 pr-4 text-right tabular-nums"><KgCell value={total} /></td>
                     </tr>
                   )
                 })}
               </tbody>
-            )}
-
-            {/* 合計行（常時表示） */}
-            <tfoot>
-              <tr className={`bg-gray-50/60 ${isOpen ? 'border-t-2 border-gray-100' : 'border-t border-gray-100'}`}>
-                <td className="py-2.5 pr-3 px-4 text-sm font-semibold text-gray-700">合計</td>
-                <td className="py-2.5 px-3 text-right tabular-nums text-sm">
-                  <KgCell value={sumFermenting > 0 ? sumFermenting : null} />
-                </td>
-                <td className="py-2.5 px-3 text-right tabular-nums text-sm"><KgCell value={sumAged} /></td>
-                <td className="py-2.5 px-3 text-right tabular-nums text-sm"><KgCell value={sumPackaged} /></td>
-                <td className="py-2.5 pl-3 pr-4 text-right tabular-nums text-sm"><KgCell value={sumTotal} /></td>
-              </tr>
-            </tfoot>
-          </table>
+              <tfoot>
+                <tr className="border-t-2 border-gray-100 bg-gray-50/60">
+                  <td className="py-2.5 pr-2 px-4 text-sm font-semibold text-gray-700">合計</td>
+                  <td className="py-2.5 px-2 text-right tabular-nums text-sm">
+                    <KgCell value={sumFermenting > 0 ? sumFermenting : null} />
+                  </td>
+                  <td className="py-2.5 px-2 text-right tabular-nums text-sm hidden sm:table-cell"><KgCell value={sumAged} /></td>
+                  <td className="py-2.5 px-2 text-right tabular-nums text-sm hidden sm:table-cell"><KgCell value={sumPackaged} /></td>
+                  <td className="py-2.5 pl-2 pr-4 text-right tabular-nums text-sm"><KgCell value={sumTotal} /></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
     </section>
   )
 }

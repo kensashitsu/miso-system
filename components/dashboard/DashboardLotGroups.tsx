@@ -104,7 +104,7 @@ export default function DashboardLotGroups({ agingLots, completedLots, needsActi
             </h2>
             {firstGroup === 'aging' && toggleButton}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {filteredAging.map(lot => (
               <LotCard key={lot.id} {...lot} forceSignal={forceSignal} simConfig={simConfig} />
             ))}
@@ -121,7 +121,7 @@ export default function DashboardLotGroups({ agingLots, completedLots, needsActi
             </h2>
             {firstGroup === 'completed' && toggleButton}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {filteredCompleted.map(lot => (
               <LotCard key={lot.id} {...lot} variant="completed" forceSignal={forceSignal} />
             ))}
@@ -138,7 +138,7 @@ export default function DashboardLotGroups({ agingLots, completedLots, needsActi
             </h2>
             {firstGroup === 'needs-action' && toggleButton}
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {filteredNeedsAction.map(lot => (
               <LotCard key={lot.id} {...lot} variant="needs-action" forceSignal={forceSignal} />
             ))}

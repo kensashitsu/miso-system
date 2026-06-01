@@ -171,8 +171,8 @@ export default async function DashboardPage() {
   })
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 pb-16 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">ダッシュボード</h1>
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-4 sm:space-y-6">
+      <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">ダッシュボード</h1>
 
       {/* 品種別在庫サマリー */}
       <StockSummary
@@ -189,7 +189,7 @@ export default async function DashboardPage() {
       {(dangerLots.length > 0 || nearCompletionLots.length > 0) && (
         <div className="space-y-2">
           {dangerLots.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-4 py-3 text-sm text-rose-700">
+            <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-rose-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <span className="font-semibold">着色リスク高（150%超）：</span>
@@ -198,7 +198,7 @@ export default async function DashboardPage() {
             </div>
           )}
           {nearCompletionLots.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 text-sm text-amber-700">
+            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-amber-700">
               <Clock className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
                 <span className="font-semibold">完成間近（7日以内）：</span>
