@@ -23,7 +23,7 @@ function KgCell({ value }: { value: number | null }) {
 }
 
 export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiData, hasApiError }: StockSummaryProps) {
-  const [isOpen, setIsOpen] = useState(true)
+  const [isOpen, setIsOpen] = useState(false)
 
   // 合計計算
   const rows = MISO_TYPES.map(type => {
