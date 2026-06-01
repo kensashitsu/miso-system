@@ -231,10 +231,10 @@ export default async function PlanningPage() {
   }))
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 pb-16 space-y-8">
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-6 sm:space-y-8">
       {/* タイトルとSARIMAX更新ボタン */}
       <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight print:text-2xl">仕込み計画</h1>
+        <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight print:text-2xl">仕込み計画</h1>
         <div className="no-print">
           <ForecastUpdater updatedAt={latestUpdatedAt} />
         </div>

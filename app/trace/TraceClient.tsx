@@ -130,8 +130,8 @@ export default function TraceClient({
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">トレース検索</h1>
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+      <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">トレース検索</h1>
 
       {/* 検索フォーム */}
       <Card className="rounded-xl border border-gray-100 shadow-sm">
@@ -318,7 +318,74 @@ export default function TraceClient({
               <span className="text-sm font-medium">検索結果</span>
               <span className="text-xs text-muted-foreground">{lots.length}件</span>
             </div>
-            <div className="overflow-x-auto">
+
+            {/* モバイル: カードビュー */}
+            <div className="sm:hidden divide-y divide-gray-50">
+              {lots.map(lot => (
+                <div
+                  key={lot.id}
+                  className="px-4 py-3 cursor-pointer hover:bg-gray-50/60 transition-colors active:bg-gray-100/60"
+                  onClick={() => { setSelectedId(lot.id); router.push(`/lots/${lot.id}`) }}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm tabular-nums">{lot.lotNumber}</span>
+                      <span
+                        className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                        style={getMisoTypeBadgeStyle(lot.misoType)}
+                      >
+                        {lot.misoType}
+                      </span>
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 ${statusBadgeClass(lot.status)}`}>
+                      {lot.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>仕込み <span className="text-gray-700 tabular-nums">{format(new Date(lot.brewedAtISO), 'yyyy/MM/dd')}</span></span>
+                    <span>現在地 <span className="text-gray-700">{lot.currentLocation}</span></span>
+                    <span>積算温度 <span className="text-gray-700 tabular-nums">{lot.accumulatedTemp.toLocaleString()}/{lot.targetTempSum}℃</span></span>
+                    {lot.elapsedDays !== null
+                      ? <span>熟成 <span className="text-gray-700 tabular-nums">{lot.elapsedDays}日</span></span>
+                      : lot.status !== '熟成中'
+                        ? <span onClick={e => e.stopPropagation()}>
+                            {editingCompletedAt === lot.id ? (
+                              <span className="flex items-center gap-1">
+                                <input
+                                  type="date"
+                                  autoFocus
+                                  value={completedAtDraft}
+                                  onChange={e => setCompletedAtDraft(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') { e.preventDefault(); handleCompletedAtSave(lot.id) }
+                                    if (e.key === 'Escape') { setEditingCompletedAt(null) }
+                                  }}
+                                  className="border border-input rounded px-1 py-0.5 w-28 bg-background text-xs"
+                                />
+                                <button type="button" onClick={() => handleCompletedAtSave(lot.id)} disabled={!completedAtDraft || isSaving} className="px-1.5 py-0.5 rounded bg-primary text-primary-foreground text-xs disabled:opacity-40">保存</button>
+                              </span>
+                            ) : (
+                              <button type="button" onClick={() => { setCompletedAtDraft(format(new Date(), 'yyyy-MM-dd')); setCompletedAtSaveError(null); setEditingCompletedAt(lot.id) }} className="border border-dashed border-gray-300 text-gray-400 rounded px-1.5 py-0.5 text-xs">完成日入力</button>
+                            )}
+                          </span>
+                        : null
+                    }
+                    {lot.bucketNumbers && <span>桶 <span className="text-gray-700">{lot.bucketNumbers}号</span></span>}
+                    {lot.soybeanOrigin && <span>大豆 <span className="text-gray-700">{lot.soybeanOrigin}</span></span>}
+                  </div>
+                  {lot.status === '熟成中' && (
+                    <div className="mt-1.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${riskBadgeClass(lot.coloringRisk)}`}>
+                        {riskLabel(lot.coloringRisk)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* デスクトップ: テーブルビュー */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/40">

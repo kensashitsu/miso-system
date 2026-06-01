@@ -370,7 +370,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
           <ChevronLeft className="h-4 w-4" />
           ダッシュボードへ戻る
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">ロット登録</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">ロット登録</h1>
       </div>
 
       {/* グローバルエラー */}

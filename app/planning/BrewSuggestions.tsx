@@ -768,7 +768,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   return (
     <section>
       {/* セクション見出し＋操作ボタン（スクロール追従） */}
-      <div className="sticky top-14 z-20 bg-white/95 backdrop-blur-sm -mx-4 px-4 py-2 mb-2 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+      <div className="sticky top-14 z-20 bg-white/95 backdrop-blur-sm -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-2 border-b border-gray-100">
+        <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-4">
           <h2 className="text-base font-semibold">③ AI仕込み提案</h2>
           {/* 印刷時の出力日 */}
@@ -924,6 +925,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               印刷
             </Button>
           </div>
+        </div>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4">

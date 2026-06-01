@@ -99,7 +99,7 @@ export default async function LotNewPage({
     : undefined
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 pb-16">
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16">
       <LotNewForm
         key={brewPlanId ?? (isPrototype ? 'prototype' : 'new')}
         moisture={moisture}

@@ -105,9 +105,9 @@ export default async function SimulationPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">試作シミュレーター</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">試作シミュレーター</h1>
         <p className="text-sm text-muted-foreground mt-1">
           裸麦・大豆・塩・水の配合を変えたときの熟成挙動を理論モデルで推計します（精度目安±30〜50%）
         </p>

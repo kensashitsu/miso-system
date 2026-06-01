@@ -54,8 +54,8 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-8 pb-24">
-      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">設定</h1>
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-6 sm:space-y-8 pb-24">
+      <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">設定</h1>
       <ApiStatusCard />
       <RecipeSettings recipes={recipes} moisture={moisture} />
       <MoistureSettingsForm moisture={moisture} />

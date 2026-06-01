@@ -84,8 +84,8 @@ export default async function ImportPage({
   ]
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">データインポート</h1>
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+      <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">データインポート</h1>
 
       {/* タブ */}
       <div className="flex gap-1 border-b border-gray-100">

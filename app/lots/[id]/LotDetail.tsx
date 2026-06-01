@@ -566,7 +566,7 @@ export default function LotDetail({
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
 
       {/* 戻るリンク */}
       <Link href="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -577,7 +577,7 @@ export default function LotDetail({
       {/* ── ヘッダー ── */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{lotNumber}</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">{lotNumber}</h1>
           {isPrototype && (
             <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-100 text-violet-700 border border-violet-200">
               試作
@@ -1189,7 +1189,7 @@ export default function LotDetail({
               {/* 原料配合 */}
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">原料配合</h3>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                   {([
                     ['穀物原料 (kg)', 'mugiOrKomeKg'],
                     ['麹（処理後）(kg)', 'kojiKg'],
@@ -1216,7 +1216,7 @@ export default function LotDetail({
               {/* 原料情報 */}
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">原料情報</h3>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                   {([
                     ['大豆産地', 'soybeanOrigin'],
                     ['産地詳細', 'soybeanOriginDetail'],
@@ -1261,7 +1261,7 @@ export default function LotDetail({
               {/* 製造記録 */}
               <div>
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">製造記録</h3>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
                   <div className="space-y-0.5">
                     <label className="text-xs text-muted-foreground">出麹評価（3〜9）</label>
                     <input
@@ -1359,7 +1359,7 @@ export default function LotDetail({
         {status === '熟成中' && (
           <div className="rounded-xl border border-gray-100 px-4 py-4 mb-4 space-y-3">
             <h3 className="text-sm font-medium">メモを追加</h3>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">記録日</label>
                 <input
