@@ -280,11 +280,33 @@ export default function WeatherSimulator({
     }
   }
 
+  const [mobileTab, setMobileTab] = useState<'config' | 'result'>('config')
+
   return (
     <section>
-      <h2 className="text-base font-semibold mb-4">② 熟成シミュレーター</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold">② 熟成シミュレーター</h2>
+        {/* モバイルタブ */}
+        <div className="flex sm:hidden border border-gray-200 rounded-lg overflow-hidden text-xs">
+          {(['config', 'result'] as const).map(tab => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setMobileTab(tab)}
+              className={`px-3 py-1.5 font-medium transition-colors ${
+                mobileTab === tab ? 'bg-gray-900 text-white' : 'text-gray-500'
+              } ${tab === 'result' ? 'border-l border-gray-200' : ''}`}
+            >
+              {tab === 'config' ? '設定' : 'グラフ'}
+            </button>
+          ))}
+        </div>
+      </div>
       <Card>
         <CardContent className="pt-5 space-y-5">
+
+          {/* 設定セクション（モバイル: 設定タブのみ / デスクトップ: 常時表示） */}
+          <div className={mobileTab === 'result' ? 'hidden sm:block' : undefined}>
 
           {/* 品種・仕込み日 */}
           <div className="flex gap-4 flex-wrap items-end">
@@ -416,6 +438,10 @@ export default function WeatherSimulator({
               場所移動を追加
             </Button>
           </div>
+          </div>{/* /設定セクション wrapper */}
+
+          {/* 結果セクション（モバイル: グラフタブのみ / デスクトップ: 常時表示） */}
+          <div className={mobileTab === 'config' ? 'hidden sm:block' : undefined}>
 
           {/* 結果サマリー */}
           {(maturityComplete || accumulatedComplete) && (
@@ -645,6 +671,7 @@ export default function WeatherSimulator({
               : '気象データ未取込のためデフォルト値（0℃/日）を使用。設定画面から取り込むと精度が向上します。'}
             暖房・冷房は設定温度から10℃を引いた値を毎日加算。
           </p>
+          </div>{/* /結果セクション wrapper */}
         </CardContent>
       </Card>
     </section>

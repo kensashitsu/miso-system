@@ -574,10 +574,31 @@ export default function BrewSimulator({
     return () => { if (rafRef.current != null) cancelAnimationFrame(rafRef.current) }
   }, [result.windowStart, result.windowEnd])
 
+  const [mobileTab, setMobileTab] = useState<'config' | 'result'>('config')
+
   return (
     <div className="space-y-5">
 
-      {/* ── 配合設定 × 原料逆算 2カラム統合カード ── */}
+      {/* ── モバイルタブ（スマホのみ表示） ── */}
+      <div className="flex sm:hidden border-b border-gray-200 -mx-3 px-3">
+        {(['config', 'result'] as const).map(tab => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setMobileTab(tab)}
+            className={`flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              mobileTab === tab
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-400'
+            }`}
+          >
+            {tab === 'config' ? '設定' : 'グラフ・結果'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── 配合設定（モバイル: 設定タブのみ / デスクトップ: 常時表示） ── */}
+      <div className={mobileTab === 'result' ? 'hidden sm:block' : undefined}>
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
         <div className="grid grid-cols-1 sm:grid-cols-2">
 
@@ -714,6 +735,10 @@ export default function BrewSimulator({
 
         </div>
       </div>
+      </div>{/* /設定タブ wrapper */}
+
+      {/* ── 結果（モバイル: グラフ・結果タブのみ / デスクトップ: 常時表示） ── */}
+      <div className={`space-y-5 ${mobileTab === 'config' ? 'hidden sm:block' : undefined}`}>
 
       {/* ── 進行度グラフ ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
@@ -1083,6 +1108,7 @@ export default function BrewSimulator({
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
         <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は糖×アミノ酸の積 ≥ {SOKKO_BA_CLOSE}（Maillard基質が過剰になる時点）で閉じる。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
       </div>
+      </div>{/* /結果タブ wrapper */}
     </div>
   )
 }
