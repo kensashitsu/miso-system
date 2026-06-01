@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { subMonths, format, startOfMonth } from 'date-fns'
 import {
   ComposedChart, Bar, Cell, Area, XAxis, YAxis, CartesianGrid,
@@ -105,16 +105,6 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
 }
 
 export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastForecast, sarimaxMape }: Props) {
-  const [chartHeight, setChartHeight] = useState(300)
-  useEffect(() => {
-    function update() {
-      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 2 / 3) : 300)
-    }
-    update()
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
-
   const [selectedType,     setSelectedType]     = useState<string>(MISO_TYPES[0])
   const [forecastMonths,   setForecastMonths]   = useState<number>(6)
   const [showPastForecast, setShowPastForecast] = useState(true)
@@ -328,7 +318,7 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
         </CardHeader>
 
         <CardContent>
-          <ResponsiveContainer width="100%" height={chartHeight}>
+          <ResponsiveContainer width="100%" height={300}>
             <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -4, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis

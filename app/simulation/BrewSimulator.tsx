@@ -576,16 +576,6 @@ export default function BrewSimulator({
 
   const [mobileTab, setMobileTab] = useState<'config' | 'result'>('config')
 
-  const [chartHeight, setChartHeight] = useState(300)
-  useEffect(() => {
-    function update() {
-      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 2 / 3) : 300)
-    }
-    update()
-    window.addEventListener('resize', update)
-    return () => window.removeEventListener('resize', update)
-  }, [])
-
   return (
     <div className="space-y-5">
 
@@ -848,7 +838,7 @@ export default function BrewSimulator({
           )}
         </div>
 
-        <ResponsiveContainer width="100%" height={chartHeight}>
+        <ResponsiveContainer width="100%" height={300}>
           <ComposedChart data={result.points} margin={{ top: 22, right: 52, left: -12, bottom: 0 }}>
             <CartesianGrid strokeDasharray="2 4" stroke="#F3F4F6" vertical={false} />
             {/* 下軸：積算温度（℃・日） */}
