@@ -27,7 +27,7 @@ export default function TempChart({ data, targetTempSum, q10Value }: Props) {
   const [chartHeight, setChartHeight] = useState(240)
   useEffect(() => {
     function update() {
-      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 9 / 16) : 240)
+      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 2 / 3) : 240)
     }
     update()
     window.addEventListener('resize', update)

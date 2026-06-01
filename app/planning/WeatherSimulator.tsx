@@ -285,7 +285,7 @@ export default function WeatherSimulator({
   const [chartHeight, setChartHeight] = useState(260)
   useEffect(() => {
     function update() {
-      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 9 / 16) : 260)
+      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 2 / 3) : 260)
     }
     update()
     window.addEventListener('resize', update)

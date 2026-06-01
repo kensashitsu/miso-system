@@ -579,7 +579,7 @@ export default function BrewSimulator({
   const [chartHeight, setChartHeight] = useState(300)
   useEffect(() => {
     function update() {
-      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 9 / 16) : 300)
+      setChartHeight(window.innerWidth < 640 ? Math.round(window.innerWidth * 2 / 3) : 300)
     }
     update()
     window.addEventListener('resize', update)
