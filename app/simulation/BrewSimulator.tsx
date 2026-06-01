@@ -383,10 +383,10 @@ export default function BrewSimulator({
     if (next.has(key)) next.delete(key); else next.add(key)
     return next
   })
-  const dotInterval = isSokko ? 10 : 30
 
-  const isSokko    = selectedLocation === '速醸'
-  const bThreshold = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
+  const isSokko     = selectedLocation === '速醸'
+  const bThreshold  = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
+  const dotInterval = isSokko ? 10 : 30
 
   const handleKojiHoChange = (v: number) => {
     setKojiHo(v)
