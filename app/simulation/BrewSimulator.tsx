@@ -520,6 +520,12 @@ export default function BrewSimulator({
     [currentBaseKojiHo, currentBaseSaltPct, locTemp, bThreshold, isSokko, currentTComplete]
   )
 
+  // グラフ用データ：表示範囲外を除外して XAxis のスケール計算を正確にする
+  const chartPoints = useMemo(
+    () => result.points.filter(p => p.x <= currentChartMax),
+    [result.points, currentChartMax]
+  )
+
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
   const shikomiStep = shikomiKg <= 5 ? 0.5 : shikomiKg <= 50 ? 5 : shikomiKg <= 200 ? 10 : 50
@@ -933,7 +939,7 @@ export default function BrewSimulator({
         </div>
 
         <ResponsiveContainer width="100%" height={300}>
-          <ComposedChart data={result.points} margin={{ top: 22, right: 52, left: -12, bottom: 0 }}>
+          <ComposedChart data={chartPoints} margin={{ top: 22, right: 52, left: -12, bottom: 0 }}>
             <CartesianGrid strokeDasharray="2 4" stroke="#F3F4F6" vertical={false} />
             {/* 下軸：積算温度（℃・日） */}
             <XAxis
