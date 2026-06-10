@@ -485,6 +485,9 @@ export default function BrewSimulator({
   const bThreshold  = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
   const dotInterval = isSokko ? 10 : 30
 
+  // 無洗米の目標積算温度（70℃・日）は速醸専用。速醸以外では目標未確立のため null
+  const effectiveTComplete: number | null = (grainType === '無洗米' && !isSokko) ? null : currentTComplete
+
   const handleKojiHoChange = (v: number) => {
     setKojiHo(v)
     if (linkSalt) {
@@ -543,8 +546,8 @@ export default function BrewSimulator({
     return `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`
   }
 
-  const tPeakRatio    = result.tPeak / currentTComplete
-  const basePeakRatio = base.tPeak   / currentTComplete
+  const tPeakRatio    = effectiveTComplete != null ? result.tPeak / effectiveTComplete : null
+  const basePeakRatio = effectiveTComplete != null ? base.tPeak   / effectiveTComplete : null
 
   const windowWidth     = result.windowStart != null && result.windowEnd != null
     ? result.windowEnd - result.windowStart : null
@@ -897,7 +900,7 @@ export default function BrewSimulator({
           )}
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{currentChartMax}℃・日表示</span>}　右Y軸：pH
+          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{currentChartMax}℃・日表示</span>}{grainType === '無洗米' && !isSokko && <span className="text-amber-500 ml-1">※白みそ通常目標（速醸70℃・日）の基準線は非表示</span>}　右Y軸：pH
           <span className={`ml-1 ${isSokko ? 'text-rose-500' : 'text-violet-600'}`}>
             {selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算
           </span>
@@ -1005,12 +1008,14 @@ export default function BrewSimulator({
               />
             )}
 
-            {/* 縦線：基準完成（品種別目標℃・日） */}
-            <ReferenceLine
-              yAxisId="left" x={currentTComplete}
-              stroke="#CBD5E1" strokeDasharray="3 3"
-              label={{ value: String(currentTComplete), position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
-            />
+            {/* 縦線：基準完成（品種別目標℃・日）。無洗米の速醸以外は目標値未確立のため非表示 */}
+            {effectiveTComplete != null && (
+              <ReferenceLine
+                yAxisId="left" x={effectiveTComplete}
+                stroke="#CBD5E1" strokeDasharray="3 3"
+                label={{ value: String(effectiveTComplete), position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
+              />
+            )}
             {/* 縦線：基準の糖ピーク */}
             {Math.abs(result.tPeak - base.tPeak) > 12 && (
               <ReferenceLine
@@ -1072,7 +1077,7 @@ export default function BrewSimulator({
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-xs font-semibold text-gray-600">香気傾向</span>
             <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">定性・精度±100%</span>
-            <span className="text-xs text-gray-400">評価点：収穫窓中央 or {currentTComplete}℃・日　縦線＝基準配合</span>
+            <span className="text-xs text-gray-400">評価点：収穫窓中央{effectiveTComplete != null ? ` or ${effectiveTComplete}℃・日` : '（目標値未確立）'}　縦線＝基準配合</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {([
@@ -1167,9 +1172,11 @@ export default function BrewSimulator({
           value={`${Math.round(result.tPeak)} ℃・日`}
           sub={`${selectedLocation}約${tPeakDays ?? '—'}日`}
           diffText={
-            Math.abs(tPeakRatio - basePeakRatio) > 0.01
-              ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
-              : '基準と同等'
+            tPeakRatio != null && basePeakRatio != null
+              ? Math.abs(tPeakRatio - basePeakRatio) > 0.01
+                ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
+                : '基準と同等'
+              : undefined
           }
           diffGood={null}
         />
@@ -1202,7 +1209,9 @@ export default function BrewSimulator({
         <p>
           キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）。
           {grainType === '砕米' && '砕米選択中：コアモデルは裸麦ベースのキャリブレーション。麹歩合・塩分・目標積算温度は山吹みそ基準値に変更。砕米の表面積効果は非反映のため精度低下の可能性あり。'}
-          {grainType === '無洗米' && '無洗米選択中：コアモデルは裸麦ベースのキャリブレーション。麹歩合・塩分・目標積算温度は白みそ基準値に変更。'}
+          {grainType === '無洗米' && (isSokko
+            ? '無洗米（速醸）選択中：コアモデルは裸麦ベースのキャリブレーション。目標70℃・日は速醸時の基準値。'
+            : '無洗米（非速醸）選択中：コアモデルは裸麦ベースのキャリブレーション。白みそを速醸以外で熟成した場合の参考値として利用可能。目標積算温度は未確立のため基準線は非表示。')}
         </p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつタンパク質残存 ≤ {currentProteinThreshold}%（{grainType === '無洗米' ? '15%以上分解・甘味主体のため緩和' : '苦味ペプチドを含む総分解量 ≥ 30%'}）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
