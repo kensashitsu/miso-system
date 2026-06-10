@@ -16,9 +16,9 @@ const K_AMY_BASE   = 0.00420   // /℃・日（kojiQ=6）
 const K_MIC_BASE   = 0.00840   // /℃・日（aw=0.83・塩分10.9%）
 const AW_BASE      = 0.83
 const AW_MIN_MIC   = 0.75      // 微生物活性下限aw
-const KOJI_HO_BASE = 24.1      // 無添加麦みそ基準麹歩合（割）
+const KOJI_HO_BASE = 24.1      // 裸麦基準麹歩合（割）。runModelのデフォルト
 const PH_INITIAL   = 6.8       // 仕込み直後pH
-const T_COMPLETE   = 600       // 基準完成積算温度（℃・日）
+const T_COMPLETE   = 600       // 裸麦基準完成積算温度（℃・日）
 const T_MAX        = 900
 const STEP         = 5
 // 酵素と微生物のQ10（温度感受性の違い）
@@ -46,6 +46,9 @@ const FRUIT_OPT_TEMP   = 28   // 花果様香（エステル）生成の最適�
 const FRUIT_AROMA_RANGE = 15  // 最適温度からの許容偏差（℃）
 const FRUIT_AROMA_SCALE = 2.5 // 花果様香スケール係数（アルコール→0-100換算）
 const SOUR_AROMA_SCALE  = 100 / 70  // 酸香スケール係数（最大70%酸生成→100換算）
+
+// ── 穀物種別 ──────────────────────────────────────────────────────────────────
+type GrainType = '裸麦' | '砕米' | '無洗米'
 
 // ── 型定義 ───────────────────────────────────────────────────────────────────
 type ChartPoint = {
@@ -85,10 +88,12 @@ function fAwMaillard(aw: number): number {
 
 function runModel(
   kojiHo: number, saltPct: number, kojiQ: number, locTemp: number,
-  bThreshold: number = WINDOW_SWEET, isSokko: boolean = false
+  bThreshold: number = WINDOW_SWEET, isSokko: boolean = false,
+  kojiHoBase: number = KOJI_HO_BASE,
+  tComplete:  number = T_COMPLETE,
 ): ModelOutput {
   const aw      = 0.99 - 0.015 * saltPct
-  const kAmyBase = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / KOJI_HO_BASE)
+  const kAmyBase = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / kojiHoBase)
   const fMaillard = fAwMaillard(aw)
 
   let kAmy: number, kMic: number, r: number, phFinal: number
@@ -190,11 +195,11 @@ function runModel(
   // AA=90% は二段階モデルで (1-exp(-kPro×T))² = 0.9 → T = -ln(1-√0.9)/kPro
   const tAAPeak = -Math.log(1 - Math.sqrt(0.9)) / kPro
 
-  // ── 香気傾向（収穫窓中央 or T_COMPLETE での評価） ──
+  // ── 香気傾向（収穫窓中央 or tComplete での評価） ──
   const evalT   = windowStart != null && windowEnd != null
     ? (windowStart + windowEnd) / 2
     : windowStart != null ? Math.min(windowStart * 1.2, T_MAX)
-    : isSokko ? T_MAX / 3 : T_COMPLETE
+    : isSokko ? T_MAX / 3 : tComplete
   const evalIdx = Math.min(Math.round(evalT / STEP), points.length - 1)
 
   // evalT での C（酸・アルコール総生成量）を解析的に再計算
@@ -220,6 +225,9 @@ function runModel(
 
   // 酸香：酸成分量（C × 乳酸菌比率）
   const aromaSour   = Math.min(100, Ce * (1 - fYeast) * 100 * SOUR_AROMA_SCALE)
+
+  // evalIdx は未使用だが型エラー回避のため参照
+  void evalIdx
 
   return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast,
     aromaRoasted, aromaFruity, aromaSour, windowStart, windowEnd }
@@ -361,7 +369,7 @@ function calcIngredients(
   saltPct:   number,
   α:         number,   // kojiRatio
   β:         number,   // soybeanRatio
-  mKoji:     number,   // 麦麹含水率
+  mKoji:     number,   // 麹含水率
   mSoy:      number,   // 蒸煮大豆水分率
   M:         number,   // 目標水分率
 ) {
@@ -382,36 +390,55 @@ export default function BrewSimulator({
   baseSaltPct,
   hadakaMugiMoisture,
   mugiKojiMoisture,
+  komeMoisture,
+  komeKojiMoisture,
   soybeanRawMoisture,
   steamedSoyMoisture,
   kojiRatio,
+  komeKojiRatio,
   soybeanRatio,
   targetMoisture,
   targetMoistureSampleCount,
+  targetMoistureSuimai,
+  targetMoistureShirome,
   room1Temp,
   room2Temp,
   weatherMonthlyDailyAvg,
   weatherMonthlyTempC,
+  baseKojiHoSuimai,
+  baseSaltPctSuimai,
+  baseKojiHoShirome,
+  baseSaltPctShirome,
 }: {
   baseKojiHo:                number
   baseSaltPct:               number
   hadakaMugiMoisture:        number
   mugiKojiMoisture:          number
+  komeMoisture:              number
+  komeKojiMoisture:          number
   soybeanRawMoisture:        number
   steamedSoyMoisture:        number
   kojiRatio:                 number
+  komeKojiRatio:             number
   soybeanRatio:              number
   targetMoisture:            number
   targetMoistureSampleCount: number
+  targetMoistureSuimai:      number
+  targetMoistureShirome:     number
   room1Temp:                 number
   room2Temp:                 number
   weatherMonthlyDailyAvg:    Record<number, number>
   weatherMonthlyTempC:       Record<number, number>
+  baseKojiHoSuimai:          number
+  baseSaltPctSuimai:         number
+  baseKojiHoShirome:         number
+  baseSaltPctShirome:        number
 }) {
-  const [kojiHo,            setKojiHo]            = useState(baseKojiHo)
-  const [saltPct,           setSaltPct]           = useState(baseSaltPct)
-  const [shikomiKg,         setShikomiKg]         = useState(80)
-  const [targetMoisturePct, setTargetMoisturePct] = useState(
+  const [grainType,          setGrainType]          = useState<GrainType>('裸麦')
+  const [kojiHo,             setKojiHo]             = useState(baseKojiHo)
+  const [saltPct,            setSaltPct]            = useState(baseSaltPct)
+  const [shikomiKg,          setShikomiKg]          = useState(80)
+  const [targetMoisturePct,  setTargetMoisturePct]  = useState(
     Math.round(targetMoisture * 1000) / 10
   )
   const [selectedLocation, setSelectedLocation] = useState<'暖房' | '冷房' | '常温' | '速醸'>('暖房')
@@ -426,6 +453,29 @@ export default function BrewSimulator({
     return next
   })
 
+  // ── 品種別キャリブレーション値 ──
+  const currentBaseKojiHo  = grainType === '裸麦' ? baseKojiHo  : grainType === '砕米' ? baseKojiHoSuimai  : baseKojiHoShirome
+  const currentBaseSaltPct = grainType === '裸麦' ? baseSaltPct : grainType === '砕米' ? baseSaltPctSuimai : baseSaltPctShirome
+  const currentGrainMoisture = grainType === '裸麦' ? hadakaMugiMoisture : komeMoisture
+  const currentKojiMoisture  = grainType === '裸麦' ? mugiKojiMoisture   : komeKojiMoisture
+  const currentKojiRatioCalc = grainType === '裸麦' ? kojiRatio          : komeKojiRatio
+  const currentKojiLabel     = grainType === '裸麦' ? '麦麹' : '米麹'
+  // 品種別目標積算温度（グラフ基準線・evalTフォールバック用）
+  const currentTComplete     = grainType === '裸麦' ? 600 : grainType === '砕米' ? 550 : 70
+  // 品種別サンプルカウント（裸麦のみ実績あり）
+  const currentSampleCount   = grainType === '裸麦' ? targetMoistureSampleCount : 0
+
+  // ── 穀物種別切り替え ──
+  const handleGrainTypeChange = (newGrain: GrainType) => {
+    const newBaseKojiHo  = newGrain === '裸麦' ? baseKojiHo  : newGrain === '砕米' ? baseKojiHoSuimai  : baseKojiHoShirome
+    const newBaseSaltPct = newGrain === '裸麦' ? baseSaltPct : newGrain === '砕米' ? baseSaltPctSuimai : baseSaltPctShirome
+    const newTargetM     = newGrain === '裸麦' ? targetMoisture : newGrain === '砕米' ? targetMoistureSuimai : targetMoistureShirome
+    setGrainType(newGrain)
+    setKojiHo(newBaseKojiHo)
+    setSaltPct(newBaseSaltPct)
+    setTargetMoisturePct(Math.round(Math.max(25, Math.min(55, newTargetM * 100)) * 10) / 10)
+  }
+
   const isSokko     = selectedLocation === '速醸'
   const bThreshold  = windowMode === 'sweet' ? WINDOW_SWEET : WINDOW_BALANCE
   const dotInterval = isSokko ? 10 : 30
@@ -434,7 +484,7 @@ export default function BrewSimulator({
     setKojiHo(v)
     if (linkSalt) {
       const linked = Math.round(
-        Math.min(14, Math.max(5, baseSaltPct + (baseKojiHo - v) * SALT_KOJI_RATE)) * 10
+        Math.min(16, Math.max(1, currentBaseSaltPct + (currentBaseKojiHo - v) * SALT_KOJI_RATE)) * 10
       ) / 10
       setSaltPct(linked)
     }
@@ -452,11 +502,23 @@ export default function BrewSimulator({
     : sokkoTemp  // 速醸
 
   // 速醸時はグラフ範囲を縮小（全変化が数日分に収まる）
-  const chartMax = isSokko ? 300 : T_MAX
+  // 無洗米（白みそ）は目標70℃・日なので表示範囲を短縮
+  const currentChartMax = isSokko ? 300 : grainType === '無洗米' ? 250 : T_MAX
+  const currentTicks    = isSokko
+    ? [0, 50, 100, 150, 200, 250, 300]
+    : grainType === '無洗米'
+      ? [0, 50, 100, 150, 200, 250]
+      : [0, 150, 300, 450, 600, 750, 900]
 
   // 出麹評価は固定（6=標準）。result・base とも同じ温度・同じモードで比較
-  const result = useMemo(() => runModel(kojiHo, saltPct, 6, locTemp, bThreshold, isSokko), [kojiHo, saltPct, locTemp, bThreshold, isSokko])
-  const base   = useMemo(() => runModel(baseKojiHo, baseSaltPct, 6, locTemp, bThreshold, isSokko), [baseKojiHo, baseSaltPct, locTemp, bThreshold, isSokko])
+  const result = useMemo(
+    () => runModel(kojiHo, saltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete),
+    [kojiHo, saltPct, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete]
+  )
+  const base = useMemo(
+    () => runModel(currentBaseKojiHo, currentBaseSaltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete),
+    [currentBaseKojiHo, currentBaseSaltPct, locTemp, bThreshold, isSokko, currentTComplete]
+  )
 
   // 仕立量が10kg以下の場合はg/mL表示
   const useGrams = shikomiKg <= 10
@@ -470,8 +532,8 @@ export default function BrewSimulator({
     return `${(Math.round(value * 10) / 10).toFixed(1)} ${unit}`
   }
 
-  const tPeakRatio    = result.tPeak / T_COMPLETE
-  const basePeakRatio = base.tPeak   / T_COMPLETE
+  const tPeakRatio    = result.tPeak / currentTComplete
+  const basePeakRatio = base.tPeak   / currentTComplete
 
   const windowWidth     = result.windowStart != null && result.windowEnd != null
     ? result.windowEnd - result.windowStart : null
@@ -485,18 +547,18 @@ export default function BrewSimulator({
   // 原料逆算（目標水分%をユーザー調整値で使用）
   const ingredients = useMemo(() => calcIngredients(
     shikomiKg, kojiHo, saltPct,
-    kojiRatio, soybeanRatio,
-    mugiKojiMoisture, steamedSoyMoisture,
+    currentKojiRatioCalc, soybeanRatio,
+    currentKojiMoisture, steamedSoyMoisture,
     targetMoisturePct / 100,
-  ), [shikomiKg, kojiHo, saltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
+  ), [shikomiKg, kojiHo, saltPct, currentKojiRatioCalc, soybeanRatio, currentKojiMoisture, steamedSoyMoisture, targetMoisturePct])
 
   // 基準配合の原料量（デンプン絶対量の比較用）
   const baseIngredients = useMemo(() => calcIngredients(
-    shikomiKg, baseKojiHo, baseSaltPct,
-    kojiRatio, soybeanRatio,
-    mugiKojiMoisture, steamedSoyMoisture,
+    shikomiKg, currentBaseKojiHo, currentBaseSaltPct,
+    currentKojiRatioCalc, soybeanRatio,
+    currentKojiMoisture, steamedSoyMoisture,
     targetMoisturePct / 100,
-  ), [shikomiKg, baseKojiHo, baseSaltPct, kojiRatio, soybeanRatio, mugiKojiMoisture, steamedSoyMoisture, targetMoisturePct])
+  ), [shikomiKg, currentBaseKojiHo, currentBaseSaltPct, currentKojiRatioCalc, soybeanRatio, currentKojiMoisture, steamedSoyMoisture, targetMoisturePct])
 
   // 甘味ポテンシャル = bMax比 × 穀物量比
   // bMaxは「デンプンの何割が糖になるか」の比率、grainKgは「デンプンの絶対量」を代理
@@ -506,10 +568,10 @@ export default function BrewSimulator({
 
   // 各原料の含水率（%表示用）
   const moisturePct = {
-    grain:    hadakaMugiMoisture  * 100,
-    koji:     mugiKojiMoisture    * 100,
-    soybean:  soybeanRawMoisture  * 100,
-    mushi:    steamedSoyMoisture  * 100,
+    grain:    currentGrainMoisture  * 100,
+    koji:     currentKojiMoisture   * 100,
+    soybean:  soybeanRawMoisture    * 100,
+    mushi:    steamedSoyMoisture    * 100,
   }
 
   // 「仕込む」ボタン用URL：収穫窓中央を目標積算温度に使用
@@ -555,8 +617,6 @@ export default function BrewSimulator({
 
     const DURATION  = 400
     const startTime = performance.now()
-    const lerp = (a: number | null, b: number | null): number | null =>
-      a != null && b != null ? a + (b - a) * (1 - (1 - Math.min(1, (performance.now() - startTime) / DURATION)) ** 3) : b
 
     const tick = (now: number) => {
       const t    = Math.min((now - startTime) / DURATION, 1)
@@ -604,18 +664,52 @@ export default function BrewSimulator({
 
           {/* 左：配合設定 */}
           <div className="p-5 sm:border-r border-b sm:border-b-0 border-gray-100">
-            <h2 className="text-sm font-semibold text-gray-700 mb-1">配合設定
-              <span className="text-xs font-normal text-gray-400 ml-2">裸麦使用・水飴なし</span>
+            <h2 className="text-sm font-semibold text-gray-700 mb-3">配合設定
+              <span className="text-xs font-normal text-gray-400 ml-2">{grainType}使用・水飴なし</span>
             </h2>
+
+            {/* 穀物種別選択 */}
+            <div className="flex items-center gap-2 py-2 border-b border-gray-50 mb-1">
+              <span className="text-sm text-gray-700 flex-1">穀物</span>
+              <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
+                {(['裸麦', '砕米', '無洗米'] as const).map(grain => (
+                  <button
+                    key={grain}
+                    type="button"
+                    onClick={() => handleGrainTypeChange(grain)}
+                    className={`px-2.5 py-1.5 transition-colors ${
+                      grainType === grain
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-white text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    {grain}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 非裸麦の注意書き */}
+            {grainType !== '裸麦' && (
+              <div className="mb-2 text-xs bg-amber-50 border border-amber-200 text-amber-700 rounded p-2 flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  {grainType === '砕米'
+                    ? '砕米は粒子の細かさでアミラーゼ反応速度が裸麦モデルとずれる可能性があります。定性的傾向の参考としてご利用ください。'
+                    : '無洗米（白みそ）は通常アルコール添加で微生物を抑制します。糖・pH以外のラインは精度が低下します。'}
+                </span>
+              </div>
+            )}
+
             <Stepper label="仕立量"
               value={shikomiKg} min={1} max={2000} step={shikomiStep} unit="kg" decimals={shikomiKg <= 5 ? 1 : 0}
               onChange={setShikomiKg} />
-            <Stepper label="麹歩合" sub={`基準 ${baseKojiHo.toFixed(1)}割`}
+            <Stepper label="麹歩合" sub={`基準 ${currentBaseKojiHo.toFixed(1)}割`}
               value={kojiHo} min={5} max={100} step={0.5} unit="割" decimals={1}
               onChange={handleKojiHoChange} />
             <div className="flex items-center gap-2 py-1">
-              <Stepper label="塩分" sub={`基準 ${baseSaltPct.toFixed(1)}%`}
-                value={saltPct} min={5} max={14} step={0.1} unit="%" decimals={1}
+              <Stepper label="塩分" sub={`基準 ${currentBaseSaltPct.toFixed(1)}%`}
+                value={saltPct} min={1} max={16} step={0.1} unit="%" decimals={1}
                 onChange={setSaltPct} />
               <button
                 type="button"
@@ -632,10 +726,10 @@ export default function BrewSimulator({
             </div>
             <Stepper
               label="目標水分"
-              sub={targetMoistureSampleCount > 0
-                ? `実績${targetMoistureSampleCount}件平均`
+              sub={currentSampleCount > 0
+                ? `実績${currentSampleCount}件平均`
                 : 'レシピ参考値'}
-              value={targetMoisturePct} min={35} max={55} step={0.5} unit="%" decimals={1}
+              value={targetMoisturePct} min={25} max={55} step={0.5} unit="%" decimals={1}
               onChange={setTargetMoisturePct} />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2">
               <p className="text-xs text-gray-400">水分活性 aw = {result.aw.toFixed(3)}</p>
@@ -657,15 +751,15 @@ export default function BrewSimulator({
                 </tr>
               </thead>
               <tbody>
-                {/* 裸麦 → 麦麹 */}
+                {/* 穀物 → 麹 */}
                 <tr className="border-b border-gray-50">
-                  <td className="py-1.5 text-gray-600">裸麦</td>
+                  <td className="py-1.5 text-gray-600">{grainType}</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-900">{fmtQty(ingredients.grainKg, 'kg')}</div>
                     <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.grain.toFixed(1)}%</div>
                   </td>
                   <td className="py-1.5 text-center text-gray-300 text-xs align-top pt-2.5">→</td>
-                  <td className="py-1.5 text-gray-500 pl-1">麦麹</td>
+                  <td className="py-1.5 text-gray-500 pl-1">{currentKojiLabel}</td>
                   <td className="py-1.5 text-right">
                     <div className="tabular-nums font-semibold text-gray-700">{fmtQty(ingredients.kojiKg, 'kg')}</div>
                     <div className="tabular-nums text-xs text-sky-600">水分 {moisturePct.koji.toFixed(1)}%</div>
@@ -792,7 +886,7 @@ export default function BrewSimulator({
           )}
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{chartMax}℃・日表示</span>}　右Y軸：pH
+          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{currentChartMax}℃・日表示</span>}　右Y軸：pH
           <span className={`ml-1 ${isSokko ? 'text-rose-500' : 'text-violet-600'}`}>
             {selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算
           </span>
@@ -845,10 +939,8 @@ export default function BrewSimulator({
             <XAxis
               dataKey="x"
               type="number"
-              domain={[0, chartMax]}
-              ticks={isSokko
-                ? [0, 50, 100, 150, 200, 250, 300]
-                : [0, 150, 300, 450, 600, 750, 900]}
+              domain={[0, currentChartMax]}
+              ticks={currentTicks}
               tickFormatter={v => v === 0 ? '0' : String(v)}
               tick={{ fontSize: 10, fill: '#9CA3AF' }}
               axisLine={false} tickLine={false}
@@ -859,10 +951,8 @@ export default function BrewSimulator({
               dataKey="x"
               type="number"
               orientation="top"
-              domain={[0, chartMax]}
-              ticks={isSokko
-                ? [0, 50, 100, 150, 200, 250, 300]
-                : [0, 150, 300, 450, 600, 750, 900]}
+              domain={[0, currentChartMax]}
+              ticks={currentTicks}
               tickFormatter={v => {
                 if (v === 0) return '0日'
                 if (dailyAccum <= 0) return '—'
@@ -904,11 +994,11 @@ export default function BrewSimulator({
               />
             )}
 
-            {/* 縦線：基準完成（600℃・日） */}
+            {/* 縦線：基準完成（品種別目標℃・日） */}
             <ReferenceLine
-              yAxisId="left" x={T_COMPLETE}
+              yAxisId="left" x={currentTComplete}
               stroke="#CBD5E1" strokeDasharray="3 3"
-              label={{ value: '600', position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
+              label={{ value: String(currentTComplete), position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
             />
             {/* 縦線：基準の糖ピーク */}
             {Math.abs(result.tPeak - base.tPeak) > 12 && (
@@ -925,7 +1015,7 @@ export default function BrewSimulator({
               label={{ value: '糖ピーク', position: 'insideTopRight', fontSize: 9, fill: '#F59E0B' }}
             />
             {/* 縦線：苦味ペプチドピーク */}
-            {result.tBitterPeak <= chartMax && (
+            {result.tBitterPeak <= currentChartMax && (
               <ReferenceLine
                 yAxisId="left" x={result.tBitterPeak}
                 stroke="#B07D47" strokeWidth={1} strokeDasharray="2 3"
@@ -933,7 +1023,7 @@ export default function BrewSimulator({
               />
             )}
             {/* 縦線：アミノ酸ピーク（AA=90%、グラフ範囲内のみ表示） */}
-            {result.tAAPeak <= chartMax && (
+            {result.tAAPeak <= currentChartMax && (
               <ReferenceLine
                 yAxisId="left" x={result.tAAPeak}
                 stroke="#34D399" strokeWidth={1.5}
@@ -971,7 +1061,7 @@ export default function BrewSimulator({
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-xs font-semibold text-gray-600">香気傾向</span>
             <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">定性・精度±100%</span>
-            <span className="text-xs text-gray-400">評価点：収穫窓中央 or {T_COMPLETE}℃・日　縦線＝基準配合</span>
+            <span className="text-xs text-gray-400">評価点：収穫窓中央 or {currentTComplete}℃・日　縦線＝基準配合</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {([
@@ -1098,7 +1188,11 @@ export default function BrewSimulator({
       {/* ── モデル注記 ── */}
       <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-4 space-y-1 border border-gray-100">
         <p className="font-medium text-gray-600">モデルの前提と限界</p>
-        <p>キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）</p>
+        <p>
+          キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）。
+          {grainType === '砕米' && '砕米選択中：コアモデルは裸麦ベースのキャリブレーション。麹歩合・塩分・目標積算温度は山吹みそ基準値に変更。砕米の表面積効果は非反映のため精度低下の可能性あり。'}
+          {grainType === '無洗米' && '無洗米選択中：コアモデルは裸麦ベースのキャリブレーション。麹歩合・塩分・目標積算温度は白みそ基準値に変更。通常白みそはアルコール添加で微生物を抑制するため糖・pH以外のラインは実態と乖離する可能性あり。'}
+        </p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつタンパク質残存 ≤ 70%（苦味ペプチドを含む総分解量 ≥ 30%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
