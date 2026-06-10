@@ -88,9 +88,11 @@ function fAwMaillard(aw: number): number {
 
 function runModel(
   kojiHo: number, saltPct: number, kojiQ: number, locTemp: number,
-  bThreshold: number = WINDOW_SWEET, isSokko: boolean = false,
-  kojiHoBase: number = KOJI_HO_BASE,
-  tComplete:  number = T_COMPLETE,
+  bThreshold:       number = WINDOW_SWEET,
+  isSokko:          boolean = false,
+  kojiHoBase:       number = KOJI_HO_BASE,
+  tComplete:        number = T_COMPLETE,
+  proteinThreshold: number = 70,
 ): ModelOutput {
   const aw      = 0.99 - 0.015 * saltPct
   const kAmyBase = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / kojiHoBase)
@@ -184,7 +186,8 @@ function runModel(
     // 旨味条件：protein < 70%（タンパク質の30%以上が分解開始）
     // 二段階モデルでAAnorm単独では低麹歩合時に条件未達になるため、
     // 苦味ペプチドを含む総分解量（= 1 - protein）で判定する
-    const inWindow = Braw > bThreshold * bMax && protein < 70 && pH >= 4.8
+    // 無洗米（白みそ）は甘味主体で苦味解消を重視しないため閾値を緩和（85%）
+    const inWindow = Braw > bThreshold * bMax && protein < proteinThreshold && pH >= 4.8
       && (!isSokko || (Bnorm / 100) * (AAnorm / 100) < SOKKO_BA_CLOSE)
     if (inWindow && windowStart === null) windowStart = T
     if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
@@ -461,7 +464,9 @@ export default function BrewSimulator({
   const currentKojiRatioCalc = grainType === '裸麦' ? kojiRatio          : komeKojiRatio
   const currentKojiLabel     = grainType === '裸麦' ? '麦麹' : '米麹'
   // 品種別目標積算温度（グラフ基準線・evalTフォールバック用）
-  const currentTComplete     = grainType === '裸麦' ? 600 : grainType === '砕米' ? 550 : 70
+  const currentTComplete        = grainType === '裸麦' ? 600 : grainType === '砕米' ? 550 : 70
+  // 収穫窓のタンパク質残存閾値: 無洗米（白みそ）は甘味主体で苦味解消不要のため緩和
+  const currentProteinThreshold = grainType === '無洗米' ? 85 : 70
   // 品種別サンプルカウント（裸麦のみ実績あり）
   const currentSampleCount   = grainType === '裸麦' ? targetMoistureSampleCount : 0
 
@@ -512,12 +517,12 @@ export default function BrewSimulator({
 
   // 出麹評価は固定（6=標準）。result・base とも同じ温度・同じモードで比較
   const result = useMemo(
-    () => runModel(kojiHo, saltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete),
-    [kojiHo, saltPct, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete]
+    () => runModel(kojiHo, saltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold),
+    [kojiHo, saltPct, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold]
   )
   const base = useMemo(
-    () => runModel(currentBaseKojiHo, currentBaseSaltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete),
-    [currentBaseKojiHo, currentBaseSaltPct, locTemp, bThreshold, isSokko, currentTComplete]
+    () => runModel(currentBaseKojiHo, currentBaseSaltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold),
+    [currentBaseKojiHo, currentBaseSaltPct, locTemp, bThreshold, isSokko, currentTComplete, currentProteinThreshold]
   )
 
   // グラフ用データ：表示範囲外を除外して XAxis のスケール計算を正確にする
@@ -1200,7 +1205,7 @@ export default function BrewSimulator({
           {grainType === '無洗米' && '無洗米選択中：コアモデルは裸麦ベースのキャリブレーション。麹歩合・塩分・目標積算温度は白みそ基準値に変更。'}
         </p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
-        <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつタンパク質残存 ≤ 70%（苦味ペプチドを含む総分解量 ≥ 30%）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
+        <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつタンパク質残存 ≤ {currentProteinThreshold}%（{grainType === '無洗米' ? '15%以上分解・甘味主体のため緩和' : '苦味ペプチドを含む総分解量 ≥ 30%'}）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
         <p>アミノ酸ピーク：二段階モデルでAA=90%に達する時点（旧一段階モデルより約30%遅い）。麹歩合が低い場合はグラフ範囲外になることがあります。</p>
         <p>アルコール（推定）：C（酸・アルコール混合）に酵母比率を乗じた値。酵母比率は「塩分5%・35℃以下で最大40%」を基準に塩分・温度で補正（塩分1%↑→比率2%↓・35℃超で抑制・50℃で死滅）。初期デンプン量に対する割合で表示。速醸は酵母死滅のためアルコール生成なし。精度±50〜80%。</p>
