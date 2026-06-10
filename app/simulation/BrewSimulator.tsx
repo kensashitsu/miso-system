@@ -510,13 +510,10 @@ export default function BrewSimulator({
     : sokkoTemp  // 速醸
 
   // 速醸時はグラフ範囲を縮小（全変化が数日分に収まる）
-  // 無洗米（白みそ）は目標70℃・日なので表示範囲を短縮
-  const currentChartMax = isSokko ? 300 : grainType === '無洗米' ? 250 : T_MAX
+  const currentChartMax = isSokko ? 300 : T_MAX
   const currentTicks    = isSokko
     ? [0, 50, 100, 150, 200, 250, 300]
-    : grainType === '無洗米'
-      ? [0, 50, 100, 150, 200, 250]
-      : [0, 150, 300, 450, 600, 750, 900]
+    : [0, 150, 300, 450, 600, 750, 900]
 
   // 出麹評価は固定（6=標準）。result・base とも同じ温度・同じモードで比較
   const result = useMemo(
@@ -1000,7 +997,7 @@ export default function BrewSimulator({
               <ReferenceArea
                 yAxisId="left"
                 x1={animWindow.start}
-                x2={animWindow.end ?? T_MAX}
+                x2={Math.min(animWindow.end ?? currentChartMax, currentChartMax)}
                 fill="#D1FAE5"
                 fillOpacity={0.55}
                 stroke="#6EE7B7"
