@@ -6,235 +6,12 @@ import {
   ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts'
 import { AlertTriangle, Info } from 'lucide-react'
-
-// ── モデル定数（無添加麦みそキャリブレーション） ─────────────────────────────
-// 拘束条件:
-//   ① T_peak = 165℃・日（文献値: 完成積算温度600の約28%）
-//   ② B(600) / B_max = 0.30（完成時点で糖は最大値の30%）
-// → r = k_mic/k_amy = 2.0 で両条件が成立
-const K_AMY_BASE   = 0.00420   // /℃・日（kojiQ=6）
-const K_MIC_BASE   = 0.00840   // /℃・日（aw=0.83・塩分10.9%）
-const AW_BASE      = 0.83
-const AW_MIN_MIC   = 0.75      // 微生物活性下限aw
-const KOJI_HO_BASE = 24.1      // 裸麦基準麹歩合（割）。runModelのデフォルト
-const PH_INITIAL   = 6.8       // 仕込み直後pH
-const T_COMPLETE   = 600       // 裸麦基準完成積算温度（℃・日）
-const T_MAX        = 900
-const STEP         = 5
-// 酵素と微生物のQ10（温度感受性の違い）
-// アミラーゼ Q10≈2.0、微生物（糖消費）Q10≈4.0 の差が低温仕込みで甘味を生む
-const Q10_ENZ = 2.0
-const Q10_MIC = 4.0
-const T_REF   = 25   // キャリブレーション基準温度（暖房℃）
-// 麹歩合1割あたりの塩分変化率（高麹歩合ほど低塩：実データ近似）
-const SALT_KOJI_RATE = 0.175
-// 収穫窓の糖閾値
-const WINDOW_SWEET   = 0.50  // 甘味重視：糖がピークの50%以上
-const WINDOW_BALANCE = 0.25  // 品質バランス：糖がピークの25%以上（600℃・日付近まで含む）
-// 速醸の収穫窓：糖×アミノ酸の積がこの値を超えたら閉じる（Maillard基質が過剰＝着色リスク）
-const SOKKO_BA_CLOSE = 0.75
-// 苦味ペプチド→アミノ酸の分解レート比（kPeptidase = kPro × R_BITTER）
-// r=2 のとき苦味ピーク = ln(2)/kPro（糖ピーク計算と対称的な構造）
-const R_BITTER = 2.0
-// アルコール生成モデル（酵母活性の塩分・温度依存）
-const F_YEAST_BASE      = 0.40   // 塩分5%・適温時の最大酵母比率（糖→アルコールの割合）
-const F_YEAST_SALT_RATE = 0.020  // 塩分1%あたりの酵母比率低下量
-const YEAST_SUPPRESS_TEMP = 35   // 酵母が抑制され始める温度（℃）
-const YEAST_DEATH_TEMP    = 50   // 酵母が死滅する温度（℃、速醸領域）
-// 香気傾向モデル
-const FRUIT_OPT_TEMP   = 28   // 花果様香（エステル）生成の最適温度（℃）
-const FRUIT_AROMA_RANGE = 15  // 最適温度からの許容偏差（℃）
-const FRUIT_AROMA_SCALE = 2.5 // 花果様香スケール係数（アルコール→0-100換算）
-const SOUR_AROMA_SCALE  = 100 / 70  // 酸香スケール係数（最大70%酸生成→100換算）
-
-// ── 穀物種別 ──────────────────────────────────────────────────────────────────
-type GrainType = '裸麦' | '砕米' | '無洗米'
-
-// ── 型定義 ───────────────────────────────────────────────────────────────────
-type ChartPoint = {
-  x:        number   // 積算温度（℃・日）
-  A:        number   // デンプン残存 100〜0%
-  B:        number   // 糖（B_max = 100 に正規化）
-  protein:  number   // タンパク質残存 100〜0%
-  bitter:   number   // 苦味ペプチド（タンパク質の何%が苦味中間体として存在するか）
-  AA:       number   // アミノ酸蓄積 0〜100%（二段階: タンパク質→苦味ペプチド→アミノ酸）
-  alcohol:  number   // アルコール蓄積（初期デンプンのうちアルコールへ転換された割合%）
-  pH:       number
-  maillard: number   // 着色指数（累積値）
-}
-
-type ModelOutput = {
-  points:       ChartPoint[]
-  tPeak:        number
-  tAAPeak:      number    // AA=90%（タンパク質の90%がアミノ酸に変換）の積算温度（二段階モデル）
-  tBitterPeak:  number    // 苦味ペプチドがピークに達する積算温度
-  bitterMax:    number    // 苦味ペプチドのピーク値（%）
-  bMax:          number
-  aw:            number
-  phFinal:       number
-  fYeast:        number    // 酵母比率（糖→アルコールの割合。塩分・温度補正済み）
-  aromaRoasted:  number    // 焦香傾向（0-100、収穫窓中央での累積Maillard）
-  aromaFruity:   number    // 花果様香傾向（0-100、アルコール×温度係数）
-  aromaSour:     number    // 酸香傾向（0-100、酸成分量）
-  windowStart:   number | null   // ℃・日
-  windowEnd:     number | null
-}
-
-// ── コアモデル関数 ────────────────────────────────────────────────────────────
-function fAwMaillard(aw: number): number {
-  // 着色（Maillard）速度はaw≈0.77で最大・釣り鐘型
-  return Math.max(0, 1 - Math.abs(aw - 0.77) / 0.15)
-}
-
-function runModel(
-  kojiHo: number, saltPct: number, kojiQ: number, locTemp: number,
-  bThreshold:       number = WINDOW_SWEET,
-  isSokko:          boolean = false,
-  kojiHoBase:       number = KOJI_HO_BASE,
-  tComplete:        number = T_COMPLETE,
-  proteinThreshold: number = 70,
-): ModelOutput {
-  const aw      = 0.99 - 0.015 * saltPct
-  const kAmyBase = K_AMY_BASE * (kojiQ / 6.0) * (kojiHo / kojiHoBase)
-  const fMaillard = fAwMaillard(aw)
-
-  let kAmy: number, kMic: number, r: number, phFinal: number
-
-  if (isSokko) {
-    // 速醸：高温でアミラーゼを活性化、微生物は死滅（kMic=0）
-    kAmy    = kAmyBase * Math.pow(Q10_ENZ, (locTemp - T_REF) / 10)
-    kMic    = 0
-    r       = 0
-    phFinal = PH_INITIAL  // 微生物がいないのでpHは変化しない
-  } else {
-    kAmy    = kAmyBase
-    kMic    = Math.max(0.0001, K_MIC_BASE * (aw - AW_MIN_MIC) / (AW_BASE - AW_MIN_MIC))
-    r       = (kMic / kAmy) * Math.pow(Q10_MIC / Q10_ENZ, (locTemp - T_REF) / 10)
-    phFinal = 4.5 + 0.05 * saltPct
-  }
-
-  const kPro = 0.5 * kAmy
-
-  // Q10補正込みの有効微生物レート（r = kMic/kAmy × Q10_factor なので kMicEff = kAmy × r）
-  // raw kMic ではなく kMicEff をB計算に使うことで r < 1 でも B(T) が常に非負になる
-  const kMicEff = isSokko ? 0 : kAmy * r
-
-  // タンパク質→苦味ペプチド→アミノ酸の二段階分解レート
-  const kPeptidase = kPro * R_BITTER  // 苦味ペプチドの分解レート（kPro の R_BITTER 倍）
-
-  // 酵母比率：糖のうちアルコールへ転換される割合（塩分↑・温度↑で低下）
-  const fYeastSalt = Math.max(0.05, Math.min(F_YEAST_BASE, F_YEAST_BASE - F_YEAST_SALT_RATE * (saltPct - 5)))
-  const fYeastTemp = isSokko ? 0
-    : Math.max(0, Math.min(1, (YEAST_DEATH_TEMP - locTemp) / (YEAST_DEATH_TEMP - YEAST_SUPPRESS_TEMP)))
-  const fYeast = fYeastSalt * fYeastTemp
-
-  // 糖ピーク時刻・B_max
-  let tPeak: number, bMax: number
-  if (isSokko) {
-    // 速醸: B = 1 - exp(-kAmy×T)（単調増加、ピークなし）
-    tPeak = T_MAX
-    bMax  = 1
-  } else if (Math.abs(r - 1) > 0.001) {
-    tPeak = Math.log(r) / (kAmy * (r - 1))
-    bMax  = (1 / (r - 1)) * (Math.exp(-kAmy * tPeak) - Math.exp(-kMicEff * tPeak))
-  } else {
-    tPeak = 1 / kAmy
-    bMax  = kAmy * tPeak * Math.exp(-kAmy * tPeak)
-  }
-
-  // 苦味ピーク時刻・最大苦味（タンパク質→苦味ペプチド→アミノ酸 と同型の中間極大）
-  const tBitterPeak  = Math.log(R_BITTER) / (kPro * (R_BITTER - 1))  // = ln(2)/kPro
-  const bitterAtPeak = Math.max(0, (1 / (R_BITTER - 1)) * (Math.exp(-kPro * tBitterPeak) - Math.exp(-kPeptidase * tBitterPeak)))
-  const bitterMax    = bitterAtPeak * 100
-
-  const points: ChartPoint[] = []
-  let windowStart:        number | null = null
-  let windowEnd:          number | null = null
-  let cumulativeMaillard: number        = 0  // 着色は不可逆なので累積積分で表現
-
-  for (let i = 0; i <= T_MAX / STEP; i++) {
-    const T = i * STEP
-    const A = Math.exp(-kAmy * T)
-
-    let Braw: number
-    if (isSokko) {
-      Braw = 1 - A  // 全デンプンが糖へ（微生物消費なし）
-    } else if (Math.abs(r - 1) > 0.001) {
-      Braw = (1 / (r - 1)) * (Math.exp(-kAmy * T) - Math.exp(-kMicEff * T))
-    } else {
-      Braw = kAmy * T * Math.exp(-kAmy * T)
-    }
-
-    // 苦味ペプチド（タンパク質の何%が苦味中間体として存在するか）
-    const proteinFrac = Math.exp(-kPro * T)
-    const bitterRaw   = Math.max(0, (1 / (R_BITTER - 1)) * (proteinFrac - Math.exp(-kPeptidase * T)))
-    const bitter      = bitterRaw * 100
-    // アミノ酸：二段階反応の最終生成物（= 1 - タンパク質残存 - 苦味ペプチド）
-    // R_BITTER=2 のとき AA = (1 - exp(-kPro×T))² と等価
-    const AAnorm  = Math.max(0, (1 - proteinFrac - bitterRaw)) * 100
-    const protein = proteinFrac * 100
-
-    const Bnorm   = Math.max(0, bMax > 0 ? (Braw / bMax) * 100 : 0)
-    const C       = Math.max(0, 1 - A - Math.max(0, Braw))
-    const alcohol = C * fYeast * 100   // 初期デンプンのうちアルコールへ転換された割合（%）
-    const pH = PH_INITIAL - (PH_INITIAL - phFinal) * C
-    // 着色（Maillard）は不可逆：瞬間反応速度を時間積分して累積着色量を算出
-    // 正規化: rate=1.0 が T_MAX℃・日ずっと続いた場合を100%とする
-    cumulativeMaillard += (Bnorm / 100) * (AAnorm / 100) * fMaillard * STEP
-    const maillard = cumulativeMaillard * 100 / T_MAX
-
-    // 旨味条件：protein < 70%（タンパク質の30%以上が分解開始）
-    // 二段階モデルでAAnorm単独では低麹歩合時に条件未達になるため、
-    // 苦味ペプチドを含む総分解量（= 1 - protein）で判定する
-    // 無洗米（白みそ）は甘味主体で苦味解消を重視しないため閾値を緩和（85%）
-    const inWindow = Braw > bThreshold * bMax && protein < proteinThreshold && pH >= 4.8
-      && (!isSokko || (Bnorm / 100) * (AAnorm / 100) < SOKKO_BA_CLOSE)
-    if (inWindow && windowStart === null) windowStart = T
-    if (windowStart !== null && !inWindow && windowEnd === null) windowEnd = T
-
-    points.push({ x: T, A: A * 100, B: Bnorm, protein, bitter, AA: AAnorm, alcohol, pH, maillard })
-  }
-
-  // AA=90% は二段階モデルで (1-exp(-kPro×T))² = 0.9 → T = -ln(1-√0.9)/kPro
-  const tAAPeak = -Math.log(1 - Math.sqrt(0.9)) / kPro
-
-  // ── 香気傾向（収穫窓中央 or tComplete での評価） ──
-  const evalT   = windowStart != null && windowEnd != null
-    ? (windowStart + windowEnd) / 2
-    : windowStart != null ? Math.min(windowStart * 1.2, T_MAX)
-    : isSokko ? T_MAX / 3 : tComplete
-  const evalIdx = Math.min(Math.round(evalT / STEP), points.length - 1)
-
-  // evalT での C（酸・アルコール総生成量）を解析的に再計算
-  const Ae  = Math.exp(-kAmy * evalT)
-  const Braw_e = isSokko ? (1 - Ae)
-    : Math.abs(r - 1) > 0.001
-      ? Math.max(0, (1 / (r - 1)) * (Ae - Math.exp(-kMicEff * evalT)))
-      : kAmy * evalT * Ae
-  const Ce = Math.max(0, 1 - Ae - Braw_e)
-
-  // 焦香：evalT時点の瞬間Maillard速度（B×AA×fAw）で算出
-  // 累積値は/T_MAX正規化で絶対値が小さすぎるため瞬間速度を使用
-  // スケール係数3: 基準配合（kojiHo≈24、salt≈11%、暖房24℃）で中程度(~50)になるよう調整
-  const Bnorm_e   = Math.max(0, bMax > 0 ? (Braw_e / bMax) : 0)
-  const protein_e = Math.exp(-kPro * evalT)
-  const bitter_e  = Math.max(0, (1 / (R_BITTER - 1)) * (protein_e - Math.exp(-kPeptidase * evalT)))
-  const AA_e      = Math.max(0, 1 - protein_e - bitter_e)
-  const aromaRoasted = Math.min(100, Bnorm_e * AA_e * fMaillard * 100 * 3)
-
-  // 花果様香：アルコール × 酵母エステル生成の温度係数（28℃付近で最大）
-  const fruitFactor = Math.max(0, 1 - Math.abs(locTemp - FRUIT_OPT_TEMP) / FRUIT_AROMA_RANGE)
-  const aromaFruity = Math.min(100, Ce * fYeast * fruitFactor * 100 * FRUIT_AROMA_SCALE)
-
-  // 酸香：酸成分量（C × 乳酸菌比率）
-  const aromaSour   = Math.min(100, Ce * (1 - fYeast) * 100 * SOUR_AROMA_SCALE)
-
-  // evalIdx は未使用だが型エラー回避のため参照
-  void evalIdx
-
-  return { points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast,
-    aromaRoasted, aromaFruity, aromaSour, windowStart, windowEnd }
-}
+import {
+  T_COMPLETE, T_MAX, SALT_KOJI_RATE, WINDOW_SWEET, WINDOW_BALANCE, SOKKO_BA_CLOSE,
+  runModel,
+  type GrainType, type ChartPoint,
+} from './modelCore'
+import DesignMap from './DesignMap'
 
 // ── カスタムツールチップ ──────────────────────────────────────────────────────
 function ChartTooltip({
@@ -1199,6 +976,18 @@ export default function BrewSimulator({
           diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
         />
       </div>
+
+      {/* ── 設計マップ ── */}
+      <DesignMap
+        grainType={grainType}
+        currentKojiHo={kojiHo}
+        currentSaltPct={saltPct}
+        locTemp={locTemp}
+        bThreshold={bThreshold}
+        isSokko={isSokko}
+        kojiHoBase={currentBaseKojiHo}
+        proteinThreshold={currentProteinThreshold}
+      />
 
       {/* ── モデル注記 ── */}
       <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-4 space-y-1 border border-gray-100">
