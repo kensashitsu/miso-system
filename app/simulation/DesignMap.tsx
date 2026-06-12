@@ -115,12 +115,23 @@ function colorFromStops(value: number, stops: ColorStop[]): string {
   return '#9CA3AF'
 }
 
-type MetricCfg = { label: string; unit: string; desc: string; stops: ColorStop[]; fmt: (v: number) => string }
+type MetricCfg = {
+  label:       string
+  unit:        string
+  guide:       string   // 実用的な読み方ヒント
+  isKey:       boolean  // 最優先確認の指標
+  barMinLabel: string   // カラーバー最小値の定性ラベル
+  barMaxLabel: string   // カラーバー最大値の定性ラベル
+  stops:       ColorStop[]
+  fmt:         (v: number) => string
+}
 
 const METRIC_CFG: Record<Metric, MetricCfg> = {
   windowWidth: {
     label: '収穫窓幅', unit: '℃・日',
-    desc: '緑＝広い（仕上げタイミングに余裕）　灰＝収穫窓なし',
+    guide: '灰色エリア＝収穫窓なし（良質な味噌を作りにくい危険域）。●を緑色の方向へ動かすほど、仕上げのタイミングに余裕が生まれます。まずこのタブで●の周囲が安全かどうかを確認してください。',
+    isKey: true,
+    barMinLabel: '窓なし', barMaxLabel: '余裕十分',
     stops: [
       { val: 0,   h: 0,   s: 0,  l: 83 },
       { val: 1,   h: 0,   s: 68, l: 57 },
@@ -131,7 +142,9 @@ const METRIC_CFG: Record<Metric, MetricCfg> = {
   },
   bMax: {
     label: '糖ピーク量', unit: '',
-    desc: '橙＝高い（甘味ポテンシャル大）　青＝低い',
+    guide: '麹歩合を増やすと橙色（甘味大）になります。ただし麹を増やしすぎると収穫窓が狭まる場合があるため、「収穫窓幅」タブと合わせて確認してください。',
+    isKey: false,
+    barMinLabel: '甘味少', barMaxLabel: '甘味多',
     stops: [
       { val: 0,    h: 220, s: 58, l: 60 },
       { val: 0.12, h: 200, s: 15, l: 90 },
@@ -141,7 +154,9 @@ const METRIC_CFG: Record<Metric, MetricCfg> = {
   },
   tPeak: {
     label: '糖ピーク時刻', unit: '℃・日',
-    desc: '緑＝早熟（甘味が早く来る）　赤＝晩熟',
+    guide: '糖化のスピードを表します。緑＝早熟（積算温度が低いうちに甘味ピーク）、赤＝晩熟。麹↑・塩↓の方向で早熟化する傾向があります。',
+    isKey: false,
+    barMinLabel: '早熟', barMaxLabel: '晩熟',
     stops: [
       { val: 50,  h: 140, s: 52, l: 42 },
       { val: 200, h: 52,  s: 88, l: 52 },
@@ -151,7 +166,9 @@ const METRIC_CFG: Record<Metric, MetricCfg> = {
   },
   phFinal: {
     label: '最終pH', unit: '',
-    desc: '青＝穏やかな酸味　赤＝酸い（pH4.8以下は収穫窓外）',
+    guide: 'pH4.8未満は収穫窓から外れます（灰色エリアと連動）。赤エリアは酸味が強くなる配合です。塩分を上げると微生物活性が下がり、pHが高め（穏やか）に保たれやすくなります。',
+    isKey: false,
+    barMinLabel: '酸っぱい', barMaxLabel: '穏やか',
     stops: [
       { val: 4.5, h: 0,   s: 68, l: 55 },
       { val: 5.0, h: 30,  s: 88, l: 52 },
@@ -171,7 +188,7 @@ const GRID_RANGES: Record<GrainType, { koji: [number, number]; salt: [number, nu
 
 const N    = 20   // グリッド分割数（各軸）
 const CELL = 16   // セルサイズ (px)
-const ML = 34, MR = 70, MT = 16, MB = 32
+const ML = 38, MR = 75, MT = 22, MB = 36
 
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function DesignMap({
@@ -225,12 +242,18 @@ export default function DesignMap({
     currentKojiHo  >= kojiRange[0] && currentKojiHo  <= kojiRange[1] &&
     currentSaltPct >= saltRange[0] && currentSaltPct <= saltRange[1]
 
+  // マーカーラベル「現在」の表示位置（グリッド端で左右反転）
+  const labelRight   = mCX < ML + gridW * 0.75
+  const labelAnchor  = labelRight ? 'start' : 'end'
+  const labelX       = labelRight ? mCX + 11 : mCX - 11
+
   const minVal = cfg.stops[0].val
   const maxVal = cfg.stops[cfg.stops.length - 1].val
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
-      {/* ヘッダー */}
+
+      {/* ── タイトル・タブ ── */}
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <h2 className="text-sm font-semibold text-gray-700">設計マップ
           <span className="text-xs font-normal text-gray-400 ml-2">麹歩合 × 塩分%</span>
@@ -246,12 +269,35 @@ export default function DesignMap({
           ))}
         </div>
       </div>
-      <p className="text-xs text-gray-400 mb-3">
-        {cfg.desc}
-        <span className="ml-2 font-medium text-gray-500">●＝現在の配合</span>
-      </p>
 
-      {/* ヒートマップ */}
+      {/* ── マップの見方（常時表示） ── */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-xs text-gray-600 mb-3 space-y-1">
+        <p className="font-semibold text-gray-700">このマップの見方</p>
+        <p>
+          現在の熟成場所・穀物設定を固定したまま、
+          <span className="font-medium text-gray-800">麹歩合（横軸）と塩分%（縦軸）だけを変えたとき</span>
+          に各指標がどう変わるかを色で一覧します。
+        </p>
+        <p>
+          <span className="inline-flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-full border-2 border-gray-800 bg-white" />
+            <span className="font-semibold text-gray-800">●は現在の配合位置</span>
+          </span>
+          。周囲の色を見て、どの方向へ動かすと改善できるかを判断します。各セルにマウスを重ねると詳細値を確認できます。
+        </p>
+      </div>
+
+      {/* ── 指標別ガイド ── */}
+      <div className={`text-xs rounded-lg px-3 py-2.5 mb-3 flex items-start gap-1.5 ${
+        cfg.isKey
+          ? 'bg-amber-50 border border-amber-200 text-amber-800'
+          : 'bg-blue-50 border border-blue-100 text-blue-700'
+      }`}>
+        {cfg.isKey && <span className="shrink-0 font-bold mt-0.5">⚠</span>}
+        <p>{cfg.guide}</p>
+      </div>
+
+      {/* ── ヒートマップ ── */}
       <div
         className="overflow-x-auto"
         onMouseLeave={() => { setHoveredPoint(null); setHoverXY(null) }}
@@ -283,43 +329,56 @@ export default function DesignMap({
             )
           })}
 
-          {/* 現在配合マーカー */}
+          {/* 現在配合マーカー（●）と「現在」ラベル */}
           {markerVisible && (
             <>
               <circle cx={mCX} cy={mCY} r={7} fill="none" stroke="white"   strokeWidth={3} />
               <circle cx={mCX} cy={mCY} r={7} fill="none" stroke="#111827" strokeWidth={1.5} />
+              <text x={labelX} y={mCY - 9} fontSize={8.5} fontWeight={700}
+                textAnchor={labelAnchor} fill="#111827">現在</text>
             </>
           )}
 
-          {/* X軸ラベル（麹歩合） */}
+          {/* X軸ラベル（麹歩合）+ 方向矢印 */}
           {[0, 0.25, 0.5, 0.75, 1].map(t => {
             const val = kojiRange[0] + (kojiRange[1] - kojiRange[0]) * t
+            const x   = ML + t * gridW
+            const isEdge = t === 0 || t === 1
+            const label = t === 0 ? `← ${val.toFixed(0)}割`
+              : t === 1 ? `${val.toFixed(0)}割 →`
+              : `${val.toFixed(0)}割`
             return (
-              <text key={t} x={ML + t * gridW} y={MT + gridH + 18}
-                textAnchor="middle" fontSize={9} fill="#9CA3AF">
-                {val.toFixed(0)}割
+              <text key={t} x={x} y={MT + gridH + 16}
+                textAnchor="middle" fontSize={9}
+                fill={isEdge ? '#B0BAC8' : '#9CA3AF'}>
+                {label}
               </text>
             )
           })}
           <text x={ML + gridW / 2} y={svgH - 3}
             textAnchor="middle" fontSize={9} fill="#6B7280">麹歩合</text>
 
-          {/* Y軸ラベル（塩分%） */}
+          {/* Y軸ラベル（塩分%）+ 方向矢印 */}
           {[0, 0.25, 0.5, 0.75, 1].map(t => {
             const val = saltRange[0] + (saltRange[1] - saltRange[0]) * t
             const y   = MT + gridH - t * gridH
+            const isEdge = t === 0 || t === 1
+            const label = t === 0 ? `↓ ${val.toFixed(1)}%`
+              : t === 1 ? `↑ ${val.toFixed(1)}%`
+              : `${val.toFixed(1)}%`
             return (
               <text key={t} x={ML - 5} y={y + 3.5}
-                textAnchor="end" fontSize={9} fill="#9CA3AF">
-                {val.toFixed(1)}%
+                textAnchor="end" fontSize={9}
+                fill={isEdge ? '#B0BAC8' : '#9CA3AF'}>
+                {label}
               </text>
             )
           })}
-          <text x={10} y={MT + gridH / 2}
+          <text x={11} y={MT + gridH / 2}
             textAnchor="middle" fontSize={9} fill="#6B7280"
-            transform={`rotate(-90,10,${MT + gridH / 2})`}>塩分%</text>
+            transform={`rotate(-90,11,${MT + gridH / 2})`}>塩分%</text>
 
-          {/* カラーバー（グラデーション + ラベル） */}
+          {/* カラーバー（グラデーション + 数値ラベル + 定性ラベル） */}
           <defs>
             <linearGradient id="cbar" x1="0" y1="1" x2="0" y2="0">
               {cfg.stops.map((s, i) => {
@@ -333,6 +392,8 @@ export default function DesignMap({
           </defs>
           <rect x={ML + gridW + 12} y={MT} width={12} height={gridH}
             fill="url(#cbar)" rx={2} />
+
+          {/* カラーバー 数値ラベル */}
           {cfg.stops.map((s, i) => {
             const frac = maxVal > minVal ? (s.val - minVal) / (maxVal - minVal) : 0
             const y    = MT + gridH - frac * gridH
@@ -342,22 +403,30 @@ export default function DesignMap({
               </text>
             )
           })}
+
+          {/* カラーバー 定性ラベル（最大・最小） */}
+          <text x={ML + gridW + 14} y={MT - 6} textAnchor="start" fontSize={8} fill="#9CA3AF">
+            {cfg.barMaxLabel}
+          </text>
+          <text x={ML + gridW + 14} y={MT + gridH + 14} textAnchor="start" fontSize={8} fill="#9CA3AF">
+            {cfg.barMinLabel}
+          </text>
         </svg>
       </div>
 
-      {/* ホバーツールチップ */}
+      {/* ── ホバーツールチップ ── */}
       {hoveredPoint && hoverXY && (
         <div
           className="fixed z-50 pointer-events-none bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2.5 text-xs"
           style={{ left: hoverXY.x + 14, top: hoverXY.y - 10 }}
         >
           <p className="font-semibold text-gray-700 mb-1.5">
-            {hoveredPoint.kojiHo.toFixed(1)}割 / 塩分{hoveredPoint.saltPct.toFixed(1)}%
+            麹歩合 {hoveredPoint.kojiHo.toFixed(1)}割 / 塩分 {hoveredPoint.saltPct.toFixed(1)}%
           </p>
-          <p className={`mb-0.5 ${hoveredPoint.windowWidth > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+          <p className={`mb-0.5 ${hoveredPoint.windowWidth > 0 ? 'text-emerald-600' : 'text-rose-500 font-medium'}`}>
             収穫窓幅：{METRIC_CFG.windowWidth.fmt(hoveredPoint.windowWidth)}
           </p>
-          <p className="text-amber-600 mb-0.5">糖ピーク：{METRIC_CFG.tPeak.fmt(hoveredPoint.tPeak)}</p>
+          <p className="text-amber-600 mb-0.5">糖ピーク時刻：{METRIC_CFG.tPeak.fmt(hoveredPoint.tPeak)}</p>
           <p className="text-sky-600 mb-0.5">糖ピーク量：{METRIC_CFG.bMax.fmt(hoveredPoint.bMax)}</p>
           <p className="text-purple-500">pH下限：{METRIC_CFG.phFinal.fmt(hoveredPoint.phFinal)}</p>
         </div>
