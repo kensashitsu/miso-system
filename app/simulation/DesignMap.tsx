@@ -129,7 +129,7 @@ type MetricCfg = {
 const METRIC_CFG: Record<Metric, MetricCfg> = {
   windowWidth: {
     label: '収穫窓幅', unit: '℃・日',
-    guide: '灰色エリア＝収穫窓なし（良質な味噌を作りにくい危険域）。●を緑色の方向へ動かすほど、仕上げのタイミングに余裕が生まれます。まずこのタブで●の周囲が安全かどうかを確認してください。',
+    guide: '色が濃いほど収穫窓が広く（仕上げタイミングに余裕がある）、灰色＝収穫窓なし（危険域）。全点が緑の場合は表示範囲内に危険域がないことを意味します（下の緑バナーを参照）。',
     isKey: true,
     barMinLabel: '窓なし', barMaxLabel: '余裕十分',
     stops: [
@@ -230,6 +230,9 @@ export default function DesignMap({
     return pts
   }, [kojiRange, saltRange, locTemp, bThreshold, isSokko, kojiHoBase, proteinThreshold])
 
+  // 表示範囲内に収穫窓なし（灰色）エリアが存在するか
+  const hasNoWindowZone = useMemo(() => grid.some(p => p.windowWidth === 0), [grid])
+
   const gridW = N * CELL
   const gridH = N * CELL
   const svgW  = ML + gridW + MR
@@ -296,6 +299,18 @@ export default function DesignMap({
         {cfg.isKey && <span className="shrink-0 font-bold mt-0.5">⚠</span>}
         <p>{cfg.guide}</p>
       </div>
+
+      {/* 収穫窓幅タブで危険域なし（全点緑）のときの補足 */}
+      {metric === 'windowWidth' && !hasNoWindowZone && (
+        <div className="text-xs rounded-lg px-3 py-2.5 mb-3 bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-start gap-1.5">
+          <span className="shrink-0 font-bold mt-0.5">✓</span>
+          <div className="space-y-0.5">
+            <p><span className="font-semibold">この条件では危険域なし：</span>表示範囲内の全配合で収穫窓が存在します。</p>
+            <p>これは裸麦みそとして配合的に安定していることを意味します。色の濃淡が収穫窓の広さを表します（濃い緑ほど余裕がある）。低麹・低塩の方向（左下）ほど窓が狭くなる傾向があります。</p>
+            <p className="text-emerald-600">灰色エリアは砕米・無洗米で極端に低麹/低塩にした場合や、収穫窓モードを「甘味重視」に切り替えた場合などに現れます。</p>
+          </div>
+        </div>
+      )}
 
       {/* ── ヒートマップ ── */}
       <div
