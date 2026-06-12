@@ -11,7 +11,6 @@ import {
   runModel,
   type GrainType, type ChartPoint,
 } from './modelCore'
-import DesignMap from './DesignMap'
 
 // ── カスタムツールチップ ──────────────────────────────────────────────────────
 function ChartTooltip({
@@ -976,18 +975,6 @@ export default function BrewSimulator({
           diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
         />
       </div>
-
-      {/* ── 設計マップ ── */}
-      <DesignMap
-        grainType={grainType}
-        currentKojiHo={kojiHo}
-        currentSaltPct={saltPct}
-        locTemp={locTemp}
-        bThreshold={bThreshold}
-        isSokko={isSokko}
-        kojiHoBase={currentBaseKojiHo}
-        proteinThreshold={currentProteinThreshold}
-      />
 
       {/* ── モデル注記 ── */}
       <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-4 space-y-1 border border-gray-100">

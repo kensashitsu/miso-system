@@ -1,4 +1,4 @@
-// A→B→C連続反応モデルのコア定数・型・計算関数（BrewSimulator / DesignMap 共用）
+// A→B→C連続反応モデルのコア定数・型・計算関数
 
 export const K_AMY_BASE        = 0.00420
 export const K_MIC_BASE        = 0.00840
