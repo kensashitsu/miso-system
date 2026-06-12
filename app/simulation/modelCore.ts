@@ -26,7 +26,13 @@ export const FRUIT_AROMA_RANGE = 15
 export const FRUIT_AROMA_SCALE = 2.5
 export const SOUR_AROMA_SCALE  = 100 / 70
 
-export type GrainType = '裸麦' | '砕米' | '無洗米'
+// 普通米（米みそ・通常熟成）の暫定基準値：自社の製造実績データがないため、
+// 一般的な信州味噌型（麹歩合10〜12割）の目安として仮置き。試作結果により今後調整。
+export const KOME_KOJI_HO_BASE  = 10.9
+export const KOME_SALT_PCT_BASE = 10.9
+export const KOME_T_COMPLETE    = 800
+
+export type GrainType = '裸麦' | '砕米' | '無洗米' | '普通米'
 
 export type ChartPoint = {
   x:        number

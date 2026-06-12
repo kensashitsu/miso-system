@@ -8,6 +8,7 @@ import {
 import { AlertTriangle, Info } from 'lucide-react'
 import {
   T_COMPLETE, T_MAX, SALT_KOJI_RATE, WINDOW_SWEET, WINDOW_BALANCE, SOKKO_BA_CLOSE,
+  KOME_KOJI_HO_BASE, KOME_SALT_PCT_BASE, KOME_T_COMPLETE,
   runModel,
   type GrainType, type ChartPoint,
 } from './modelCore'
@@ -233,14 +234,14 @@ export default function BrewSimulator({
   })
 
   // ── 品種別キャリブレーション値 ──
-  const currentBaseKojiHo  = grainType === '裸麦' ? baseKojiHo  : grainType === '砕米' ? baseKojiHoSuimai  : baseKojiHoShirome
-  const currentBaseSaltPct = grainType === '裸麦' ? baseSaltPct : grainType === '砕米' ? baseSaltPctSuimai : baseSaltPctShirome
+  const currentBaseKojiHo  = grainType === '裸麦' ? baseKojiHo  : grainType === '砕米' ? baseKojiHoSuimai  : grainType === '普通米' ? KOME_KOJI_HO_BASE  : baseKojiHoShirome
+  const currentBaseSaltPct = grainType === '裸麦' ? baseSaltPct : grainType === '砕米' ? baseSaltPctSuimai : grainType === '普通米' ? KOME_SALT_PCT_BASE : baseSaltPctShirome
   const currentGrainMoisture = grainType === '裸麦' ? hadakaMugiMoisture : komeMoisture
   const currentKojiMoisture  = grainType === '裸麦' ? mugiKojiMoisture   : komeKojiMoisture
   const currentKojiRatioCalc = grainType === '裸麦' ? kojiRatio          : komeKojiRatio
   const currentKojiLabel     = grainType === '裸麦' ? '麦麹' : '米麹'
   // 品種別目標積算温度（グラフ基準線・evalTフォールバック用）
-  const currentTComplete        = grainType === '裸麦' ? 600 : grainType === '砕米' ? 550 : 70
+  const currentTComplete        = grainType === '裸麦' ? 600 : grainType === '砕米' ? 550 : grainType === '普通米' ? KOME_T_COMPLETE : 70
   // 収穫窓のタンパク質残存閾値: 無洗米（白みそ）は甘味主体で苦味解消不要のため緩和
   const currentProteinThreshold = grainType === '無洗米' ? 85 : 70
   // 品種別サンプルカウント（裸麦のみ実績あり）
@@ -248,9 +249,10 @@ export default function BrewSimulator({
 
   // ── 穀物種別切り替え ──
   const handleGrainTypeChange = (newGrain: GrainType) => {
-    const newBaseKojiHo  = newGrain === '裸麦' ? baseKojiHo  : newGrain === '砕米' ? baseKojiHoSuimai  : baseKojiHoShirome
-    const newBaseSaltPct = newGrain === '裸麦' ? baseSaltPct : newGrain === '砕米' ? baseSaltPctSuimai : baseSaltPctShirome
-    const newTargetM     = newGrain === '裸麦' ? targetMoisture : newGrain === '砕米' ? targetMoistureSuimai : targetMoistureShirome
+    const newBaseKojiHo  = newGrain === '裸麦' ? baseKojiHo  : newGrain === '砕米' ? baseKojiHoSuimai  : newGrain === '普通米' ? KOME_KOJI_HO_BASE  : baseKojiHoShirome
+    const newBaseSaltPct = newGrain === '裸麦' ? baseSaltPct : newGrain === '砕米' ? baseSaltPctSuimai : newGrain === '普通米' ? KOME_SALT_PCT_BASE : baseSaltPctShirome
+    // 普通米は自社実績データがないため、麹歩合の近い山吹みそ実績値を目標水分の参考値として流用
+    const newTargetM     = newGrain === '裸麦' ? targetMoisture : newGrain === '無洗米' ? targetMoistureShirome : targetMoistureSuimai
     setGrainType(newGrain)
     setKojiHo(newBaseKojiHo)
     setSaltPct(newBaseSaltPct)
@@ -459,7 +461,7 @@ export default function BrewSimulator({
             <div className="flex items-center gap-2 py-2 border-b border-gray-50 mb-1">
               <span className="text-sm text-gray-700 flex-1">穀物</span>
               <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
-                {(['裸麦', '砕米', '無洗米'] as const).map(grain => (
+                {(['裸麦', '砕米', '無洗米', '普通米'] as const).map(grain => (
                   <button
                     key={grain}
                     type="button"
@@ -483,7 +485,9 @@ export default function BrewSimulator({
                 <span>
                   {grainType === '砕米'
                     ? '砕米は粒子の細かさでアミラーゼ反応速度が裸麦モデルとずれる可能性があります。定性的傾向の参考としてご利用ください。'
-                    : 'コアモデルは裸麦ベースのキャリブレーションです。定性的傾向の参考としてご利用ください。'}
+                    : grainType === '普通米'
+                      ? '普通米は自社の製造実績データがなく、基準麹歩合・目標積算温度（800℃・日）は一般的な目安値の仮置きです。試作結果に応じて今後調整します。'
+                      : 'コアモデルは裸麦ベースのキャリブレーションです。定性的傾向の参考としてご利用ください。'}
                 </span>
               </div>
             )}
@@ -982,6 +986,7 @@ export default function BrewSimulator({
         <p>
           キャリブレーション基準：無添加麦みそ（麹歩合 {baseKojiHo.toFixed(1)}割・塩分 {baseSaltPct.toFixed(1)}%・目標 600 ℃・日）。
           {grainType === '砕米' && '砕米選択中：コアモデルは裸麦ベースのキャリブレーション。麹歩合・塩分・目標積算温度は山吹みそ基準値に変更。砕米の表面積効果は非反映のため精度低下の可能性あり。'}
+          {grainType === '普通米' && '普通米選択中：コアモデルは裸麦ベースのキャリブレーション。砕米のような表面積効果の懸念がないため麹歩合スケーリングは比較的妥当と考えられますが、自社の製造実績データはありません。基準麹歩合10.9割・目標積算温度800℃・日は一般的な信州味噌型を想定した仮置き値で、試作結果に応じて今後調整します。'}
           {grainType === '無洗米' && (isSokko
             ? '無洗米（速醸）選択中：コアモデルは裸麦ベースのキャリブレーション。目標70℃・日は速醸時の基準値。'
             : '無洗米（非速醸）選択中：コアモデルは裸麦ベースのキャリブレーション。白みそを速醸以外で熟成した場合の参考値として利用可能。目標積算温度は未確立のため基準線は非表示。')}

@@ -133,7 +133,7 @@ export default async function SimulationPage() {
       <div>
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">試作シミュレーター</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          穀物（裸麦・砕米・無洗米）・大豆・塩・水の配合を変えたときの熟成挙動を理論モデルで推計します（精度目安±30〜50%）
+          穀物（裸麦・砕米・無洗米・普通米）・大豆・塩・水の配合を変えたときの熟成挙動を理論モデルで推計します（精度目安±30〜50%）
         </p>
       </div>
       <BrewSimulator
