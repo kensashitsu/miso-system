@@ -164,6 +164,20 @@ function calcIngredients(
   return { grainKg, kojiKg, soybeanKg, mushiDaizuKg, saltKg, seedWaterL }
 }
 
+// 種水（seedWaterL）が「計算不可」（負値）にならないための水分%マージン
+const SEED_WATER_MARGIN_PCT = 0.5
+
+// 種水=0で達成される水分率（麹＋蒸煮大豆＋塩のみの加重平均）
+// 目標水分%がこれを下回ると種水が負値になり「計算不可」になる
+function calcMinMoisturePct(
+  kojiHo: number, saltPct: number, α: number, β: number, mKoji: number, mSoy: number,
+): number {
+  const R = kojiHo / 10
+  const P = saltPct / 100
+  const weighted = (R * α * mKoji + β * mSoy) / (R * α + β)
+  return (1 - P) * weighted * 100
+}
+
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function BrewSimulator({
   baseKojiHo,
@@ -253,10 +267,17 @@ export default function BrewSimulator({
     const newBaseSaltPct = newGrain === '裸麦' ? baseSaltPct : newGrain === '砕米' ? baseSaltPctSuimai : newGrain === '普通米' ? KOME_SALT_PCT_BASE : baseSaltPctShirome
     // 普通米は自社実績データがないため、麹歩合の近い山吹みそ実績値を目標水分の参考値として流用
     const newTargetM     = newGrain === '裸麦' ? targetMoisture : newGrain === '無洗米' ? targetMoistureShirome : targetMoistureSuimai
+    // 米系（砕米・無洗米・普通米）は実績平均が「種水=0で達成される水分率」を下回ることがあり、
+    // その場合は種水が負値（計算不可）になるため下限+マージンに補正する
+    const newKojiMoisture  = newGrain === '裸麦' ? mugiKojiMoisture : komeKojiMoisture
+    const newKojiRatioCalc = newGrain === '裸麦' ? kojiRatio         : komeKojiRatio
+    const minMoisturePct = newGrain === '裸麦' ? 0
+      : calcMinMoisturePct(newBaseKojiHo, newBaseSaltPct, newKojiRatioCalc, soybeanRatio, newKojiMoisture, steamedSoyMoisture)
+    const targetPct = Math.max(newTargetM * 100, minMoisturePct + SEED_WATER_MARGIN_PCT)
     setGrainType(newGrain)
     setKojiHo(newBaseKojiHo)
     setSaltPct(newBaseSaltPct)
-    setTargetMoisturePct(Math.round(Math.max(25, Math.min(55, newTargetM * 100)) * 10) / 10)
+    setTargetMoisturePct(Math.round(Math.max(25, Math.min(55, targetPct)) * 10) / 10)
   }
 
   const isSokko     = selectedLocation === '速醸'
