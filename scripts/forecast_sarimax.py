@@ -83,9 +83,10 @@ _MISO_POP_DATA = {
     '白みそ':       _POP_YAMAGUCHI,
 }
 
-# 人口特徴量(XGBoost)を使う品種。無添加→全国人口・田舎/山吹/白→山口県人口（_MISO_POP_DATA）。
-# 実験: 従来は白みそのみ。主要3品種にも有効化して月次MAPEが下がるか検証中。
-MISO_USE_POPULATION = {'無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'}
+# 人口特徴量(XGBoost)を使う品種は白みそのみ（山口県人口）。
+# 2026-06に主要3品種へも有効化して検証したが、月次MAPEは0.1%単位で不変だった
+# （人口は緩やかな単調トレンドで既存のラグ・移動平均と強相関し重要度ほぼ0）ため不使用。
+MISO_USE_POPULATION = {'白みそ'}
 
 
 def get_population_index(miso_type, yms):
