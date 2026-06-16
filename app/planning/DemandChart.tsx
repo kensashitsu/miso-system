@@ -39,6 +39,14 @@ function get3YearAvg(data: Record<string, number>, month: number, year: number):
     : null
 }
 
+// 月次需要予測の精度ラベル。食品の月次SKU需要は実需のばらつきで ±10〜18% が
+// 実用上ほぼ天井のため、18%未満を良好・30%以上を不正確とする（旧しきい値10/20は厳しすぎた）。
+function accuracyLabel(mapePct: number): { label: string; cls: string } {
+  if (mapePct < 18) return { label: '良好',   cls: 'text-green-600' }
+  if (mapePct < 30) return { label: '要注意', cls: 'text-orange-600' }
+  return { label: '不正確', cls: 'text-red-600' }
+}
+
 // 過去各月の「その時点までのデータでHWを適用した予測値」
 function calcHistoricalForecasts(
   typeData:  Record<string, number>,
@@ -409,12 +417,8 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
                     </span>
                     （過去{mape3yMonths.length}ヶ月）
                   </span>
-                  <span className={
-                    mape3y < 10 ? 'text-green-600 font-medium' :
-                    mape3y < 20 ? 'text-orange-600 font-medium' :
-                                  'text-red-600 font-medium'
-                  }>
-                    {mape3y < 10 ? '良好' : mape3y < 20 ? '要注意' : '不正確'}
+                  <span className={`font-medium ${accuracyLabel(mape3y).cls}`}>
+                    {accuracyLabel(mape3y).label}
                   </span>
                   <span className="text-border">|</span>
                 </>
@@ -430,12 +434,8 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
                       </span>
                       （過去{mapeMonths.length}ヶ月）
                     </span>
-                    <span className={
-                      mape < 10 ? 'text-green-600 font-medium' :
-                      mape < 20 ? 'text-orange-600 font-medium' :
-                                  'text-red-600 font-medium'
-                    }>
-                      {mape < 10 ? '良好' : mape < 20 ? '要注意' : '不正確'}
+                    <span className={`font-medium ${accuracyLabel(mape).cls}`}>
+                      {accuracyLabel(mape).label}
                     </span>
                   </>
                 ) : (
@@ -451,12 +451,8 @@ export default function DemandChart({ shipmentMap, sarimaxForecast, sarimaxPastF
                     {sm != null ? (
                       <>
                         <span className="font-medium ml-1">±{sm.toFixed(1)}%</span>
-                        <span className={`ml-1 font-medium ${
-                          sm < 10 ? 'text-green-600' :
-                          sm < 20 ? 'text-orange-600' :
-                                    'text-red-600'
-                        }`}>
-                          {sm < 10 ? '良好' : sm < 20 ? '要注意' : '不正確'}
+                        <span className={`ml-1 font-medium ${accuracyLabel(sm).cls}`}>
+                          {accuracyLabel(sm).label}
                         </span>
                         <span className="ml-1 text-muted-foreground font-normal">
                           （LOO24ヶ月・HWより厳密な評価）
