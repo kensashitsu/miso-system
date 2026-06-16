@@ -102,11 +102,9 @@ interface RecipePlan {
   orderImpact:      {             // 予定出荷の反映前後の比較（未入力時はnull）
     orderCount:     number
     orderKg:        number
-    brewBefore:     Date
-    brewAfter:      Date
-    brewDeltaDays:  number        // +なら前倒し
     stockOutBefore: Date
     stockOutAfter:  Date
+    perBatch:       { n: number; before: Date; after: Date; deltaDays: number }[]  // 全回分（+なら前倒し）
   } | null
   stockOutInDays:   number | null // 推定在庫切れまでの日数
 }
@@ -867,20 +865,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const overdueDays    = isBrewDatePast && idealBrewDate0 ? differenceInDays(today, idealBrewDate0) : 0
     const stockOutInDays = stockOutDate0 ? differenceInDays(stockOutDate0, today) : null
 
-    // 予定出荷の反映効果（予定出荷なしの場合と同一ロジックで比較）
+    // 予定出荷の反映効果の見出し用（予定出荷なしの在庫切れ日・1回目理想日を同一ロジックで算出）
+    const hasOrders     = futureOrderEvents.length > 0
     const noOrderSupply = baseSupplyEvents.length > 0 ? baseSupplyEvents : undefined
-    const noOrders      = futureOrderEvents.length > 0 ? computeIdeal(noOrderSupply) : null
-    const orderImpact = (noOrders && idealBrewDate0 && noOrders.ideal && stockOutDate0 && noOrders.stockOut)
-      ? {
-          orderCount:     futureOrderEvents.length,
-          orderKg:        futureOrderEvents.reduce((s, e) => s - e.kg, 0),  // kgは負で保持しているため反転
-          brewBefore:     noOrders.ideal,
-          brewAfter:      idealBrewDate0,
-          brewDeltaDays:  differenceInDays(noOrders.ideal, idealBrewDate0),  // +なら前倒し
-          stockOutBefore: noOrders.stockOut,
-          stockOutAfter:  stockOutDate0,
-        }
-      : null
+    const noOrders      = hasOrders ? computeIdeal(noOrderSupply) : null
 
     // 手動調整がない場合のみ自動補正（今日以降で最も早い仕込み可能日）
     const autoCorrectDate     = (isBrewDatePast && !manualFirstBrewDate)
@@ -891,6 +879,27 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const batches = canCalc
       ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
       : []
+
+    // 予定出荷の反映効果：予定出荷なしのバッチ計画を同一条件で別途算出し、全回分を before→after で比較。
+    // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
+    const batchesNoOrders = (canCalc && hasOrders)
+      ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualFirstBrewDate, noOrderSupply)
+      : null
+    const orderImpact = (hasOrders && noOrders && noOrders.ideal && noOrders.stockOut && idealBrewDate0 && stockOutDate0)
+      ? {
+          orderCount:     futureOrderEvents.length,
+          orderKg:        futureOrderEvents.reduce((s, e) => s - e.kg, 0),  // kgは負で保持しているため反転
+          stockOutBefore: noOrders.stockOut,
+          stockOutAfter:  stockOutDate0,
+          // 全回分の比較（同じインデックス＝同じ回。前倒し日数付き）
+          perBatch: batchesNoOrders
+            ? batches.map((b, i) => {
+                const before = batchesNoOrders[i]?.brewDate ?? b.brewDate
+                return { n: b.n, before, after: b.brewDate, deltaDays: differenceInDays(before, b.brewDate) }
+              })
+            : [],
+        }
+      : null
 
     return {
       name: recipe.name,
@@ -1325,37 +1334,43 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                   </div>
                 </div>
 
-                {/* 予定出荷の反映効果（反映前→反映後の比較） */}
+                {/* 予定出荷の反映効果（反映前→反映後の比較・全回分） */}
                 {plan.orderImpact && (
                   <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs space-y-1.5">
                     <div className="font-medium text-indigo-800">
                       予定出荷の反映効果（{plan.orderImpact.orderCount}件・計 {Math.round(plan.orderImpact.orderKg).toLocaleString()} kg）
                     </div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-muted-foreground w-20 shrink-0">推奨仕込み日</span>
-                      <span className="line-through text-muted-foreground tabular-nums">
-                        {format(plan.orderImpact.brewBefore, 'M/d')}（{WEEKDAY_JA[plan.orderImpact.brewBefore.getDay()]}）
-                      </span>
-                      <span className="text-muted-foreground">→</span>
-                      <span className="font-semibold text-indigo-700 tabular-nums">
-                        {format(plan.orderImpact.brewAfter, 'M/d')}（{WEEKDAY_JA[plan.orderImpact.brewAfter.getDay()]}）
-                      </span>
-                      <span className={
-                        plan.orderImpact.brewDeltaDays > 0 ? 'text-rose-600 font-medium' :
-                        plan.orderImpact.brewDeltaDays < 0 ? 'text-blue-600 font-medium' :
-                                                             'text-muted-foreground'
-                      }>
-                        {plan.orderImpact.brewDeltaDays > 0 ? `${plan.orderImpact.brewDeltaDays}日 前倒し` :
-                         plan.orderImpact.brewDeltaDays < 0 ? `${-plan.orderImpact.brewDeltaDays}日 後ろ倒し` :
-                                                             '変化なし'}
-                      </span>
-                    </div>
                     <div className="flex items-center gap-2 flex-wrap text-muted-foreground">
-                      <span className="w-20 shrink-0">在庫切れ予測</span>
+                      <span className="w-16 shrink-0">在庫切れ予測</span>
                       <span className="line-through tabular-nums">{format(plan.orderImpact.stockOutBefore, 'M/d')}</span>
                       <span>→</span>
                       <span className="text-foreground tabular-nums">{format(plan.orderImpact.stockOutAfter, 'M/d')}</span>
                     </div>
+                    {plan.orderImpact.perBatch.length > 0 && (
+                      <div className="space-y-0.5">
+                        {plan.orderImpact.perBatch.map(pb => (
+                          <div key={pb.n} className="flex items-center gap-2 flex-wrap">
+                            <span className="w-16 shrink-0 text-muted-foreground">{pb.n}回目</span>
+                            <span className="line-through text-muted-foreground tabular-nums">
+                              {format(pb.before, 'M/d')}（{WEEKDAY_JA[pb.before.getDay()]}）
+                            </span>
+                            <span className="text-muted-foreground">→</span>
+                            <span className="font-semibold text-indigo-700 tabular-nums">
+                              {format(pb.after, 'M/d')}（{WEEKDAY_JA[pb.after.getDay()]}）
+                            </span>
+                            <span className={
+                              pb.deltaDays > 0 ? 'text-rose-600 font-medium' :
+                              pb.deltaDays < 0 ? 'text-blue-600 font-medium' :
+                                                 'text-muted-foreground'
+                            }>
+                              {pb.deltaDays > 0 ? `${pb.deltaDays}日 前倒し` :
+                               pb.deltaDays < 0 ? `${-pb.deltaDays}日 後ろ倒し` :
+                                                  '変化なし'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
