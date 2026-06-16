@@ -106,6 +106,7 @@ interface RecipePlan {
   canCalc:          boolean
   isBrewDatePast:   boolean       // 1回目AI推奨仕込み日が今日より過去かどうか
   overdueDays:      number        // 何日超過しているか
+  manualPinActive:  boolean       // 手動固定が実際に効いているか（確定日と重複時は無効）
   idealBrewDate0:   Date | null   // 修正前のAI推奨仕込み日（警告バナー表示用）
   orderImpact:      {             // 予定出荷の反映前後の比較（未入力時はnull）
     orderCount:     number
@@ -857,8 +858,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const bufferDays    = bufferEnabled ? brewBufferDays : 0
     const snapFn        = snapEnabled ? snapToBrewDay : undefined
     const recipeBatches = perRecipeBatches[recipe.name] ?? maxBatches
-    const manualDateStr       = manualBrewDates[recipe.name]
-    const manualFirstBrewDate = manualDateStr ? new Date(manualDateStr + 'T00:00:00') : undefined
+    // 仮登録（確定）と同じ日付の集合。手動固定や新規提案がこれと重複しないようにする
+    const regDateSet    = new Set(regPlans.map(p => format(p.brewDate, 'yyyy-MM-dd')))
+    const manualDateStr = manualBrewDates[recipe.name]
+    // 手動固定が確定行と同じ日付なら無効化（確定供給で算入済み＝二重計上・行重複を防ぐ）
+    const manualFirstBrewDate = (manualDateStr && !regDateSet.has(manualDateStr))
+      ? new Date(manualDateStr + 'T00:00:00')
+      : undefined
 
     // 1回目推奨仕込み日・在庫切れ日を、補充スケジュールを与えて計算する内部ヘルパー。
     // 予定出荷あり／なしを同一ロジックで出し、効果を比較できるようにする。
@@ -915,9 +921,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       isFixed:               true,
     }))
 
-    // 表示は「確定＋新規提案」を仕込み日順に並べ、表示回数で打ち切り
+    // 表示は「確定＋新規提案」を仕込み日順に並べ、表示回数で打ち切り。
+    // 確定行と同じ日付の新規提案は重複なので除外（安全網）。
+    const generatedDeduped = generated.filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
     const batches = canCalc
-      ? [...fixedRows, ...generated]
+      ? [...fixedRows, ...generatedDeduped]
           .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
           .slice(0, recipeBatches)
           .map((b, i) => ({ ...b, n: i + 1 }))
@@ -927,6 +935,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
       ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualFirstBrewDate, noOrderSupply)
+        .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
     const orderImpact = (hasOrders && noOrders && noOrders.ideal && noOrders.stockOut && idealBrewDate0 && stockOutDate0)
@@ -937,7 +946,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           stockOutAfter:  stockOutDate0,
           // 表示中の新規提案分のみ比較（同インデックス＝同じ新規回。前倒し日数付き）
           perBatch: generatedNoOrders
-            ? generated.slice(0, shownGenCount).map((b, i) => {
+            ? generatedDeduped.slice(0, shownGenCount).map((b, i) => {
                 const before = generatedNoOrders[i]?.brewDate ?? b.brewDate
                 return { n: i + 1, before, after: b.brewDate, deltaDays: differenceInDays(before, b.brewDate) }
               })
@@ -951,7 +960,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       effectiveStock, stockKg, fermentingKg, fermentingCount,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
-      isBrewDatePast, overdueDays, idealBrewDate0, stockOutInDays, orderImpact,
+      isBrewDatePast, overdueDays, manualPinActive: manualFirstBrewDate !== undefined,
+      idealBrewDate0, stockOutInDays, orderImpact,
     }
   })
 
@@ -1477,7 +1487,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                             // 手動調整の対象は「最初の新規提案（確定行ではない最初の行）」
                             const firstGenN  = plan.batches.find(x => !x.isFixed)?.n
                             const isFirstGen = !b.isFixed && b.n === firstGenN
-                            const isManual   = isFirstGen && !!manualBrewDates[plan.name]
+                            const isManual   = isFirstGen && plan.manualPinActive
                             const isEditing  = isFirstGen && editingPlan === plan.name
                             return (
                               <tr key={b.n} className={`border-b last:border-0 ${b.isFixed ? 'bg-emerald-50/40' : ''}`}>
