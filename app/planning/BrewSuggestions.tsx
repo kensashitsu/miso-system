@@ -267,6 +267,25 @@ function computeConsumed(
   return total
 }
 
+// 1バッチの歩留まり(kg)を消費しきるまでの日数（月別変動レートで積分）
+// = このバッチが「何日分の需要を賄えるか」。連続バッチの完成日がこの間隔より
+// 密集すると仕込み日が1〜数日差で団子になるため、最小完成間隔として使う。
+function computeCoverageDays(
+  batchKg:        number,
+  startDate:      Date,
+  getDailyRateFn: (date: Date) => number,
+): number {
+  if (batchKg <= 0) return 0
+  let remaining = batchKg
+  let d = new Date(startDate)
+  for (let i = 0; i < 730; i++) {
+    remaining -= getDailyRateFn(d)
+    if (remaining <= 0) return i + 1
+    d = addDays(d, 1)
+  }
+  return 730
+}
+
 // 予測方式・データから「日付→1日消費量(kg)」関数を生成
 function buildDailyRateFn(
   method:       'sarimax' | 'hw' | 'avg',
@@ -345,6 +364,10 @@ function calcBatches(
   // バッチ間の昇順を保証するための下限日（前バッチの翌日以降）
   let minNextBrewDate:    Date = today
   let minNextRawBrewDate: Date = today
+  // 連続バッチの完成日が密集しないための下限（前バッチの完成日＋カバー期間）。
+  // これにより「1バッチを消費しきる前に次が完成」する団子状の仕込み提案を防ぐ。
+  let minNextCompletion:    Date = today
+  let minNextRawCompletion: Date = today
   // Q10補正なしチェーン専用の在庫追跡（Q10補正ありとは独立して連鎖する）
   let rawRefDate = today
   let rawStock   = effectiveStock
@@ -385,22 +408,34 @@ function calcBatches(
     if (brewDate < minNextBrewDate) {
       brewDate = snapBrewDate ? snapBrewDate(minNextBrewDate) : minNextBrewDate
     }
-    minNextBrewDate = addDays(brewDate, 1)
+
+    // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
+    const computeCompletion = (bd: Date): { completionDate: Date; days: number } =>
+      getCompletion ? getCompletion(bd) : { completionDate: addDays(bd, fermentationDays), days: fermentationDays }
+
+    let { completionDate, days: actualFermentDays } = computeCompletion(brewDate)
+    // 完成日が「前バッチの完成日＋カバー期間」より早い場合は仕込み日を後ろへずらす。
+    // 1バッチの歩留まりを消費しきる前に次が完成すると、仕込み日が1〜数日差で密集する
+    // （前バッチの翌日へ丸める昇順クランプだけでは団子状の提案になってしまう）。
+    if (completionDate < minNextCompletion) {
+      const deficit = differenceInDays(minNextCompletion, completionDate)
+      brewDate = snapBrewDate ? snapBrewDate(addDays(brewDate, deficit)) : addDays(brewDate, deficit)
+      let r     = computeCompletion(brewDate)
+      let guard = 0
+      while (r.completionDate < minNextCompletion && guard < 60) {
+        brewDate = snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1)
+        r        = computeCompletion(brewDate)
+        guard++
+      }
+      completionDate    = r.completionDate
+      actualFermentDays = r.days
+    }
+    currentEstimate   = actualFermentDays
+    minNextBrewDate   = addDays(brewDate, 1)
+    minNextCompletion = addDays(completionDate, computeCoverageDays(batchYieldKg, completionDate, getDailyRateFn))
 
     const materialOrderDeadline = addDays(brewDate, -orderLeadDays)
     const daysUntilOrder        = differenceInDays(materialOrderDeadline, today)
-
-    let completionDate: Date
-    let actualFermentDays: number
-    if (getCompletion) {
-      const r           = getCompletion(brewDate)
-      completionDate    = r.completionDate
-      actualFermentDays = r.days
-      currentEstimate   = actualFermentDays
-    } else {
-      completionDate    = addDays(brewDate, fermentationDays)
-      actualFermentDays = fermentationDays
-    }
 
     // ── Q10補正なし（サブ・常温かつq10≠1のときのみ） ────────
     let rawBrewDate: Date | undefined
@@ -431,11 +466,24 @@ function calcBatches(
         rawProv = snapBrewDate ? snapBrewDate(minNextRawBrewDate) : minNextRawBrewDate
       }
       rawBrewDate = rawProv
-      minNextRawBrewDate = addDays(rawProv, 1)
-      const r = getCompletionRaw(rawBrewDate)
-      rawFermentationDays      = r.days
-      rawCompletionDate        = r.completionDate
+      let rr = getCompletionRaw(rawBrewDate)
+      // Q10補正ありと同様に、カバー期間で完成日の密集（仕込み日の団子化）を防ぐ
+      if (rr.completionDate < minNextRawCompletion) {
+        const deficit = differenceInDays(minNextRawCompletion, rr.completionDate)
+        rawBrewDate = snapBrewDate ? snapBrewDate(addDays(rawBrewDate, deficit)) : addDays(rawBrewDate, deficit)
+        rr          = getCompletionRaw(rawBrewDate)
+        let guard   = 0
+        while (rr.completionDate < minNextRawCompletion && guard < 60) {
+          rawBrewDate = snapBrewDate ? snapBrewDate(addDays(rawBrewDate, 1)) : addDays(rawBrewDate, 1)
+          rr          = getCompletionRaw(rawBrewDate)
+          guard++
+        }
+      }
+      minNextRawBrewDate       = addDays(rawBrewDate, 1)
+      rawFermentationDays      = rr.days
+      rawCompletionDate        = rr.completionDate
       rawCurrentEstimate       = rawFermentationDays   // 次回の推定に実績値を使う
+      minNextRawCompletion     = addDays(rawCompletionDate, computeCoverageDays(batchYieldKg, rawCompletionDate, getDailyRateFn))
       rawMaterialOrderDeadline = addDays(rawBrewDate, -orderLeadDays)
     }
 
