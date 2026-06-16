@@ -585,6 +585,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [manualBrewDates, setManualBrewDates] = useState<Record<string, string>>({})
   const [editingPlan,     setEditingPlan]     = useState<string | null>(null)
   const [editDateValue,   setEditDateValue]   = useState<string>('')
+  // 予定出荷（大口）: 品種ごとの { 出荷予定日, kg } リスト（localStorage永続）
+  const [scheduledOrders, setScheduledOrders] = useState<Record<string, { date: string; kg: number }[]>>({})
+  // 追加フォームの入力中ドラフト（品種ごと）
+  const [orderDraft,      setOrderDraft]      = useState<Record<string, { date: string; kg: string }>>({})
   const cancelEditRef = useRef(false)
   const locationInitializedRef = useRef(false)
   const [savedKeys,  setSavedKeys]  = useState<Set<string>>(
@@ -608,6 +612,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const savedStocks:       Record<string, string> = {}
     const savedLocations:    Record<string, string> = {}
     const savedManualDates:  Record<string, string> = {}
+    const savedOrders:       Record<string, { date: string; kg: number }[]> = {}
     for (const r of recipes) {
       savedStocks[r.name]  = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
       const stored   = localStorage.getItem(`planning_location_${r.name}`)
@@ -615,10 +620,23 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
       const storedDate = localStorage.getItem(`planning_manualDate_${r.name}`) ?? initialManualBrewDates?.[r.name]
       if (storedDate) savedManualDates[r.name] = storedDate
+      const rawOrders = localStorage.getItem(`planning_scheduledOrders_${r.name}`)
+      if (rawOrders) {
+        try {
+          const arr = JSON.parse(rawOrders)
+          if (Array.isArray(arr)) {
+            savedOrders[r.name] = arr.filter(
+              (o): o is { date: string; kg: number } =>
+                o && typeof o.date === 'string' && typeof o.kg === 'number',
+            )
+          }
+        } catch { /* 破損データは無視 */ }
+      }
     }
     setStocks(savedStocks)
     setLocations(savedLocations)
     setManualBrewDates(savedManualDates)
+    setScheduledOrders(savedOrders)
     setUseRawAsBase(localStorage.getItem('planning_useRawAsBase') === '1')
     setOptimisticStock(localStorage.getItem('planning_optimisticStock') === '1')
   }, [recipes])
@@ -648,6 +666,31 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   function handleLocationChange(name: string, value: string) {
     setLocations(prev => ({ ...prev, [name]: value }))
     localStorage.setItem(`planning_location_${name}`, value)
+  }
+
+  function persistOrders(name: string, list: { date: string; kg: number }[]) {
+    localStorage.setItem(`planning_scheduledOrders_${name}`, JSON.stringify(list))
+  }
+
+  function handleAddOrder(name: string) {
+    const d  = orderDraft[name]
+    const kg = d ? parseFloat(d.kg) : NaN
+    if (!d || !d.date || !Number.isFinite(kg) || kg <= 0) return
+    setScheduledOrders(prev => {
+      const list = [...(prev[name] ?? []), { date: d.date, kg }]
+        .sort((a, b) => a.date.localeCompare(b.date))
+      persistOrders(name, list)
+      return { ...prev, [name]: list }
+    })
+    setOrderDraft(prev => ({ ...prev, [name]: { date: '', kg: '' } }))
+  }
+
+  function handleRemoveOrder(name: string, idx: number) {
+    setScheduledOrders(prev => {
+      const list = (prev[name] ?? []).filter((_, i) => i !== idx)
+      persistOrders(name, list)
+      return { ...prev, [name]: list }
+    })
   }
 
   // 全品種のプラン計算
@@ -724,7 +767,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const effectiveStock = optimisticStock
       ? stockKg + fermentingKg
       : stockKg + immediateKg
-    const activeSupplyEvents = optimisticStock ? undefined : (futureEvents.length > 0 ? futureEvents : undefined)
+    // 予定出荷（大口）を負の補充イベントとして合流。
+    // 未来分のみ反映（過去の予定は現在庫に既に織り込まれている前提で二重計上を避ける）。
+    const futureOrderEvents = (scheduledOrders[recipe.name] ?? [])
+      .map(o => ({ date: new Date(o.date + 'T00:00:00'), kg: -o.kg }))
+      .filter(e => e.date > today)
+    const baseSupplyEvents = optimisticStock ? [] : futureEvents
+    const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
+    const activeSupplyEvents = combinedEvents.length > 0 ? combinedEvents : undefined
 
     const canCalc   = monthlyAvg !== null && monthlyAvg > 0 && fermentationDays > 0
     const daysInMonth = getDaysInMonth(today)
@@ -1078,6 +1128,68 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                       （{plan.fermentingCount}件）
                     </p>
                   )}
+                </div>
+
+                {/* 予定出荷（大口） */}
+                <div className="space-y-1.5 rounded-lg border border-dashed border-gray-200 px-3 py-2">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-xs font-medium text-foreground">予定出荷（大口）</span>
+                    <span className="text-[10px] text-muted-foreground/80">
+                      分かっている大口受注を入れると、在庫から差し引いて仕込み日を前倒し計算します
+                    </span>
+                  </div>
+                  {(scheduledOrders[plan.name]?.length ?? 0) > 0 && (
+                    <ul className="space-y-1">
+                      {(scheduledOrders[plan.name] ?? []).map((o, idx) => {
+                        const od     = new Date(o.date + 'T00:00:00')
+                        const isPast = od <= today
+                        return (
+                          <li
+                            key={`${o.date}-${idx}`}
+                            className={`flex items-center gap-2 text-xs ${isPast ? 'text-muted-foreground/50' : ''}`}
+                          >
+                            <span className="tabular-nums">{format(od, 'M/d')}（{WEEKDAY_JA[od.getDay()]}）</span>
+                            <span className="tabular-nums font-medium">{o.kg.toLocaleString()} kg</span>
+                            {isPast && <span className="text-[10px]">（過去・反映外）</span>}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOrder(plan.name, idx)}
+                              className="ml-auto text-muted-foreground hover:text-red-600 no-print"
+                              aria-label="削除"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                  <div className="flex items-center gap-1.5 no-print">
+                    <input
+                      type="date"
+                      value={orderDraft[plan.name]?.date ?? ''}
+                      onChange={e => setOrderDraft(prev => ({
+                        ...prev,
+                        [plan.name]: { date: e.target.value, kg: prev[plan.name]?.kg ?? '' },
+                      }))}
+                      className="h-7 rounded border px-1.5 text-xs"
+                    />
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="kg"
+                      value={orderDraft[plan.name]?.kg ?? ''}
+                      onChange={e => setOrderDraft(prev => ({
+                        ...prev,
+                        [plan.name]: { date: prev[plan.name]?.date ?? '', kg: e.target.value },
+                      }))}
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddOrder(plan.name) }}
+                      className="h-7 w-20 rounded border px-1.5 text-xs"
+                    />
+                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAddOrder(plan.name)}>
+                      追加
+                    </Button>
+                  </div>
                 </div>
 
                 {/* 在庫切れ警告バナー */}
