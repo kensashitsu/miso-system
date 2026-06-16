@@ -24,7 +24,7 @@ export type MoistureSettings = {
   fridgeTemp:          number  // 冷蔵庫の設定温度 ℃（デフォルト6）
   heatingDefaultTemp:  number  // 場所移動時の暖房デフォルト温度 ℃（Q10の基準温度も兼ねる）
   coolingDefaultTemp:  number  // 場所移動時の冷房デフォルト温度 ℃
-  q10Value:            number  // 常温熟成のQ10補正係数（デフォルト5.5）
+  q10Value:            number  // 常温熟成のQ10補正係数（デフォルト2.0）
   brewBufferDays:      number  // 仕込み計画バッファ日数（デフォルト14）
   yieldRate:           number  // 歩留まり率（小数: 0.95 = 95%）
 }
@@ -45,7 +45,7 @@ export const DEFAULT_MOISTURE: MoistureSettings = {
   fridgeTemp:         6,
   heatingDefaultTemp: 25,
   coolingDefaultTemp: 20,
-  q10Value:           5.5,
+  q10Value:           2.0,
   brewBufferDays:     14,
   yieldRate:          0.95,
 }

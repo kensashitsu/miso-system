@@ -392,7 +392,7 @@ export default function MoistureSettingsForm({ moisture }: { moisture: MoistureS
             {errors.q10Value && <p className="text-xs text-red-500">{errors.q10Value}</p>}
             <p className="text-xs text-muted-foreground leading-relaxed">
               常温熟成時の温度感受性係数。値が大きいほど高温での熟成が速く進む予測になります。
-              御社の実績データ（2020〜2025年）から算出した推奨値は <span className="font-medium text-foreground">5.5</span> です。
+              御社の実績「熟成日数」（6〜9月仕込みの常温は中央値約29日）に照合した推奨値は <span className="font-medium text-foreground">2.0</span> です。
               （範囲：1.0〜10.0、1.0 = 補正なし）
             </p>
           </div>
