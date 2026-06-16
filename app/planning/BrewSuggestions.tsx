@@ -61,6 +61,13 @@ interface Props {
   existingBrewPlanKeys?: string[]
   // DBに保存済みの仮登録仕込み日（品種別・他PCからの同期用フォールバック）
   initialManualBrewDates?: Record<string, string>
+  // 仮登録済み（確定）の仕込み予定。完成日に生産量を供給算入し、確定行として表示する
+  registeredPlansByType?: Record<string, {
+    brewDateStr:              string
+    completionDateStr:        string
+    materialOrderDeadlineStr: string
+    fermentationDays:         number
+  }[]>
 }
 
 interface BatchPlan {
@@ -76,6 +83,7 @@ interface BatchPlan {
   rawCompletionDate?:        Date    // Q10補正なしの完成日
   rawBrewDate?:              Date    // Q10補正なしの推奨仕込み日
   rawMaterialOrderDeadline?: Date    // Q10補正なしの手配締切
+  isFixed?:                  boolean // 仮登録済み（確定）の行。提案ではなく既定の予定
 }
 
 interface RecipePlan {
@@ -581,7 +589,7 @@ function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -801,7 +809,20 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const futureOrderEvents = (scheduledOrders[recipe.name] ?? [])
       .map(o => ({ date: new Date(o.date + 'T00:00:00'), kg: -o.kg }))
       .filter(e => e.date > today)
-    const baseSupplyEvents = optimisticStock ? [] : futureEvents
+    // 仮登録済み（確定）の仕込み予定：完成日に生産量(totalWeightKg)が入る供給として算入し、
+    // 確定行としても表示する。本登録済（ロット化済み）は熟成中ロットで算入済みのため対象外（page.tsx側で除外）。
+    const regPlans = (registeredPlansByType?.[recipe.name] ?? [])
+      .map(p => ({
+        brewDate:              new Date(p.brewDateStr + 'T00:00:00'),
+        completionDate:        new Date(p.completionDateStr + 'T00:00:00'),
+        materialOrderDeadline: new Date(p.materialOrderDeadlineStr + 'T00:00:00'),
+        fermentationDays:      p.fermentationDays,
+      }))
+      .filter(p => p.completionDate > today)
+      .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
+    const registeredSupplyEvents = regPlans.map(p => ({ date: p.completionDate, kg: recipe.totalWeightKg }))
+    // 熟成中ロット補充＋仮登録の確定生産（予定出荷を除く供給）
+    const baseSupplyEvents = [...(optimisticStock ? [] : futureEvents), ...registeredSupplyEvents]
     const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
     const activeSupplyEvents = combinedEvents.length > 0 ? combinedEvents : undefined
 
@@ -876,26 +897,49 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       : undefined
     const effectiveFirstBrewDate = manualFirstBrewDate ?? autoCorrectDate
 
-    const batches = canCalc
+    // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
+    const generated = canCalc
       ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
       : []
 
-    // 予定出荷の反映効果：予定出荷なしのバッチ計画を同一条件で別途算出し、全回分を before→after で比較。
+    // 仮登録の確定行（BatchPlan形）
+    const fixedRows: BatchPlan[] = regPlans.map(p => ({
+      n:                     0,
+      brewDate:              p.brewDate,
+      completionDate:        p.completionDate,
+      fermentationDays:      p.fermentationDays,
+      stockOutDate:          p.completionDate,
+      materialOrderDeadline: p.materialOrderDeadline,
+      daysUntilOrder:        differenceInDays(p.materialOrderDeadline, today),
+      startStockKg:          0,
+      isFixed:               true,
+    }))
+
+    // 表示は「確定＋新規提案」を仕込み日順に並べ、表示回数で打ち切り
+    const batches = canCalc
+      ? [...fixedRows, ...generated]
+          .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
+          .slice(0, recipeBatches)
+          .map((b, i) => ({ ...b, n: i + 1 }))
+      : []
+
+    // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
-    const batchesNoOrders = (canCalc && hasOrders)
+    const generatedNoOrders = (canCalc && hasOrders)
       ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualFirstBrewDate, noOrderSupply)
       : null
+    const shownGenCount = batches.filter(b => !b.isFixed).length
     const orderImpact = (hasOrders && noOrders && noOrders.ideal && noOrders.stockOut && idealBrewDate0 && stockOutDate0)
       ? {
           orderCount:     futureOrderEvents.length,
           orderKg:        futureOrderEvents.reduce((s, e) => s - e.kg, 0),  // kgは負で保持しているため反転
           stockOutBefore: noOrders.stockOut,
           stockOutAfter:  stockOutDate0,
-          // 全回分の比較（同じインデックス＝同じ回。前倒し日数付き）
-          perBatch: batchesNoOrders
-            ? batches.map((b, i) => {
-                const before = batchesNoOrders[i]?.brewDate ?? b.brewDate
-                return { n: b.n, before, after: b.brewDate, deltaDays: differenceInDays(before, b.brewDate) }
+          // 表示中の新規提案分のみ比較（同インデックス＝同じ新規回。前倒し日数付き）
+          perBatch: generatedNoOrders
+            ? generated.slice(0, shownGenCount).map((b, i) => {
+                const before = generatedNoOrders[i]?.brewDate ?? b.brewDate
+                return { n: i + 1, before, after: b.brewDate, deltaDays: differenceInDays(before, b.brewDate) }
               })
             : [],
         }
@@ -1140,9 +1184,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           const isAutoFetch = apiStock != null
           const stockStr    = isAutoFetch ? String(apiStock) : (stocks[plan.name] ?? '')
           const first       = plan.batches[0] ?? null
+          // 手配の緊急度は「最初の新規提案」基準（確定行は手配済み前提なので除外）
+          const firstNew    = plan.batches.find(b => !b.isFixed) ?? null
 
-          const firstPrimaryDeadline = first
-            ? ((useRawAsBase && first.rawMaterialOrderDeadline) ? first.rawMaterialOrderDeadline : first.materialOrderDeadline)
+          const firstPrimaryDeadline = firstNew
+            ? ((useRawAsBase && firstNew.rawMaterialOrderDeadline) ? firstNew.rawMaterialOrderDeadline : firstNew.materialOrderDeadline)
             : null
           const firstDaysUntilOrder = firstPrimaryDeadline ? differenceInDays(firstPrimaryDeadline, today) : Infinity
           const urgencyBadge =
@@ -1350,7 +1396,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                       <div className="space-y-0.5">
                         {plan.orderImpact.perBatch.map(pb => (
                           <div key={pb.n} className="flex items-center gap-2 flex-wrap">
-                            <span className="w-16 shrink-0 text-muted-foreground">{pb.n}回目</span>
+                            <span className="w-20 shrink-0 text-muted-foreground">新規{pb.n}回目</span>
                             <span className="line-through text-muted-foreground tabular-nums">
                               {format(pb.before, 'M/d')}（{WEEKDAY_JA[pb.before.getDay()]}）
                             </span>
@@ -1427,11 +1473,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                               pDaysUntilOrder <= 14 ? 'text-red-600 font-semibold' :
                               pDaysUntilOrder <= 30 ? 'text-orange-600 font-semibold' :
                               'text-muted-foreground'
-                            const isPast    = pBrew < today
-                            const isManual  = b.n === 1 && !!manualBrewDates[plan.name]
-                            const isEditing = b.n === 1 && editingPlan === plan.name
+                            const isPast     = pBrew < today
+                            // 手動調整の対象は「最初の新規提案（確定行ではない最初の行）」
+                            const firstGenN  = plan.batches.find(x => !x.isFixed)?.n
+                            const isFirstGen = !b.isFixed && b.n === firstGenN
+                            const isManual   = isFirstGen && !!manualBrewDates[plan.name]
+                            const isEditing  = isFirstGen && editingPlan === plan.name
                             return (
-                              <tr key={b.n} className="border-b last:border-0">
+                              <tr key={b.n} className={`border-b last:border-0 ${b.isFixed ? 'bg-emerald-50/40' : ''}`}>
                                 <td className="text-center px-2 py-2 text-muted-foreground">{b.n}</td>
                                 <td className={`px-2 py-2 tabular-nums ${!isEditing && isPast ? 'text-red-600' : ''}`}>
                                   {isEditing ? (
@@ -1470,11 +1519,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       <div className="flex items-center gap-1 flex-wrap">
                                         {format(pBrew, 'M/d')}
                                         <span className="text-[10px] ml-0.5">（{WEEKDAY_JA[pBrew.getDay()]}）</span>
+                                        {b.isFixed && (
+                                          <span className="text-[10px] text-emerald-700 font-medium ml-0.5 rounded bg-emerald-100 px-1">確定</span>
+                                        )}
                                         {isPast && <span className="ml-1 text-[10px]">超過</span>}
                                         {isManual && (
                                           <span className="text-[10px] text-amber-600 font-medium ml-0.5">調整済</span>
                                         )}
-                                        {b.n === 1 && (
+                                        {isFirstGen && (
                                           <span className="inline-flex items-center gap-0.5 ml-0.5">
                                             <button
                                               type="button"
@@ -1538,6 +1590,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 </td>
                                 <td className="px-2 py-2 text-right">
                                   {(() => {
+                                    if (b.isFixed) {
+                                      return (
+                                        <span className="text-[11px] text-emerald-700 font-medium whitespace-nowrap">
+                                          確定済
+                                        </span>
+                                      )
+                                    }
                                     const planKey = `${plan.name}::${format(pBrew, 'yyyy-MM-dd')}`
                                     const isSaved  = savedKeys.has(planKey)
                                     const isSaving = savingKeys.has(planKey)

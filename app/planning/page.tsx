@@ -236,6 +236,21 @@ export default async function PlanningPage() {
   const backtest        = computeBacktest(recipeList.map(r => r.name), shipmentMap, sarimaxPastForecast)
   const autoMethodByType = pickAutoMethods(backtest)
 
+  // 仮登録済み（確定）の未来の仕込み予定（ロット化前のみ）を品種別に整理。
+  // 完成日に生産量が入る確定供給として、AI提案に織り込む。
+  const today0 = startOfDay(new Date())
+  const registeredPlansByType: Record<string, { brewDateStr: string; completionDateStr: string; materialOrderDeadlineStr: string; fermentationDays: number }[]> = {}
+  for (const p of brewPlans) {
+    if (p.status !== '仮登録' || p.lotId) continue
+    if (p.completionDate <= today0) continue
+    ;(registeredPlansByType[p.misoType] ??= []).push({
+      brewDateStr:              format(p.brewDate, 'yyyy-MM-dd'),
+      completionDateStr:        format(p.completionDate, 'yyyy-MM-dd'),
+      materialOrderDeadlineStr: format(p.materialOrderDeadline, 'yyyy-MM-dd'),
+      fermentationDays:         p.fermentationDays,
+    })
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-6 sm:space-y-8">
       {/* タイトルとSARIMAX更新ボタン */}
@@ -297,15 +312,7 @@ export default async function PlanningPage() {
         existingBrewPlanKeys={brewPlans
           .filter(p => p.status === '仮登録')
           .map(p => `${p.misoType}::${format(p.brewDate, 'yyyy-MM-dd')}`)}
-        initialManualBrewDates={
-          brewPlans
-            .filter(p => p.status === '仮登録')
-            .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
-            .reduce<Record<string, string>>((acc, p) => {
-              if (!acc[p.misoType]) acc[p.misoType] = format(p.brewDate, 'yyyy-MM-dd')
-              return acc
-            }, {})
-        }
+        registeredPlansByType={Object.keys(registeredPlansByType).length > 0 ? registeredPlansByType : undefined}
       />
 
     </div>
