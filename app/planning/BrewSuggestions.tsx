@@ -51,6 +51,8 @@ interface Props {
   apiStockByType?:  Record<string, number>
   // SARIMAX予測データ（未実行時はundefined）
   sarimaxForecast?: Record<string, SarimaxEntry>
+  // SARIMAX予測誤差（MAPE %・品種別・未実行時はundefined）
+  sarimaxMape?:     Record<string, number>
   // 熟成中ロットの完成予定日・歩留まりスケジュール（在庫補充タイミング計算用）
   fermentingScheduleByType?: Record<string, FermentingLotSchedule[]>
   // 既存の仮登録キー一覧（"品種::yyyy-MM-dd" 形式）
@@ -569,7 +571,7 @@ function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -1078,6 +1080,24 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               ? { label: `要手配 あと${firstDaysUntilOrder}日`, cls: 'bg-amber-100 text-amber-700 border border-amber-300' }
               : null
 
+          // 予測信頼度バッジ（SARIMAX選択時のみ・MAPE=予測誤差率）
+          const mape      = sarimaxMape?.[plan.name]
+          const mapeBadge = (plan.usingSarimax && mape != null)
+            ? {
+                label: `予測誤差 ±${Math.round(mape)}%`,
+                cls: mape <= 15
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : mape <= 30
+                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                  : 'bg-gray-100 text-gray-500 border border-gray-300',
+                title: mape <= 15
+                  ? '直近の予測精度は高め。提案日の信頼度は比較的高い'
+                  : mape <= 30
+                  ? '直近の予測には中程度のブレあり。提案日は幅をもって判断'
+                  : '直近の予測誤差が大きい。提案日は目安程度に',
+              }
+            : null
+
           return (
             <Card key={plan.name}>
               <CardHeader className="pb-3">
@@ -1091,6 +1111,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                   {urgencyBadge && (
                     <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${urgencyBadge.cls}`}>
                       {urgencyBadge.label}
+                    </span>
+                  )}
+                  {mapeBadge && (
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${mapeBadge.cls}`}
+                      title={mapeBadge.title}
+                    >
+                      {mapeBadge.label}
                     </span>
                   )}
                   <div className="flex items-center gap-1.5">

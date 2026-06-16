@@ -278,6 +278,7 @@ export default async function PlanningPage() {
         fermentingByType={fermentingByType}
         apiStockByType={Object.keys(apiStockByType).length > 0 ? apiStockByType : undefined}
         sarimaxForecast={Object.keys(sarimaxMap).length > 0 ? sarimaxMap : undefined}
+        sarimaxMape={Object.keys(sarimaxMape).length > 0 ? sarimaxMape : undefined}
         fermentingScheduleByType={Object.keys(fermentingScheduleByType).length > 0 ? fermentingScheduleByType : undefined}
         existingBrewPlanKeys={brewPlans
           .filter(p => p.status === '仮登録')
