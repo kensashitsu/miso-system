@@ -682,6 +682,14 @@ UI機能:
 #### ② 需要グラフ（DemandChart）
 Recharts棒グラフ・月別出荷実績
 
+#### ②' 予測精度・傾向（ForecastBacktest）
+過去の予測と実績を突き合わせ、品種ごとに**3方式（SARIMAX / AI予測(HW) / 3年平均）の偏り(bias)・平均誤差(MAPE)・的中度**を表示する折りたたみパネル。
+- 評価窓：直近 `WINDOW=24` ヶ月。各対象月より**前の実績のみ**で予測（先読み防止）。SARIMAXは `sarimaxPastForecast`（ForecastCacheの過去LOO）、HWは `calcHWHistorical`、3年平均は同月実績から都度算出
+- **偏り** = (予測−実績)÷実績の平均。マイナス＝予測が少なめ（欠品リスク側・赤）／プラス＝多め（過剰在庫側・青）／±3%未満はほぼ偏りなし
+- **平均誤差(MAPE)** 最小の方式を「最も的中」として✓ハイライト（`MIN_N=3` ヶ月以上で判定）
+- 偏りが続く品種は保守モード（90%）や在庫手動調整で補正、という運用ヒントを併記
+- `app/planning/ForecastBacktest.tsx`（client）。propsは `shipmentMap`・`sarimaxPastForecast` のみ
+
 #### ③ 気象シミュレーター（WeatherSimulator）
 品種×仕込み日→熟成完了予定日推計。6〜9月は常温（気象データ）、10〜5月は `room1Temp`。Q10補正あり・なし両方の完成日縦線を表示。
 

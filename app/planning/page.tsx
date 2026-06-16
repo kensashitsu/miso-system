@@ -7,6 +7,7 @@ import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import BrewSuggestions from './BrewSuggestions'
 import BrewPlanList from './BrewPlanList'
 import DemandChart from './DemandChart'
+import ForecastBacktest from './ForecastBacktest'
 import WeatherSimulator from './WeatherSimulator'
 import ForecastUpdater from './ForecastUpdater'
 import BufferDaySuggestion from './BufferDaySuggestion'
@@ -246,6 +247,13 @@ export default async function PlanningPage() {
           sarimaxForecast={Object.keys(sarimaxMap).length > 0 ? sarimaxMap : undefined}
           sarimaxPastForecast={Object.keys(sarimaxPastForecast).length > 0 ? sarimaxPastForecast : undefined}
           sarimaxMape={Object.keys(sarimaxMape).length > 0 ? sarimaxMape : undefined}
+        />
+      </div>
+
+      <div className="no-print">
+        <ForecastBacktest
+          shipmentMap={shipmentMap}
+          sarimaxPastForecast={Object.keys(sarimaxPastForecast).length > 0 ? sarimaxPastForecast : undefined}
         />
       </div>
 
