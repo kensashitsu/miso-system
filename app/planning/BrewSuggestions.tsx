@@ -99,6 +99,15 @@ interface RecipePlan {
   isBrewDatePast:   boolean       // 1回目AI推奨仕込み日が今日より過去かどうか
   overdueDays:      number        // 何日超過しているか
   idealBrewDate0:   Date | null   // 修正前のAI推奨仕込み日（警告バナー表示用）
+  orderImpact:      {             // 予定出荷の反映前後の比較（未入力時はnull）
+    orderCount:     number
+    orderKg:        number
+    brewBefore:     Date
+    brewAfter:      Date
+    brewDeltaDays:  number        // +なら前倒し
+    stockOutBefore: Date
+    stockOutAfter:  Date
+  } | null
   stockOutInDays:   number | null // 推定在庫切れまでの日数
 }
 
@@ -832,28 +841,46 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const manualDateStr       = manualBrewDates[recipe.name]
     const manualFirstBrewDate = manualDateStr ? new Date(manualDateStr + 'T00:00:00') : undefined
 
-    // 1回目推奨仕込み日が過去かどうかを事前チェック（警告バナーと自動補正のため）
-    // 熟成中ロットの補充スケジュールを考慮して在庫切れ日をシミュレーション
-    const stockOutDate0 = canCalc
-      ? findStockOutDate(effectiveStock, today, getDailyRateFn, activeSupplyEvents)
-      : null
-    const preSnap0       = (canCalc && stockOutDate0)
-      ? addDays(stockOutDate0, -(fermentationDays + bufferDays))
-      : null
-    // 常温ではQ10シミュレーションで実際の熟成日数を使い再計算する。
-    // 静的推定（年間平均）の仮仕込み日が冬〜春に当たると実際の熟成日数が
-    // 静的推定の数倍になり、refined=stockOut-actual-bufferが過去へ大きくズレるため。
-    let idealBrewDate0: Date | null = (canCalc && preSnap0)
-      ? (snapEnabled ? snapToBrewDay(preSnap0) : preSnap0)
-      : null
-    if (idealBrewDate0 && getCompletion && stockOutDate0) {
-      const r0       = getCompletion(idealBrewDate0)
-      const refined  = addDays(stockOutDate0, -(r0.days + bufferDays))
-      idealBrewDate0 = snapEnabled ? snapToBrewDay(refined) : refined
+    // 1回目推奨仕込み日・在庫切れ日を、補充スケジュールを与えて計算する内部ヘルパー。
+    // 予定出荷あり／なしを同一ロジックで出し、効果を比較できるようにする。
+    // 常温ではQ10シミュレーションで実際の熟成日数を使い再計算する（冬〜春に当たると
+    // 静的推定の数倍になり refined=stockOut-actual-buffer が過去へ大きくズレるため）。
+    const computeIdeal = (
+      supplyEvents: { date: Date; kg: number }[] | undefined,
+    ): { stockOut: Date | null; ideal: Date | null } => {
+      if (!canCalc) return { stockOut: null, ideal: null }
+      const so = findStockOutDate(effectiveStock, today, getDailyRateFn, supplyEvents)
+      const pre = addDays(so, -(fermentationDays + bufferDays))
+      let ideal: Date = snapEnabled ? snapToBrewDay(pre) : pre
+      if (getCompletion) {
+        const r0      = getCompletion(ideal)
+        const refined = addDays(so, -(r0.days + bufferDays))
+        ideal = snapEnabled ? snapToBrewDay(refined) : refined
+      }
+      return { stockOut: so, ideal }
     }
+
+    const withOrders     = computeIdeal(activeSupplyEvents)
+    const stockOutDate0  = withOrders.stockOut
+    const idealBrewDate0 = withOrders.ideal
     const isBrewDatePast = !!idealBrewDate0 && idealBrewDate0 < today
     const overdueDays    = isBrewDatePast && idealBrewDate0 ? differenceInDays(today, idealBrewDate0) : 0
     const stockOutInDays = stockOutDate0 ? differenceInDays(stockOutDate0, today) : null
+
+    // 予定出荷の反映効果（予定出荷なしの場合と同一ロジックで比較）
+    const noOrderSupply = baseSupplyEvents.length > 0 ? baseSupplyEvents : undefined
+    const noOrders      = futureOrderEvents.length > 0 ? computeIdeal(noOrderSupply) : null
+    const orderImpact = (noOrders && idealBrewDate0 && noOrders.ideal && stockOutDate0 && noOrders.stockOut)
+      ? {
+          orderCount:     futureOrderEvents.length,
+          orderKg:        futureOrderEvents.reduce((s, e) => s - e.kg, 0),  // kgは負で保持しているため反転
+          brewBefore:     noOrders.ideal,
+          brewAfter:      idealBrewDate0,
+          brewDeltaDays:  differenceInDays(noOrders.ideal, idealBrewDate0),  // +なら前倒し
+          stockOutBefore: noOrders.stockOut,
+          stockOutAfter:  stockOutDate0,
+        }
+      : null
 
     // 手動調整がない場合のみ自動補正（今日以降で最も早い仕込み可能日）
     const autoCorrectDate     = (isBrewDatePast && !manualFirstBrewDate)
@@ -871,7 +898,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       effectiveStock, stockKg, fermentingKg, fermentingCount,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
-      isBrewDatePast, overdueDays, idealBrewDate0, stockOutInDays,
+      isBrewDatePast, overdueDays, idealBrewDate0, stockOutInDays, orderImpact,
     }
   })
 
@@ -1297,6 +1324,40 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                     </Button>
                   </div>
                 </div>
+
+                {/* 予定出荷の反映効果（反映前→反映後の比較） */}
+                {plan.orderImpact && (
+                  <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-xs space-y-1.5">
+                    <div className="font-medium text-indigo-800">
+                      予定出荷の反映効果（{plan.orderImpact.orderCount}件・計 {Math.round(plan.orderImpact.orderKg).toLocaleString()} kg）
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-muted-foreground w-20 shrink-0">推奨仕込み日</span>
+                      <span className="line-through text-muted-foreground tabular-nums">
+                        {format(plan.orderImpact.brewBefore, 'M/d')}（{WEEKDAY_JA[plan.orderImpact.brewBefore.getDay()]}）
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="font-semibold text-indigo-700 tabular-nums">
+                        {format(plan.orderImpact.brewAfter, 'M/d')}（{WEEKDAY_JA[plan.orderImpact.brewAfter.getDay()]}）
+                      </span>
+                      <span className={
+                        plan.orderImpact.brewDeltaDays > 0 ? 'text-rose-600 font-medium' :
+                        plan.orderImpact.brewDeltaDays < 0 ? 'text-blue-600 font-medium' :
+                                                             'text-muted-foreground'
+                      }>
+                        {plan.orderImpact.brewDeltaDays > 0 ? `${plan.orderImpact.brewDeltaDays}日 前倒し` :
+                         plan.orderImpact.brewDeltaDays < 0 ? `${-plan.orderImpact.brewDeltaDays}日 後ろ倒し` :
+                                                             '変化なし'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap text-muted-foreground">
+                      <span className="w-20 shrink-0">在庫切れ予測</span>
+                      <span className="line-through tabular-nums">{format(plan.orderImpact.stockOutBefore, 'M/d')}</span>
+                      <span>→</span>
+                      <span className="text-foreground tabular-nums">{format(plan.orderImpact.stockOutAfter, 'M/d')}</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* 在庫切れ警告バナー */}
                 {plan.isBrewDatePast && plan.idealBrewDate0 && (
