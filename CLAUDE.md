@@ -659,6 +659,7 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 
 UI機能:
 - **予測方式**: SARIMAX / HW（ホルト・ウィンタース・12ヶ月以上必要）/ 3年平均 をトグル切り替え
+- **需要見積りトグル（標準／保守的90%）**: **SARIMAX選択時のみ表示**。「保守的」で `SarimaxEntry.upper90`（90%予測区間の上限＝需要多めシナリオ）を中央値`forecast`の代わりに使用 → 在庫切れ日が早まり推奨仕込み日を安全側に前倒し。`buildDailyRateFn(..., conservative)` と `sarimaxMonthlyEst` の両方に適用。`upper90.length === forecast.length` のときのみ有効（不整合時は中央値にフォールバック）。localStorage: `planning_conservativeDemand`
 - **表示回数**: 1/3/5回分（品種ごとに個別設定も可能）
 - **仕込み場所セレクタ**: 品種ごとに選択（`暖房{heatingDefaultTemp}℃` / `冷房{coolingDefaultTemp}℃` / `常温` / `冷蔵庫`）→ `simulateFermentationDays()` でQ10補正あり・なし両方の熟成日数を計算
   - **デフォルト選択ロジック**: localStorage未保存の場合、`plans`確定後に`locationInitializedRef`（`useRef`）で1回だけ1回目仕込み日の月を参照し季節判定（6〜9月→常温 / 10〜5月→暖房）。localStorage保存済み（ユーザーが手動変更）は上書きしない。

@@ -287,19 +287,24 @@ function computeCoverageDays(
 }
 
 // 予測方式・データから「日付→1日消費量(kg)」関数を生成
+// conservative=true かつ SARIMAX のとき、中央値ではなく upper90（需要多めシナリオ）を使う
 function buildDailyRateFn(
   method:       'sarimax' | 'hw' | 'avg',
   typeData:     Record<string, number>,
   sarimaxEntry: SarimaxEntry | undefined,
   hwInput:      number[],
   fallback:     number,
+  conservative: boolean = false,
 ): (date: Date) => number {
   // SARIMAX: 月別予測値を直接使用
   if (method === 'sarimax' && sarimaxEntry && sarimaxEntry.months.length > 0) {
+    const series = (conservative && sarimaxEntry.upper90?.length === sarimaxEntry.forecast.length)
+      ? sarimaxEntry.upper90
+      : sarimaxEntry.forecast
     const map: Record<string, number> = {}
     for (let i = 0; i < sarimaxEntry.months.length; i++) {
       const ym = sarimaxEntry.months[i]
-      map[ym] = sarimaxEntry.forecast[i] / getDaysInMonth(new Date(ym + '-01T00:00:00'))
+      map[ym] = series[i] / getDaysInMonth(new Date(ym + '-01T00:00:00'))
     }
     return (date: Date) => {
       const ym = format(date, 'yyyy-MM')
@@ -579,6 +584,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [bufferEnabled,   setBufferEnabled]  = useState(true)
   const [snapEnabled,     setSnapEnabled]    = useState(true)
   const [optimisticStock, setOptimisticStock] = useState(false)  // true=楽観的（熟成中を即時在庫）
+  const [conservativeDemand, setConservativeDemand] = useState(false)  // true=保守的（SARIMAX upper90で需要多め）
   const [hoveredKey,      setHoveredKey]     = useState<string | null>(null)
   const [calendarOffsets, setCalendarOffsets] = useState<Record<string, number>>({})
   const [useRawAsBase,    setUseRawAsBase]    = useState(false)
@@ -639,6 +645,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     setScheduledOrders(savedOrders)
     setUseRawAsBase(localStorage.getItem('planning_useRawAsBase') === '1')
     setOptimisticStock(localStorage.getItem('planning_optimisticStock') === '1')
+    setConservativeDemand(localStorage.getItem('planning_conservativeDemand') === '1')
   }, [recipes])
 
   // plans 確定後に1回だけ: 1回目仕込み日の月で場所デフォルトを補正（localStorage未保存の品種のみ）
@@ -709,14 +716,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       hwMonthlyEst = hw.forecast[0] ?? null
     }
 
-    // SARIMAXの今月〜翌3ヶ月平均を計算
+    // SARIMAXの今月〜翌3ヶ月平均を計算（保守モードは upper90 を使用）
     const sarimaxEntry = sarimaxForecast?.[recipe.name]
     let sarimaxMonthlyEst: number | null = null
     if (sarimaxEntry && sarimaxEntry.forecast.length > 0) {
+      const baseSeries = (conservativeDemand && sarimaxEntry.upper90?.length === sarimaxEntry.forecast.length)
+        ? sarimaxEntry.upper90
+        : sarimaxEntry.forecast
       // 翌3ヶ月または利用可能な予測全体の平均
-      const slicedForecast = sarimaxEntry.forecast.slice(0, Math.min(3, sarimaxEntry.forecast.length))
-      const sum = slicedForecast.reduce((a, b) => a + b, 0)
-      sarimaxMonthlyEst = slicedForecast.length > 0 ? sum / slicedForecast.length : null
+      const sliced = baseSeries.slice(0, Math.min(3, baseSeries.length))
+      const sum    = sliced.reduce((a, b) => a + b, 0)
+      sarimaxMonthlyEst = sliced.length > 0 ? sum / sliced.length : null
     }
 
     // 予測方式に応じてmonthlyAvgを決定
@@ -781,7 +791,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const dailyRate   = canCalc ? (monthlyAvg! / daysInMonth) : 0
     // 月別消費量関数: 予測方式に応じて将来各月の実際の予測値を使用（夏低・冬高を反映）
     const getDailyRateFn = canCalc
-      ? buildDailyRateFn(forecastMethod, typeData, sarimaxEntry, hwInput, dailyRate)
+      ? buildDailyRateFn(forecastMethod, typeData, sarimaxEntry, hwInput, dailyRate, conservativeDemand)
       : () => 0
 
     const orderLeadDays = ORDER_LEAD_DAYS[recipe.name] ?? DEFAULT_ORDER_LEAD_DAYS
@@ -977,6 +987,30 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               )
             })}
           </div>
+          {/* 需要見積り切り替え（SARIMAX選択時のみ・upper90で保守的に） */}
+          {forecastMethod === 'sarimax' && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">需要見積り：</span>
+              {([false, true] as const).map(isCons => (
+                <button
+                  key={String(isCons)}
+                  type="button"
+                  onClick={() => {
+                    setConservativeDemand(isCons)
+                    localStorage.setItem('planning_conservativeDemand', isCons ? '1' : '0')
+                  }}
+                  title={isCons ? '90%予測区間の上限（需要多め）で安全側に計算' : '中央値（標準的な需要見込み）で計算'}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    conservativeDemand === isCons
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+                >
+                  {isCons ? '保守的（90%）' : '標準'}
+                </button>
+              ))}
+            </div>
+          )}
           {/* 回数切り替え（一括） */}
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">表示回数（一括）：</span>
