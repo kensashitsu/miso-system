@@ -53,6 +53,8 @@ interface Props {
   sarimaxForecast?: Record<string, SarimaxEntry>
   // SARIMAX予測誤差（MAPE %・品種別・未実行時はundefined）
   sarimaxMape?:     Record<string, number>
+  // バックテストで品種ごとに最も的中する方式（自動方式選択用・低精度品種は含まれない）
+  autoMethodByType?: Record<string, 'sarimax' | 'hw' | 'avg'>
   // 熟成中ロットの完成予定日・歩留まりスケジュール（在庫補充タイミング計算用）
   fermentingScheduleByType?: Record<string, FermentingLotSchedule[]>
   // 既存の仮登録キー一覧（"品種::yyyy-MM-dd" 形式）
@@ -81,6 +83,7 @@ interface RecipePlan {
   monthlyAvg:       number | null
   usingHW:          boolean
   usingSarimax:     boolean   // SARIMAX予測を使用しているか
+  autoApplied:      'sarimax' | 'hw' | 'avg' | null  // 自動方式選択で採用された方式（ON時のみ）
   fermentationDays: number
   effectiveStock:   number
   stockKg:          number
@@ -571,7 +574,7 @@ function downloadCSV(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -587,6 +590,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [snapEnabled,     setSnapEnabled]    = useState(true)
   const [optimisticStock, setOptimisticStock] = useState(false)  // true=楽観的（熟成中を即時在庫）
   const [conservativeDemand, setConservativeDemand] = useState(false)  // true=保守的（SARIMAX upper90で需要多め）
+  const [autoMethod,         setAutoMethod]         = useState(false)  // true=品種ごとにバックテスト最良方式を自動採用
   const [hoveredKey,      setHoveredKey]     = useState<string | null>(null)
   const [calendarOffsets, setCalendarOffsets] = useState<Record<string, number>>({})
   const [useRawAsBase,    setUseRawAsBase]    = useState(false)
@@ -648,6 +652,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     setUseRawAsBase(localStorage.getItem('planning_useRawAsBase') === '1')
     setOptimisticStock(localStorage.getItem('planning_optimisticStock') === '1')
     setConservativeDemand(localStorage.getItem('planning_conservativeDemand') === '1')
+    setAutoMethod(localStorage.getItem('planning_autoMethod') === '1')
   }, [recipes])
 
   // plans 確定後に1回だけ: 1回目仕込み日の月で場所デフォルトを補正（localStorage未保存の品種のみ）
@@ -731,15 +736,20 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       sarimaxMonthlyEst = sliced.length > 0 ? sum / sliced.length : null
     }
 
-    // 予測方式に応じてmonthlyAvgを決定
+    // 予測方式に応じてmonthlyAvgを決定。
+    // 自動方式選択ON時はバックテスト最良方式（autoMethodByType）を品種ごとに採用、
+    // 該当なし（低精度品種など）はグローバル選択(forecastMethod)にフォールバック。
+    const autoPick    = autoMethod ? autoMethodByType?.[recipe.name] : undefined
+    const effMethod   = autoPick ?? forecastMethod
+    const autoApplied = autoPick ?? null
     let monthlyAvg: number | null
     let usingHW      = false
     let usingSarimax = false
 
-    if (forecastMethod === 'sarimax' && sarimaxMonthlyEst !== null) {
+    if (effMethod === 'sarimax' && sarimaxMonthlyEst !== null) {
       monthlyAvg   = sarimaxMonthlyEst
       usingSarimax = true
-    } else if (forecastMethod === 'hw' && hwMonthlyEst !== null) {
+    } else if (effMethod === 'hw' && hwMonthlyEst !== null) {
       monthlyAvg = hwMonthlyEst
       usingHW    = true
     } else {
@@ -793,7 +803,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const dailyRate   = canCalc ? (monthlyAvg! / daysInMonth) : 0
     // 月別消費量関数: 予測方式に応じて将来各月の実際の予測値を使用（夏低・冬高を反映）
     const getDailyRateFn = canCalc
-      ? buildDailyRateFn(forecastMethod, typeData, sarimaxEntry, hwInput, dailyRate, conservativeDemand)
+      ? buildDailyRateFn(effMethod, typeData, sarimaxEntry, hwInput, dailyRate, conservativeDemand)
       : () => 0
 
     const orderLeadDays = ORDER_LEAD_DAYS[recipe.name] ?? DEFAULT_ORDER_LEAD_DAYS
@@ -857,7 +867,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     return {
       name: recipe.name,
-      monthlyAvg, usingHW, usingSarimax, fermentationDays,
+      monthlyAvg, usingHW, usingSarimax, autoApplied, fermentationDays,
       effectiveStock, stockKg, fermentingKg, fermentingCount,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
@@ -989,8 +999,34 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               )
             })}
           </div>
-          {/* 需要見積り切り替え（SARIMAX選択時のみ・upper90で保守的に） */}
-          {forecastMethod === 'sarimax' && (
+          {/* 品種別の自動方式選択（バックテストで信頼できるベストがある品種が1つ以上あるとき） */}
+          {autoMethodByType && Object.keys(autoMethodByType).length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">品種別最適化：</span>
+              {([false, true] as const).map(on => (
+                <button
+                  key={String(on)}
+                  type="button"
+                  onClick={() => {
+                    setAutoMethod(on)
+                    localStorage.setItem('planning_autoMethod', on ? '1' : '0')
+                  }}
+                  title={on
+                    ? 'バックテストで最も的中した方式を品種ごとに自動採用（精度が低い品種は手動選択のまま）'
+                    : '全品種で上の「予測方式」を使用'}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    autoMethod === on
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                  }`}
+                >
+                  {on ? '自動（実績ベスト）' : '手動'}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* 需要見積り切り替え（SARIMAXが効いているとき・upper90で保守的に） */}
+          {(forecastMethod === 'sarimax' || (autoMethod && !!autoMethodByType && Object.values(autoMethodByType).includes('sarimax'))) && (
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-muted-foreground">需要見積り：</span>
               {([false, true] as const).map(isCons => (
@@ -1119,6 +1155,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                       title={mapeBadge.title}
                     >
                       {mapeBadge.label}
+                    </span>
+                  )}
+                  {autoMethod && plan.autoApplied && (
+                    <span
+                      className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700"
+                      title="バックテストで最も的中した方式を自動採用中"
+                    >
+                      自動：{plan.autoApplied === 'sarimax' ? 'SARIMAX' : plan.autoApplied === 'hw' ? 'AI予測' : '3年平均'}
                     </span>
                   )}
                   <div className="flex items-center gap-1.5">

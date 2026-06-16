@@ -4,6 +4,7 @@ import { getMoistureSettings } from '@/lib/settings'
 import { getMisoRecipes } from '@/lib/recipes'
 import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
+import { computeBacktest, pickAutoMethods } from '@/lib/backtest'
 import BrewSuggestions from './BrewSuggestions'
 import BrewPlanList from './BrewPlanList'
 import DemandChart from './DemandChart'
@@ -231,6 +232,10 @@ export default async function PlanningPage() {
     totalWeightKg:   r.totalWeightKg,
   }))
 
+  // 品種別の自動方式選択：バックテストで最も的中する方式（精度しきい値以下のみ採用）
+  const backtest        = computeBacktest(recipeList.map(r => r.name), shipmentMap, sarimaxPastForecast)
+  const autoMethodByType = pickAutoMethods(backtest)
+
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-6 sm:space-y-8">
       {/* タイトルとSARIMAX更新ボタン */}
@@ -287,6 +292,7 @@ export default async function PlanningPage() {
         apiStockByType={Object.keys(apiStockByType).length > 0 ? apiStockByType : undefined}
         sarimaxForecast={Object.keys(sarimaxMap).length > 0 ? sarimaxMap : undefined}
         sarimaxMape={Object.keys(sarimaxMape).length > 0 ? sarimaxMape : undefined}
+        autoMethodByType={Object.keys(autoMethodByType).length > 0 ? autoMethodByType : undefined}
         fermentingScheduleByType={Object.keys(fermentingScheduleByType).length > 0 ? fermentingScheduleByType : undefined}
         existingBrewPlanKeys={brewPlans
           .filter(p => p.status === '仮登録')

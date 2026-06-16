@@ -4,72 +4,16 @@ import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
-import { holtWinters } from '@/lib/forecast'
+import { computeBacktest } from '@/lib/backtest'
 
 const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
 
 // 評価対象とする直近の月数（バックテスト窓）
 const WINDOW = 24
-// バイアス・最良方式の判定に必要な最低評価月数
-const MIN_N = 3
 
 interface Props {
   shipmentMap:          Record<string, Record<string, number>>
   sarimaxPastForecast?: Record<string, Record<string, number>>
-}
-
-interface MethodStat {
-  key:     'sarimax' | 'hw' | 'avg'
-  label:   string
-  n:       number
-  biasPct: number | null
-  mapePct: number | null
-}
-
-// 直近3年同月平均（targetYM時点で利用可能な実績のみ）
-function get3YearAvg(data: Record<string, number>, ym: string): number | null {
-  const [y, m] = ym.split('-').map(Number)
-  const values: number[] = []
-  for (let i = 1; i <= 3; i++) {
-    const key = `${y - i}-${String(m).padStart(2, '0')}`
-    if (data[key] != null) values.push(data[key])
-  }
-  return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null
-}
-
-// 各対象月について「その月より前の実績のみ」でHW予測した値（リーク防止）
-function calcHWHistorical(typeData: Record<string, number>, targetYMs: string[]): Record<string, number> {
-  const sortedYMs = Object.keys(typeData).sort()
-  const result: Record<string, number> = {}
-  for (const target of targetYMs) {
-    const hist = sortedYMs.filter(ym => ym < target).map(ym => typeData[ym])
-    if (hist.length < 12) continue
-    const hw = holtWinters(hist, 1)
-    if (hw.forecast[0] != null) result[target] = hw.forecast[0]
-  }
-  return result
-}
-
-// 実績 vs 予測の偏り(bias)・平均誤差(MAPE)を集計
-// bias = mean((予測 − 実績) ÷ 実績)：マイナス=予測が少なめ（欠品リスク側）
-function computeStats(
-  actual: Record<string, number>,
-  pred:   Record<string, number>,
-  ymList: string[],
-): { n: number; biasPct: number | null; mapePct: number | null } {
-  let n = 0, sumBias = 0, sumAbs = 0
-  for (const ym of ymList) {
-    const a = actual[ym]
-    const p = pred[ym]
-    if (a == null || p == null || a <= 0) continue
-    n++
-    const e = (p - a) / a
-    sumBias += e
-    sumAbs  += Math.abs(e)
-  }
-  return n === 0
-    ? { n: 0, biasPct: null, mapePct: null }
-    : { n, biasPct: (sumBias / n) * 100, mapePct: (sumAbs / n) * 100 }
 }
 
 function biasLabel(biasPct: number | null): { text: string; cls: string } {
@@ -89,43 +33,8 @@ function mapeCls(mapePct: number | null): string {
 
 export default function ForecastBacktest({ shipmentMap, sarimaxPastForecast }: Props) {
   const [open, setOpen] = useState(false)
-  const currentYM = (() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-  })()
-
-  // 品種ごとに3方式のバックテスト結果を算出
-  const perType = MISO_TYPES.map(type => {
-    const actual = shipmentMap[type] ?? {}
-    const evalYMs = Object.keys(actual)
-      .filter(ym => ym < currentYM && actual[ym] > 0)
-      .sort()
-      .slice(-WINDOW)
-
-    const sarimaxPred = sarimaxPastForecast?.[type] ?? {}
-    const hwPred      = calcHWHistorical(actual, evalYMs)
-    const avgPred: Record<string, number> = {}
-    for (const ym of evalYMs) {
-      const a = get3YearAvg(actual, ym)
-      if (a != null) avgPred[ym] = a
-    }
-
-    const stats: MethodStat[] = [
-      { key: 'sarimax', label: 'SARIMAX', ...computeStats(actual, sarimaxPred, evalYMs) },
-      { key: 'hw',      label: 'AI予測(HW)', ...computeStats(actual, hwPred, evalYMs) },
-      { key: 'avg',     label: '3年平均', ...computeStats(actual, avgPred, evalYMs) },
-    ]
-
-    // 評価月数が足りる方式の中で最小MAPEを「最も当たる方式」とする
-    const eligible = stats.filter(s => s.n >= MIN_N && s.mapePct != null)
-    const bestKey  = eligible.length > 0
-      ? eligible.reduce((best, s) => (s.mapePct! < best.mapePct! ? s : best)).key
-      : null
-
-    const hasAny = stats.some(s => s.n > 0)
-    return { type, stats, bestKey, hasAny }
-  })
-
+  // 品種ごとに3方式のバックテスト結果を算出（表示と自動方式選択で共有のロジック）
+  const perType = computeBacktest([...MISO_TYPES], shipmentMap, sarimaxPastForecast, { window: WINDOW })
   const anyData = perType.some(t => t.hasAny)
 
   return (

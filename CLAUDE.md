@@ -484,6 +484,7 @@ model IngredientAlert {
 | `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcEstimatedCompletion()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む） |
 | `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcSimulatedCompletionDate()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース） |
 | `lib/forecast.ts` | `holtWinters()`, `getTimeSeries()` | ホルト・ウィンタース法 |
+| `lib/backtest.ts` | `computeBacktest()`, `pickAutoMethods()`, `ForecastMethodKey`, `TypeBacktest` | 予測vs実績バックテスト（偏り・MAPE・最良方式）。④パネル表示と品種別自動方式選択で共有 |
 | `lib/weatherFetch.ts` | `fetchMonthlyWeather()` | 気象庁HTMLスクレイピング |
 | `lib/externalApi.ts` | `fetchAgedStock()`, `fetchMonthlySales()`, `testApiConnection()` | 外部システムAPI連携 |
 | `lib/misoTypeColor.ts` | `getMisoTypeBadgeStyle()` | 品種バッジのCSSスタイル（inline style） |
@@ -661,6 +662,7 @@ UI機能:
 - **予測方式**: SARIMAX / HW（ホルト・ウィンタース・12ヶ月以上必要）/ 3年平均 をトグル切り替え
 - **需要見積りトグル（標準／保守的90%）**: **SARIMAX選択時のみ表示**。「保守的」で `SarimaxEntry.upper90`（90%予測区間の上限＝需要多めシナリオ）を中央値`forecast`の代わりに使用 → 在庫切れ日が早まり推奨仕込み日を安全側に前倒し。`buildDailyRateFn(..., conservative)` と `sarimaxMonthlyEst` の両方に適用。`upper90.length === forecast.length` のときのみ有効（不整合時は中央値にフォールバック）。localStorage: `planning_conservativeDemand`
 - **予測信頼度バッジ（MAPE表示）**: **SARIMAX使用時のみ**、カードヘッダーに「予測誤差 ±XX%」を表示（`sarimaxMape` prop ← `SystemSetting` の `forecast_mape_<品種>`）。色分け：≤15%緑（信頼度高）／15〜30%黄／>30%灰（目安程度）。ホバーで解釈の説明。提案日をどこまで信じるかの判断材料
+- **品種別の自動方式選択トグル（手動／自動）**: 「自動（実績ベスト）」で、バックテスト（`lib/backtest.ts` の `pickAutoMethods`）が品種ごとに最も的中する方式を採用（`autoMethodByType` prop ← page.tsxで`computeBacktest`→`pickAutoMethods`、MAPE≤30%の品種のみ・白みそ等低精度品種は除外しグローバル選択にフォールバック）。品種ごとに `effMethod = autoMethodByType[name] ?? forecastMethod` を使い `monthlyAvg`・`buildDailyRateFn`・`usingSarimax` 等を切替。採用品種は紫の「自動：SARIMAX/AI予測/3年平均」バッジを表示。トグルは信頼できるベストが1品種以上あるときのみ表示。localStorage: `planning_autoMethod`
 - **表示回数**: 1/3/5回分（品種ごとに個別設定も可能）
 - **仕込み場所セレクタ**: 品種ごとに選択（`暖房{heatingDefaultTemp}℃` / `冷房{coolingDefaultTemp}℃` / `常温` / `冷蔵庫`）→ `simulateFermentationDays()` でQ10補正あり・なし両方の熟成日数を計算
   - **デフォルト選択ロジック**: localStorage未保存の場合、`plans`確定後に`locationInitializedRef`（`useRef`）で1回だけ1回目仕込み日の月を参照し季節判定（6〜9月→常温 / 10〜5月→暖房）。localStorage保存済み（ユーザーが手動変更）は上書きしない。
