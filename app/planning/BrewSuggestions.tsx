@@ -1380,6 +1380,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                     <span className="font-normal">（在庫切れまであと約 {Math.max(plan.stockOutInDays, 0)} 日）</span>
                   )}
                 </span>
+              ) : daysUntilOrder <= 14 ? (
+                // 手配締切が差し迫っているときは、それを先頭に出す（仕込み日が先でも今動くべきは手配）
+                <span>
+                  原料手配の締切が {deadline ? format(deadline, 'M/d') : '—'}（{deadlineRel}）に迫っています。
+                  <span className="font-normal"> 推奨仕込み日は {format(brewDate, 'M/d')}（あと {daysToBrew} 日）。</span>
+                </span>
               ) : (
                 <span>
                   推奨仕込み日まであと {daysToBrew} 日（{format(brewDate, 'M/d')}）。
