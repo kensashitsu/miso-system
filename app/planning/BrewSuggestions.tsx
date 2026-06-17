@@ -1085,6 +1085,34 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     }
   })
 
+  // ③ 今週やるべきこと（最優先品種）: 全品種を横断し、最も急ぐ1件を先頭に提示。
+  // 過去超過を最優先（超過日数が大きいほど上位）、次に手配締切までの日数が短い順。
+  const topPriority = (() => {
+    type Cand = {
+      plan: RecipePlan; firstNew: BatchPlan; brewDate: Date
+      deadline: Date | null; daysUntilOrder: number; sortKey: number
+    }
+    const cands: Cand[] = []
+    for (const plan of plans) {
+      if (!plan.canCalc) continue
+      const firstNew = plan.batches.find(b => !b.isFixed)
+      if (!firstNew) continue
+      const deadline = (useRawAsBase && firstNew.rawMaterialOrderDeadline)
+        ? firstNew.rawMaterialOrderDeadline : firstNew.materialOrderDeadline
+      const brewDate = (useRawAsBase && firstNew.rawBrewDate) ? firstNew.rawBrewDate : firstNew.brewDate
+      const daysUntilOrder = deadline ? differenceInDays(deadline, today) : Infinity
+      // 超過品種は非常に小さいキー（超過が大きいほど上位）、それ以外は締切までの日数
+      const sortKey = plan.isBrewDatePast ? -100000 - plan.overdueDays : daysUntilOrder
+      cands.push({ plan, firstNew, brewDate, deadline, daysUntilOrder, sortKey })
+    }
+    if (cands.length === 0) return null
+    cands.sort((a, b) => a.sortKey - b.sortKey)
+    const top = cands[0]
+    // 急ぎの基準：超過中 or 手配締切30日以内のときだけ「最優先」として強調表示
+    const isUrgent = top.plan.isBrewDatePast || top.daysUntilOrder <= 30
+    return { ...top, isUrgent }
+  })()
+
   function handleCSV() {
     const csv      = generateCSV(plans, maxBatches, today)
     const filename = `仕込み計画_${format(today, 'yyyyMMdd')}.csv`
@@ -1308,6 +1336,58 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         </div>
         </div>
       </div>
+
+      {/* ③ 今週やるべきこと（最優先品種） */}
+      {topPriority && (() => {
+        const { plan, brewDate, deadline, daysUntilOrder, isUrgent } = topPriority
+        const daysToBrew    = Math.max(differenceInDays(brewDate, today), 0)
+        const deadlineRel   =
+          daysUntilOrder < 0  ? `${-daysUntilOrder}日 超過` :
+          daysUntilOrder === 0 ? '本日まで' :
+          daysUntilOrder === 1 ? '明日' : `あと ${daysUntilOrder} 日`
+        const typeBadge = (
+          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold" style={getMisoTypeBadgeStyle(plan.name)}>
+            {plan.name}
+          </span>
+        )
+        if (!isUrgent) {
+          return (
+            <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
+              <span>✅</span>
+              <span>今すぐ手配が必要な品種はありません。</span>
+              <span className="text-emerald-800/80">直近の候補は</span>
+              {typeBadge}
+              <span className="text-emerald-800/80">（手配締切 {deadline ? format(deadline, 'M/d') : '—'}・{deadlineRel}）</span>
+            </div>
+          )
+        }
+        const tone = plan.isBrewDatePast || daysUntilOrder <= 14
+          ? 'border-red-300 bg-red-50 text-red-800'
+          : 'border-amber-300 bg-amber-50 text-amber-800'
+        return (
+          <div className={`mb-4 rounded-lg border px-4 py-3 ${tone}`}>
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+              <span className="text-base">⚠️</span>
+              <span>最優先：</span>
+              {typeBadge}
+              {plan.isBrewDatePast ? (
+                <span>
+                  推奨仕込み日を {plan.overdueDays} 日超過。できるだけ早く仕込んでください
+                  {plan.stockOutInDays != null && (
+                    <span className="font-normal">（在庫切れまであと約 {Math.max(plan.stockOutInDays, 0)} 日）</span>
+                  )}
+                </span>
+              ) : (
+                <span>
+                  推奨仕込み日まであと {daysToBrew} 日（{format(brewDate, 'M/d')}）。
+                  <span className="font-normal"> 原料手配の締切は {deadline ? format(deadline, 'M/d') : '—'}（{deadlineRel}）です。</span>
+                </span>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
       <div className="grid grid-cols-1 gap-4">
         {plans.map(plan => {
           const apiStock    = apiStockByType?.[plan.name] ?? null
