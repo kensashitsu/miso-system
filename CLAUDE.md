@@ -662,7 +662,7 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 
 UI機能:
 - **予測方式**: SARIMAX / HW（ホルト・ウィンタース・12ヶ月以上必要）/ 3年平均 をトグル切り替え
-- **需要見積りトグル（標準／保守的90%）**: **SARIMAX選択時のみ表示**。「保守的」で `SarimaxEntry.upper90`（90%予測区間の上限＝需要多めシナリオ）を中央値`forecast`の代わりに使用 → 在庫切れ日が早まり推奨仕込み日を安全側に前倒し。`buildDailyRateFn(..., conservative)` と `sarimaxMonthlyEst` の両方に適用。`upper90.length === forecast.length` のときのみ有効（不整合時は中央値にフォールバック）。localStorage: `planning_conservativeDemand`
+- **需要見積りトグル（標準／保守的）**: **常時表示・全方式で有効**。「保守的」で需要を多めに見積もり、在庫切れ日が早まり推奨仕込み日を安全側に前倒し。方式別の保守値：**SARIMAX→`upper90`**（90%上限）／**HW→`holtWinters().upperBound`**（平均+σ）／**3年平均→`get3YearConservative`**（平均+標準偏差、1点のみは×1.1）。`buildDailyRateFn(..., conservative)` と月次推計（`sarimaxMonthlyEst`/`hwMonthlyEst`/`avg3`）の両方に適用。localStorage: `planning_conservativeDemand`
 - **予測信頼度バッジ（MAPE表示）**: **SARIMAX使用時のみ**、カードヘッダーに「予測誤差 ±XX%」を表示（`sarimaxMape` prop ← `SystemSetting` の `forecast_mape_<品種>`）。色分け：≤15%緑（信頼度高）／15〜30%黄／>30%灰（目安程度）。ホバーで解釈の説明。提案日をどこまで信じるかの判断材料
 - **品種別の自動方式選択トグル（手動／自動）**: 「自動（実績ベスト）」で、バックテスト（`lib/backtest.ts` の `pickAutoMethods`）が品種ごとに最も的中する方式を採用（`autoMethodByType` prop ← page.tsxで`computeBacktest`→`pickAutoMethods`、MAPE≤30%の品種のみ・白みそ等低精度品種は除外しグローバル選択にフォールバック）。品種ごとに `effMethod = autoMethodByType[name] ?? forecastMethod` を使い `monthlyAvg`・`buildDailyRateFn`・`usingSarimax` 等を切替。採用品種は紫の「自動：SARIMAX/AI予測/3年平均」バッジを表示。トグルは信頼できるベストが1品種以上あるときのみ表示。localStorage: `planning_autoMethod`
 - **表示回数**: 1/3/5回分（品種ごとに個別設定も可能）

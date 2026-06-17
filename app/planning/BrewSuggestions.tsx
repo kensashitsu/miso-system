@@ -236,6 +236,26 @@ function get3YearAvg(data: Record<string, number>, month: number, year: number):
   return values.length === 0 ? null : values.reduce((a, b) => a + b, 0) / values.length
 }
 
+// 3年平均の保守値（需要多めシナリオ）。平均＋標準偏差（≒上ブレ）。
+// データ1点のみのときは平均×1.1の固定マージン。SARIMAXのupper90に相当する役割。
+function get3YearConservative(data: Record<string, number>, month: number, year: number): number | null {
+  const values: number[] = []
+  for (let i = 1; i <= 3; i++) {
+    const ym = `${year - i}-${String(month).padStart(2, '0')}`
+    if (data[ym] != null) values.push(data[ym])
+  }
+  if (values.length === 0) return null
+  const mean = values.reduce((a, b) => a + b, 0) / values.length
+  if (values.length < 2) return mean * 1.1
+  const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / (values.length - 1)
+  return mean + Math.sqrt(variance)
+}
+
+// 標準／保守的を切り替えて3年平均を返す
+function avg3(data: Record<string, number>, month: number, year: number, conservative: boolean): number | null {
+  return conservative ? get3YearConservative(data, month, year) : get3YearAvg(data, month, year)
+}
+
 // 月別変動レートを使って在庫が尽きる日をシミュレーション（熟成中ロットの補充スケジュール考慮）
 function findStockOutDate(
   stock:          number,
@@ -308,7 +328,7 @@ function computeCoverageDays(
 }
 
 // 予測方式・データから「日付→1日消費量(kg)」関数を生成
-// conservative=true かつ SARIMAX のとき、中央値ではなく upper90（需要多めシナリオ）を使う
+// conservative=true で需要多めシナリオ：SARIMAX→upper90 / HW→上限(平均+σ) / 3年平均→平均+標準偏差
 function buildDailyRateFn(
   method:       'sarimax' | 'hw' | 'avg',
   typeData:     Record<string, number>,
@@ -317,7 +337,13 @@ function buildDailyRateFn(
   fallback:     number,
   conservative: boolean = false,
 ): (date: Date) => number {
-  // SARIMAX: 月別予測値を直接使用
+  // 予測値が無い月のフォールバック（3年平均・保守時は平均+σ）
+  const avg3Fn = (date: Date) => {
+    const v = avg3(typeData, date.getMonth() + 1, date.getFullYear(), conservative)
+    return v !== null ? v / getDaysInMonth(date) : fallback
+  }
+
+  // SARIMAX: 月別予測値を直接使用（保守はupper90）
   if (method === 'sarimax' && sarimaxEntry && sarimaxEntry.months.length > 0) {
     const series = (conservative && sarimaxEntry.upper90?.length === sarimaxEntry.forecast.length)
       ? sarimaxEntry.upper90
@@ -329,40 +355,34 @@ function buildDailyRateFn(
     }
     return (date: Date) => {
       const ym = format(date, 'yyyy-MM')
-      if (map[ym] !== undefined) return map[ym]
-      const avg3 = get3YearAvg(typeData, date.getMonth() + 1, date.getFullYear())
-      return avg3 !== null ? avg3 / getDaysInMonth(date) : fallback
+      return map[ym] !== undefined ? map[ym] : avg3Fn(date)
     }
   }
 
-  // HW: 36ヶ月先まで予測してマッピング
+  // HW: 36ヶ月先まで予測してマッピング（保守は上限 upperBound = 平均+σ）
   if (method === 'hw' && hwInput.length >= 12) {
     const sortedKeys = Object.keys(typeData).sort()
     const lastKnown  = sortedKeys[sortedKeys.length - 1]
     if (lastKnown) {
       const hw = holtWinters(hwInput, 36)
+      const series = conservative ? hw.upperBound : hw.forecast
       const map: Record<string, number> = {}
       let [hy, hm] = lastKnown.split('-').map(Number)
-      for (let i = 0; i < hw.forecast.length; i++) {
+      for (let i = 0; i < series.length; i++) {
         hm++; if (hm > 12) { hm = 1; hy++ }
         const ym     = `${hy}-${String(hm).padStart(2, '0')}`
         const daysInM = getDaysInMonth(new Date(hy, hm - 1, 1))
-        map[ym] = Math.max(0, hw.forecast[i]) / daysInM
+        map[ym] = Math.max(0, series[i]) / daysInM
       }
       return (date: Date) => {
         const ym = format(date, 'yyyy-MM')
-        if (map[ym] !== undefined) return map[ym]
-        const avg3 = get3YearAvg(typeData, date.getMonth() + 1, date.getFullYear())
-        return avg3 !== null ? avg3 / getDaysInMonth(date) : fallback
+        return map[ym] !== undefined ? map[ym] : avg3Fn(date)
       }
     }
   }
 
-  // 3年平均: 月ごとに直近3年の実績平均を使用
-  return (date: Date) => {
-    const avg3 = get3YearAvg(typeData, date.getMonth() + 1, date.getFullYear())
-    return avg3 !== null ? avg3 / getDaysInMonth(date) : fallback
-  }
+  // 3年平均: 月ごとに直近3年の実績平均（保守は平均+標準偏差）
+  return avg3Fn
 }
 
 function calcBatches(
@@ -736,7 +756,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     let hwMonthlyEst: number | null = null
     if (hasEnoughForHW) {
       const hw = holtWinters(hwInput, 2)
-      hwMonthlyEst = hw.forecast[0] ?? null
+      // 保守モードは上限値（平均+σ）を使用
+      hwMonthlyEst = (conservativeDemand ? hw.upperBound[0] : hw.forecast[0]) ?? null
     }
 
     // SARIMAXの今月〜翌3ヶ月平均を計算（保守モードは upper90 を使用）
@@ -769,7 +790,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       monthlyAvg = hwMonthlyEst
       usingHW    = true
     } else {
-      monthlyAvg = hasData ? get3YearAvg(typeData, currentMonth, currentYear) : null
+      monthlyAvg = hasData ? avg3(typeData, currentMonth, currentYear, conservativeDemand) : null
     }
 
     const selectedLocation = locations[recipe.name]
@@ -1115,30 +1136,30 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               ))}
             </div>
           )}
-          {/* 需要見積り切り替え（SARIMAXが効いているとき・upper90で保守的に） */}
-          {(forecastMethod === 'sarimax' || (autoMethod && !!autoMethodByType && Object.values(autoMethodByType).includes('sarimax'))) && (
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">需要見積り：</span>
-              {([false, true] as const).map(isCons => (
-                <button
-                  key={String(isCons)}
-                  type="button"
-                  onClick={() => {
-                    setConservativeDemand(isCons)
-                    localStorage.setItem('planning_conservativeDemand', isCons ? '1' : '0')
-                  }}
-                  title={isCons ? '90%予測区間の上限（需要多め）で安全側に計算' : '中央値（標準的な需要見込み）で計算'}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    conservativeDemand === isCons
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                  }`}
-                >
-                  {isCons ? '保守的（90%）' : '標準'}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* 需要見積り切り替え（全方式で有効：SARIMAX→upper90 / HW→上限 / 3年平均→平均+σ） */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">需要見積り：</span>
+            {([false, true] as const).map(isCons => (
+              <button
+                key={String(isCons)}
+                type="button"
+                onClick={() => {
+                  setConservativeDemand(isCons)
+                  localStorage.setItem('planning_conservativeDemand', isCons ? '1' : '0')
+                }}
+                title={isCons
+                  ? '需要を多めに見て安全側に計算（SARIMAX:90%上限 / AI予測:上限 / 3年平均:平均+ばらつき）'
+                  : '中央値（標準的な需要見込み）で計算'}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  conservativeDemand === isCons
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                {isCons ? '保守的' : '標準'}
+              </button>
+            ))}
+          </div>
           {/* 回数切り替え（一括） */}
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground">表示回数（一括）：</span>
