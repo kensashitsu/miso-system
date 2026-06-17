@@ -993,13 +993,15 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       isFixed:               true,
     }))
 
-    // 表示は「確定＋新規提案」を仕込み日順に並べ、表示回数で打ち切り。
+    // 表示は「確定行（常に表示）＋新規提案（表示回数で打ち切り）」を仕込み日順に並べる。
+    // 表示回数は新規提案にのみ効かせる（確定行が枠を食って実提案が消えるのを防ぐ。
+    // 例：表示1回で確定行があると、本当の次提案が打ち切られ最優先判定から漏れていた）。
     // 確定行と同じ日付の新規提案は重複なので除外（安全網）。
     const generatedDeduped = generated.filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
+    const shownGenerated   = generatedDeduped.slice(0, recipeBatches)
     const batches = canCalc
-      ? [...fixedRows, ...generatedDeduped]
+      ? [...fixedRows, ...shownGenerated]
           .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
-          .slice(0, recipeBatches)
           .map((b, i) => ({ ...b, n: i + 1 }))
       : []
 
