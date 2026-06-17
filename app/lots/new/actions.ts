@@ -2,6 +2,7 @@
 
 import { z } from 'zod'
 import { redirect } from 'next/navigation'
+import { revalidatePath } from 'next/cache'
 import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
@@ -193,6 +194,8 @@ export async function createLot(input: unknown): Promise<ActionResult> {
       where: { id: d.brewPlanId },
       data:  { status: '本登録済', lotId: newId },
     }).catch(() => {})
+    // ルートレイアウトの仮登録ドロワーを再取得させる（更新後の状態を反映）
+    revalidatePath('/', 'layout')
   }
 
   redirect(`/lots/${newId}`)
