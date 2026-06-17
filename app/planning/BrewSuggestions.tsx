@@ -1255,6 +1255,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               ? firstNew.rawFermentationDays : firstNew.fermentationDays
             const stockKgTxt  = Math.round(plan.effectiveStock).toLocaleString()
             const rateTxt     = Math.round(plan.dailyRate).toLocaleString()
+            const fmtKg       = Math.round(plan.fermentingKg).toLocaleString()
+            // 熟成中ロットの扱いを明示（楽観的=在庫に算入済み／悲観的=完成予定日に順次補充）
+            const stockClause = (plan.fermentingCount > 0 && optimisticStock)
+              ? `（うち熟成中ロット ${fmtKg} kg を算入）` : ''
+            const fermentLead = (plan.fermentingCount > 0 && !optimisticStock)
+              ? `熟成中ロット ${fmtKg} kg（${plan.fermentingCount}件）が順次完成する分を見込んでも、` : ''
 
             // 在庫切れ超過中：最優先で警告トーン
             if (plan.isBrewDatePast) {
@@ -1264,7 +1270,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               return {
                 tone: 'urgent',
                 text: `${plan.name}は既に推奨仕込み日を ${plan.overdueDays} 日超過しています。`
-                  + `有効在庫 ${stockKgTxt} kg・消費ペース約 ${rateTxt} kg/日で、${outTxt}。`
+                  + `有効在庫 ${stockKgTxt} kg${stockClause}・消費ペース約 ${rateTxt} kg/日で、${fermentLead}${outTxt}。`
                   + `${plan.location}での熟成に約 ${ferment} 日かかるため、できるだけ早く仕込んでください。`,
               }
             }
@@ -1278,8 +1284,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               (firstDaysUntilOrder <= 14 || daysToBrew <= 7) ? 'soon' : 'ok'
             return {
               tone,
-              text: `${plan.name}は有効在庫 ${stockKgTxt} kg、消費ペース約 ${rateTxt} kg/日です。`
-                + `このままだと ${format(firstNew.stockOutDate, 'M/d')}（あと約 ${Math.max(daysToStockOut, 0)} 日）に在庫切れの見込み。`
+              text: `${plan.name}は有効在庫 ${stockKgTxt} kg${stockClause}、消費ペース約 ${rateTxt} kg/日です。`
+                + `${fermentLead || 'このままだと '}${format(firstNew.stockOutDate, 'M/d')}（あと約 ${Math.max(daysToStockOut, 0)} 日）に在庫切れの見込み。`
                 + `${plan.location}での熟成に約 ${ferment} 日かかるため、${format(primaryBrew, 'M/d')}（あと ${Math.max(daysToBrew, 0)} 日）までに仕込むのが目安です。`
                 + deadlineTxt,
             }
