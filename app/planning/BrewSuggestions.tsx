@@ -1247,6 +1247,50 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               }
             : null
 
+          // ① 根拠の自然文サマリー（数値→助言の文章化・追加コストなし）
+          const summary: { tone: 'urgent' | 'soon' | 'ok'; text: string } | null = (() => {
+            if (!plan.hasData || !plan.canCalc || !firstNew) return null
+            const primaryBrew = (useRawAsBase && firstNew.rawBrewDate) ? firstNew.rawBrewDate : firstNew.brewDate
+            const ferment     = (useRawAsBase && firstNew.rawFermentationDays !== undefined)
+              ? firstNew.rawFermentationDays : firstNew.fermentationDays
+            const stockKgTxt  = Math.round(plan.effectiveStock).toLocaleString()
+            const rateTxt     = Math.round(plan.dailyRate).toLocaleString()
+
+            // 在庫切れ超過中：最優先で警告トーン
+            if (plan.isBrewDatePast) {
+              const outTxt = plan.stockOutInDays != null
+                ? (plan.stockOutInDays <= 0 ? '既に在庫切れの見込み' : `推定在庫切れまであと約 ${plan.stockOutInDays} 日`)
+                : '在庫切れ時期は算出不可'
+              return {
+                tone: 'urgent',
+                text: `${plan.name}は既に推奨仕込み日を ${plan.overdueDays} 日超過しています。`
+                  + `有効在庫 ${stockKgTxt} kg・消費ペース約 ${rateTxt} kg/日で、${outTxt}。`
+                  + `${plan.location}での熟成に約 ${ferment} 日かかるため、できるだけ早く仕込んでください。`,
+              }
+            }
+
+            const daysToBrew     = differenceInDays(primaryBrew, today)
+            const daysToStockOut = differenceInDays(firstNew.stockOutDate, today)
+            const deadlineTxt    = firstPrimaryDeadline
+              ? `原料手配は ${format(firstPrimaryDeadline, 'M/d')}（あと ${Math.max(firstDaysUntilOrder, 0)} 日）が締切です。`
+              : ''
+            const tone: 'soon' | 'ok' =
+              (firstDaysUntilOrder <= 14 || daysToBrew <= 7) ? 'soon' : 'ok'
+            return {
+              tone,
+              text: `${plan.name}は有効在庫 ${stockKgTxt} kg、消費ペース約 ${rateTxt} kg/日です。`
+                + `このままだと ${format(firstNew.stockOutDate, 'M/d')}（あと約 ${Math.max(daysToStockOut, 0)} 日）に在庫切れの見込み。`
+                + `${plan.location}での熟成に約 ${ferment} 日かかるため、${format(primaryBrew, 'M/d')}（あと ${Math.max(daysToBrew, 0)} 日）までに仕込むのが目安です。`
+                + deadlineTxt,
+            }
+          })()
+
+          const summaryStyle = {
+            urgent: 'border-red-200 bg-red-50/70 text-red-800',
+            soon:   'border-amber-200 bg-amber-50/70 text-amber-800',
+            ok:     'border-emerald-200 bg-emerald-50/60 text-emerald-900',
+          } as const
+
           return (
             <Card key={plan.name}>
               <CardHeader className="pb-3">
@@ -1318,6 +1362,16 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               </CardHeader>
 
               <CardContent className="space-y-3">
+                {/* ① 根拠の自然文サマリー */}
+                {summary && (
+                  <div className={`flex gap-2 rounded-lg border px-3 py-2.5 text-sm leading-relaxed ${summaryStyle[summary.tone]}`}>
+                    <span className="shrink-0 pt-0.5">
+                      {summary.tone === 'urgent' ? '⚠️' : summary.tone === 'soon' ? '🟡' : '✅'}
+                    </span>
+                    <p>{summary.text}</p>
+                  </div>
+                )}
+
                 {/* 在庫 */}
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
