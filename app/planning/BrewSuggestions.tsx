@@ -116,13 +116,14 @@ interface RecipePlan {
     perBatch:       { n: number; before: Date; after: Date; deltaDays: number }[]  // 全回分（+なら前倒し）
   } | null
   stockOutInDays:   number | null // 推定在庫切れまでの日数
-  whatIf:           {             // ② もしもの試算（調整値は品種別state）
-    demandPct:  number
-    demand:  { newStockOut: Date; stockOutDelta: number; newIdeal: Date; idealDelta: number } | null
-    delayDays:  number
-    delay:   { baseBrew: Date; newCompletion: Date; fits: boolean; marginDays: number } | null
-    tempDelta:  number
-    temp:    { newDays: number; dayDelta: number; newCompletion: Date } | null  // 常温のみ
+  whatIf:           {             // ② もしもの試算（全回分・調整値は品種別state）
+    demandPct:      number
+    demandStockOut: { newStockOut: Date; delta: number } | null
+    demand:         { n: number; newBrew: Date; deltaDays: number }[]
+    delayDays:      number
+    delay:          { n: number; newCompletion: Date; fits: boolean; marginDays: number }[]
+    tempDelta:      number
+    temp:           { n: number; newDays: number; dayDelta: number; newCompletion: Date }[]  // 常温のみ・他は空
   } | null
 }
 
@@ -943,10 +944,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 静的推定の数倍になり refined=stockOut-actual-buffer が過去へ大きくズレるため）。
     const computeIdeal = (
       supplyEvents: { date: Date; kg: number }[] | undefined,
-      rateFn: (date: Date) => number = getDailyRateFn,  // What-if（需要変動）で差し替え可能
     ): { stockOut: Date | null; ideal: Date | null } => {
       if (!canCalc) return { stockOut: null, ideal: null }
-      const so = findStockOutDate(effectiveStock, today, rateFn, supplyEvents)
+      const so = findStockOutDate(effectiveStock, today, getDailyRateFn, supplyEvents)
       const pre = addDays(so, -(fermentationDays + bufferDays))
       let ideal: Date = snapEnabled ? snapToBrewDay(pre) : pre
       if (getCompletion) {
@@ -1026,52 +1026,55 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         }
       : null
 
-    // ── ② What-if（もしもの試算）─────────────────────────────
+    // ── ② What-if（もしもの試算・全回分）─────────────────────
     // 調整値は品種別state。ここで再計算してカードに渡す（stateが変わると再描画＝即時反映）。
+    // 表示中の新規提案バッチを起点に、各回ごとに試算する。
     const wifPct   = whatIfPct[recipe.name]   ?? 20
     const wifDelay = whatIfDelay[recipe.name] ?? 7
     const wifTemp  = whatIfTemp[recipe.name]  ?? -2
-    const firstNewBatch = batches.find(b => !b.isFixed)
+    const shownNew = generatedDeduped.slice(0, shownGenCount)  // 表示中の新規提案バッチ
 
-    // (1) 需要が ±X% 変わったら → 在庫切れ日・推奨仕込み日の動き
-    let wifDemand: NonNullable<RecipePlan['whatIf']>['demand'] = null
-    if (canCalc && stockOutDate0 && idealBrewDate0) {
-      const factor = 1 + wifPct / 100
-      const wi = computeIdeal(activeSupplyEvents, (d: Date) => getDailyRateFn(d) * factor)
-      if (wi.stockOut && wi.ideal) {
-        wifDemand = {
-          newStockOut:   wi.stockOut,
-          stockOutDelta: differenceInDays(wi.stockOut, stockOutDate0),
-          newIdeal:      wi.ideal,
-          idealDelta:    differenceInDays(wi.ideal, idealBrewDate0),
-        }
-      }
+    // (1) 需要が ±X% 変わったら → 在庫切れ日と各回の仕込み日の動き
+    let demandStockOut: NonNullable<RecipePlan['whatIf']>['demandStockOut'] = null
+    let demandBatches:  NonNullable<RecipePlan['whatIf']>['demand'] = []
+    if (canCalc && stockOutDate0) {
+      const factor   = 1 + wifPct / 100
+      const scaledFn = (d: Date) => getDailyRateFn(d) * factor
+      const so       = findStockOutDate(effectiveStock, today, scaledFn, activeSupplyEvents)
+      demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
+      // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
+      const scaledGen = calcBatches(effectiveStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
+        .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
+      demandBatches = shownNew.map((b, i) => {
+        const after = scaledGen[i]?.brewDate ?? b.brewDate
+        return { n: i + 1, newBrew: after, deltaDays: differenceInDays(after, b.brewDate) }
+      })
     }
 
-    // (2) 仕込みが N日遅れたら → 在庫切れに間に合うか
-    let wifDelayResult: NonNullable<RecipePlan['whatIf']>['delay'] = null
-    if (canCalc && firstNewBatch && stockOutDate0) {
-      const baseBrew = firstNewBatch.brewDate
-      const delayed  = addDays(baseBrew, wifDelay)
-      const comp     = getCompletion ? getCompletion(delayed).completionDate : addDays(delayed, fermentationDays)
-      const marginDays = differenceInDays(stockOutDate0, comp)
-      wifDelayResult = { baseBrew, newCompletion: comp, fits: marginDays >= 0, marginDays }
-    }
+    // (2) 仕込みが N日遅れたら → 各回がその回の在庫切れ日に間に合うか
+    const delayBatches: NonNullable<RecipePlan['whatIf']>['delay'] = canCalc
+      ? shownNew.map((b, i) => {
+          const delayed = addDays(b.brewDate, wifDelay)
+          const comp    = getCompletion ? getCompletion(delayed).completionDate : addDays(delayed, b.fermentationDays)
+          const margin  = differenceInDays(b.stockOutDate, comp)
+          return { n: i + 1, newCompletion: comp, fits: margin >= 0, marginDays: margin }
+        })
+      : []
 
-    // (3) 気温が ±X℃ 違ったら（常温のみ）→ 熟成日数・完成日の動き
-    let wifTempResult: NonNullable<RecipePlan['whatIf']>['temp'] = null
-    if (canCalc && selectedLocation === '常温' && firstNewBatch) {
-      const baseBrew = firstNewBatch.brewDate
+    // (3) 気温が ±X℃ 違ったら（常温のみ）→ 各回の熟成日数・完成日の動き
+    let tempBatches: NonNullable<RecipePlan['whatIf']>['temp'] = []
+    if (canCalc && selectedLocation === '常温') {
       const adjWeather: Record<string, number> = {}
       for (const k in (weatherAvg ?? {})) adjWeather[k] = Math.max((weatherAvg ?? {})[k] + wifTemp, 0)
       const adjFallback = Math.max(weatherFallback + wifTemp, 0)
-      const baseR = getCompletion ? getCompletion(baseBrew) : { days: fermentationDays }
-      const adjR  = simulateFermentationDays(baseBrew, recipe.targetTempSum, adjWeather, adjFallback, q10Value, heatingDefaultTemp, outdoorToIndoorRate)
-      wifTempResult = { newDays: adjR.days, dayDelta: adjR.days - baseR.days, newCompletion: adjR.completionDate }
+      tempBatches = shownNew.map((b, i) => {
+        const adjR = simulateFermentationDays(b.brewDate, recipe.targetTempSum, adjWeather, adjFallback, q10Value, heatingDefaultTemp, outdoorToIndoorRate)
+        return { n: i + 1, newDays: adjR.days, dayDelta: adjR.days - b.fermentationDays, newCompletion: adjR.completionDate }
+      })
     }
 
     const whatIf: RecipePlan['whatIf'] = canCalc
-      ? { demandPct: wifPct, demand: wifDemand, delayDays: wifDelay, delay: wifDelayResult, tempDelta: wifTemp, temp: wifTempResult }
+      ? { demandPct: wifPct, demandStockOut, demand: demandBatches, delayDays: wifDelay, delay: delayBatches, tempDelta: wifTemp, temp: tempBatches }
       : null
 
     return {
@@ -1926,72 +1929,97 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                           />
                           🔍 もしもの試算（What-if）
                         </button>
-                        {whatIfOpen[plan.name] && (
-                          <div className="mt-2.5 space-y-3 text-xs">
-                            {/* (1) 需要が ±X% 変わったら */}
-                            {plan.whatIf.demand && (
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="text-muted-foreground">需要が</span>
-                                <WhatIfStepper
-                                  value={plan.whatIf.demandPct} step={5} min={-50} max={50} signed suffix="%"
-                                  onChange={v => setWhatIfPct(prev => ({ ...prev, [plan.name]: v }))}
-                                />
-                                <span className="text-muted-foreground">変わったら →</span>
-                                <span>
-                                  在庫切れ <span className="tabular-nums font-medium">{format(plan.whatIf.demand.newStockOut, 'M/d')}</span>
-                                  <DeltaTag days={plan.whatIf.demand.stockOutDelta} />
-                                  <span className="mx-1 text-muted-foreground/50">／</span>
-                                  推奨仕込み <span className="tabular-nums font-medium">{format(plan.whatIf.demand.newIdeal, 'M/d')}</span>
-                                  <DeltaTag days={plan.whatIf.demand.idealDelta} />
-                                </span>
-                              </div>
-                            )}
-                            {/* (2) 仕込みが N日遅れたら */}
-                            {plan.whatIf.delay && (
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="text-muted-foreground">仕込みが</span>
-                                <WhatIfStepper
-                                  value={plan.whatIf.delayDays} step={1} min={0} max={30} suffix="日"
-                                  onChange={v => setWhatIfDelay(prev => ({ ...prev, [plan.name]: v }))}
-                                />
-                                <span className="text-muted-foreground">遅れたら →</span>
-                                <span>
-                                  完成 <span className="tabular-nums font-medium">{format(plan.whatIf.delay.newCompletion, 'M/d')}</span>
-                                  <span className="mx-1 text-muted-foreground/50">／</span>
-                                  {plan.whatIf.delay.fits ? (
-                                    <span className="font-medium text-emerald-700">
-                                      ✅ 在庫切れに間に合う（余裕 {plan.whatIf.delay.marginDays} 日）
-                                    </span>
-                                  ) : (
-                                    <span className="font-medium text-rose-600">
-                                      ⚠️ 在庫切れに間に合わない（{-plan.whatIf.delay.marginDays} 日 不足）
+                        {whatIfOpen[plan.name] && (() => {
+                          const wi = plan.whatIf!
+                          const nLabel = (n: number, multi: boolean) =>
+                            multi ? <span className="w-12 shrink-0 text-muted-foreground/70">{n}回目</span> : null
+                          return (
+                            <div className="mt-2.5 space-y-3 text-xs">
+                              {/* (1) 需要が ±X% 変わったら */}
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                  <span className="text-muted-foreground">需要が</span>
+                                  <WhatIfStepper
+                                    value={wi.demandPct} step={5} min={-50} max={50} signed suffix="%"
+                                    onChange={v => setWhatIfPct(prev => ({ ...prev, [plan.name]: v }))}
+                                  />
+                                  <span className="text-muted-foreground">変わったら</span>
+                                  {wi.demandStockOut && (
+                                    <span className="text-muted-foreground">
+                                      → 在庫切れ
+                                      <span className="tabular-nums font-medium text-foreground ml-1">{format(wi.demandStockOut.newStockOut, 'M/d')}</span>
+                                      <DeltaTag days={wi.demandStockOut.delta} />
                                     </span>
                                   )}
-                                </span>
+                                </div>
+                                {wi.demand.length > 0 && (
+                                  <ul className="pl-1 space-y-0.5">
+                                    {wi.demand.map(d => (
+                                      <li key={d.n} className="flex items-center gap-1.5">
+                                        {nLabel(d.n, wi.demand.length > 1)}
+                                        <span>仕込み <span className="tabular-nums font-medium">{format(d.newBrew, 'M/d')}</span></span>
+                                        <DeltaTag days={d.deltaDays} />
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
-                            )}
-                            {/* (3) 気温が ±X℃ 違ったら（常温のみ） */}
-                            {plan.whatIf.temp && (
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span className="text-muted-foreground">気温が</span>
-                                <WhatIfStepper
-                                  value={plan.whatIf.tempDelta} step={1} min={-5} max={5} signed suffix="℃"
-                                  onChange={v => setWhatIfTemp(prev => ({ ...prev, [plan.name]: v }))}
-                                />
-                                <span className="text-muted-foreground">違ったら →</span>
-                                <span>
-                                  熟成 <span className="tabular-nums font-medium">{plan.whatIf.temp.newDays} 日</span>
-                                  <DeltaTag days={plan.whatIf.temp.dayDelta} labelLater="延びる" labelEarlier="縮む" unit="日" invertColor />
-                                  <span className="mx-1 text-muted-foreground/50">／</span>
-                                  完成 <span className="tabular-nums font-medium">{format(plan.whatIf.temp.newCompletion, 'M/d')}</span>
-                                </span>
+                              {/* (2) 仕込みが N日遅れたら */}
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                  <span className="text-muted-foreground">仕込みが</span>
+                                  <WhatIfStepper
+                                    value={wi.delayDays} step={1} min={0} max={30} suffix="日"
+                                    onChange={v => setWhatIfDelay(prev => ({ ...prev, [plan.name]: v }))}
+                                  />
+                                  <span className="text-muted-foreground">遅れたら</span>
+                                </div>
+                                {wi.delay.length > 0 && (
+                                  <ul className="pl-1 space-y-0.5">
+                                    {wi.delay.map(d => (
+                                      <li key={d.n} className="flex flex-wrap items-center gap-1.5">
+                                        {nLabel(d.n, wi.delay.length > 1)}
+                                        <span>完成 <span className="tabular-nums font-medium">{format(d.newCompletion, 'M/d')}</span></span>
+                                        {d.fits ? (
+                                          <span className="font-medium text-emerald-700">✅ 間に合う（余裕 {d.marginDays} 日）</span>
+                                        ) : (
+                                          <span className="font-medium text-rose-600">⚠️ 間に合わない（{-d.marginDays} 日 不足）</span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
-                            )}
-                            <p className="text-[10px] text-muted-foreground/70 pt-0.5">
-                              ※ 現在の提案（1回目）を起点にした概算。実際の判断材料として目安にどうぞ。
-                            </p>
-                          </div>
-                        )}
+                              {/* (3) 気温が ±X℃ 違ったら（常温のみ） */}
+                              {wi.temp.length > 0 && (
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <span className="text-muted-foreground">気温が</span>
+                                    <WhatIfStepper
+                                      value={wi.tempDelta} step={1} min={-5} max={5} signed suffix="℃"
+                                      onChange={v => setWhatIfTemp(prev => ({ ...prev, [plan.name]: v }))}
+                                    />
+                                    <span className="text-muted-foreground">違ったら</span>
+                                  </div>
+                                  <ul className="pl-1 space-y-0.5">
+                                    {wi.temp.map(d => (
+                                      <li key={d.n} className="flex flex-wrap items-center gap-1.5">
+                                        {nLabel(d.n, wi.temp.length > 1)}
+                                        <span>熟成 <span className="tabular-nums font-medium">{d.newDays} 日</span></span>
+                                        <DeltaTag days={d.dayDelta} labelLater="延びる" labelEarlier="縮む" unit="日" invertColor />
+                                        <span className="text-muted-foreground/50">→</span>
+                                        <span>完成 <span className="tabular-nums font-medium">{format(d.newCompletion, 'M/d')}</span></span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              <p className="text-[10px] text-muted-foreground/70 pt-0.5">
+                                ※ 表示中の各回を起点にした概算です。判断の目安にどうぞ。
+                              </p>
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
 
