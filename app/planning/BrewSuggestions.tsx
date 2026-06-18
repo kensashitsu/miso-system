@@ -394,6 +394,33 @@ function buildDailyRateFn(
   return avg3Fn
 }
 
+// 在庫切れ日からの逆算で「仕込み日 ＝ 在庫切れ日 −（その日に仕込んだ場合の実熟成日数＋バッファ）」を
+// 不動点反復で収束させる（常温のQ10シミュレーション専用）。
+// 静的な年間平均ベースの初期推定だと最初の仮仕込み日が別の季節（例：春）に落ち、
+// そこで得た遅い熟成日数（45日前後）のまま1回だけ補正すると、夏仕込みなのに仕込み日が
+// 2〜3週間も前倒しになる。実際の仕込み日の季節に合った熟成日数へ収束するまで繰り返す。
+function refineBrewDateToStockOut(
+  stockOut:      Date,
+  initialEst:    number,
+  buffer:        number,
+  getCompletion: (d: Date) => { days: number; completionDate: Date },
+  snapBrewDate?: (d: Date) => Date,
+): Date {
+  const snap = (d: Date) => (snapBrewDate ? snapBrewDate(d) : d)
+  let brew = snap(addDays(stockOut, -(initialEst + buffer)))
+  const seen = new Set<string>()
+  for (let k = 0; k < 6; k++) {
+    const r    = getCompletion(brew)
+    const next = snap(addDays(stockOut, -(r.days + buffer)))
+    if (format(next, 'yyyy-MM-dd') === format(brew, 'yyyy-MM-dd')) return next  // 収束
+    // スナップ起因で隣接日を行き来する2サイクルは、遅い方（完成が在庫切れに近い＝過剰仕込みが少ない安全側）を採用
+    if (seen.has(format(next, 'yyyy-MM-dd'))) return next > brew ? next : brew
+    seen.add(format(brew, 'yyyy-MM-dd'))
+    brew = next
+  }
+  return brew
+}
+
 function calcBatches(
   effectiveStock:      number,
   getDailyRateFn:      (date: Date) => number,  // 月別消費量関数
@@ -443,17 +470,14 @@ function calcBatches(
         brewDate = snapBrewDate ? snapBrewDate(today) : today
       }
     } else {
-      const preSnapDate = addDays(stockOutDate, -(currentEstimate + safeBuffer))
-      let provisional   = snapBrewDate ? snapBrewDate(preSnapDate) : preSnapDate
-      // 常温の場合、仮仕込み日でシミュレーションして熟成日数を取得し仕込み日を再計算。
-      // currentEstimate が前バッチの季節（例：春）の熟成日数を引き継いでいると、
-      // 夏バッチの仕込み日が補正なしと同じになるズレを防ぐ。
+      // 常温は仕込み日の季節に合った実熟成日数へ不動点反復で収束させる（単発補正だと前倒し過ぎる）。
+      // それ以外は固定熟成日数で逆算するだけ。
       if (getCompletion) {
-        const r0      = getCompletion(provisional)
-        const refined = addDays(stockOutDate, -(r0.days + safeBuffer))
-        provisional   = snapBrewDate ? snapBrewDate(refined) : refined
+        brewDate = refineBrewDateToStockOut(stockOutDate, currentEstimate, safeBuffer, getCompletion, snapBrewDate)
+      } else {
+        const preSnapDate = addDays(stockOutDate, -(currentEstimate + safeBuffer))
+        brewDate = snapBrewDate ? snapBrewDate(preSnapDate) : preSnapDate
       }
-      brewDate = provisional
       // 計算結果が過去になった場合は今日以降に修正
       if (brewDate < today) {
         brewDate = snapBrewDate ? snapBrewDate(today) : today
@@ -506,12 +530,8 @@ function calcBatches(
           rawProv = snapBrewDate ? snapBrewDate(today) : today
         }
       } else {
-        const rawPreSnap = addDays(rawStockOutDate, -(rawCurrentEstimate + safeBuffer))
-        rawProv = snapBrewDate ? snapBrewDate(rawPreSnap) : rawPreSnap
-        // Q10補正ありと同様に、仮仕込み日でシミュレーションして仕込み日を再計算
-        const r0      = getCompletionRaw(rawProv)
-        const refined = addDays(rawStockOutDate, -(r0.days + safeBuffer))
-        rawProv = snapBrewDate ? snapBrewDate(refined) : refined
+        // Q10補正ありと同様に、不動点反復で仕込み日の季節に合った熟成日数へ収束させる
+        rawProv = refineBrewDateToStockOut(rawStockOutDate, rawCurrentEstimate, safeBuffer, getCompletionRaw, snapBrewDate)
         if (rawProv < today) {
           rawProv = snapBrewDate ? snapBrewDate(today) : today
         }
@@ -947,12 +967,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     ): { stockOut: Date | null; ideal: Date | null } => {
       if (!canCalc) return { stockOut: null, ideal: null }
       const so = findStockOutDate(effectiveStock, today, getDailyRateFn, supplyEvents)
-      const pre = addDays(so, -(fermentationDays + bufferDays))
-      let ideal: Date = snapEnabled ? snapToBrewDay(pre) : pre
+      // calcBatches と同じ不動点反復で1回目推奨日を求める（単発補正だと前倒し過ぎてバナーが誤って超過表示になる）
+      let ideal: Date
       if (getCompletion) {
-        const r0      = getCompletion(ideal)
-        const refined = addDays(so, -(r0.days + bufferDays))
-        ideal = snapEnabled ? snapToBrewDay(refined) : refined
+        ideal = refineBrewDateToStockOut(so, fermentationDays, bufferDays, getCompletion, snapFn)
+      } else {
+        const pre = addDays(so, -(fermentationDays + bufferDays))
+        ideal = snapEnabled ? snapToBrewDay(pre) : pre
       }
       return { stockOut: so, ideal }
     }
