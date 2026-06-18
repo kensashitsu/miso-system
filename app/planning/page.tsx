@@ -240,8 +240,14 @@ export default async function PlanningPage() {
   // 完成日に生産量が入る確定供給として、AI提案に織り込む。
   const today0 = startOfDay(new Date())
   const registeredPlansByType: Record<string, { brewDateStr: string; completionDateStr: string; materialOrderDeadlineStr: string; fermentationDays: number }[]> = {}
+  // 本登録済み（ロット化済み）の仕込み日（品種別）。同じ日付の手動調整ピンを自動解除するために渡す。
+  const registeredDoneDatesByType: Record<string, string[]> = {}
   for (const p of brewPlans) {
-    if (p.status !== '仮登録' || p.lotId) continue
+    if (p.status === '本登録済' || p.lotId) {
+      ;(registeredDoneDatesByType[p.misoType] ??= []).push(format(p.brewDate, 'yyyy-MM-dd'))
+      continue
+    }
+    if (p.status !== '仮登録') continue
     if (p.completionDate <= today0) continue
     ;(registeredPlansByType[p.misoType] ??= []).push({
       brewDateStr:              format(p.brewDate, 'yyyy-MM-dd'),
@@ -313,6 +319,7 @@ export default async function PlanningPage() {
           .filter(p => p.status === '仮登録')
           .map(p => `${p.misoType}::${format(p.brewDate, 'yyyy-MM-dd')}`)}
         registeredPlansByType={Object.keys(registeredPlansByType).length > 0 ? registeredPlansByType : undefined}
+        registeredDoneDatesByType={Object.keys(registeredDoneDatesByType).length > 0 ? registeredDoneDatesByType : undefined}
       />
 
     </div>

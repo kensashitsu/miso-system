@@ -68,6 +68,9 @@ interface Props {
     materialOrderDeadlineStr: string
     fermentationDays:         number
   }[]>
+  // 本登録済み（ロット化済み）の仕込み日（品種別・yyyy-MM-dd）。
+  // 同じ日付の手動調整ピンは実現済みのため自動解除するために使う。
+  registeredDoneDatesByType?: Record<string, string[]>
 }
 
 interface BatchPlan {
@@ -676,7 +679,7 @@ function WhatIfStepper({ value, onChange, step, min, max, signed, suffix }: {
   )
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -738,7 +741,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
       savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
       const storedDate = localStorage.getItem(`planning_manualDate_${r.name}`) ?? initialManualBrewDates?.[r.name]
-      if (storedDate) savedManualDates[r.name] = storedDate
+      // 本登録済み（ロット化済み）と同じ日付の手動調整ピンは実現済みなので自動解除する。
+      // これがないと本登録後も1回目が古い日付に固定表示され続ける。
+      const doneDates = registeredDoneDatesByType?.[r.name] ?? []
+      if (storedDate && doneDates.includes(storedDate)) {
+        localStorage.removeItem(`planning_manualDate_${r.name}`)
+      } else if (storedDate) {
+        savedManualDates[r.name] = storedDate
+      }
       const rawOrders = localStorage.getItem(`planning_scheduledOrders_${r.name}`)
       if (rawOrders) {
         try {
