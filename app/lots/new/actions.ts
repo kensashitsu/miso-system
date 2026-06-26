@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
+import { adjustStock } from '@/lib/externalApi'
 
 // 既存品種（非試作品の場合のバリデーション用）
 const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
@@ -90,7 +91,8 @@ export async function createLot(input: unknown): Promise<ActionResult> {
   // 歩留まり率を設定から取得
   const { yieldRate } = await getMoistureSettings()
 
-  let newId: string
+  let newId = ''
+  let newLotNumber = ''
   try {
     // ── Step 1: ロット・仕込み記録・場所履歴をトランザクションで作成 ──
     const lot = await prisma.$transaction(async (tx) => {
@@ -152,6 +154,7 @@ export async function createLot(input: unknown): Promise<ActionResult> {
       })
     })
     newId = lot.id
+    newLotNumber = lot.lotNumber
 
     // ── Step 2: 桶レコードを個別に作成（SQLiteのcreateMany制限回避） ──
     if (d.bucketNumbers) {
@@ -196,6 +199,12 @@ export async function createLot(input: unknown): Promise<ActionResult> {
     }).catch(() => {})
     // ルートレイアウトの仮登録ドロワーを再取得させる（更新後の状態を反映）
     revalidatePath('/', 'layout')
+  }
+
+  // 外部在庫システムへ熟成中在庫を通知（試作品は除外・失敗してもロット登録は成功）
+  if (!d.isPrototype) {
+    const yieldKg = Math.floor(d.shikomiKg * yieldRate)
+    void adjustStock({ misoType: d.misoType, category: 'wip', deltaKg: yieldKg, lotNumber: newLotNumber })
   }
 
   redirect(`/lots/${newId}`)

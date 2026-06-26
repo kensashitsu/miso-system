@@ -114,6 +114,53 @@ export async function fetchMonthlySales(): Promise<MonthlySalesItem[] | null> {
   }
 }
 
+// ── 在庫調整（書き込み）──────────────────────────────────────
+// zaiko.mitsuura.jp 開発者への依頼：
+// 以下の POST エンドポイントを追加し、環境変数 STOCK_ADJUST_API_URL にURLを設定してください。
+//
+// POST ${STOCK_ADJUST_API_URL}
+// 認証: X-API-Key ヘッダー（既存の EXTERNAL_API_KEY を共用）
+// リクエストボディ（JSON）:
+//   {
+//     "misoType":  "無添加麦みそ" | "田舎みそ" | "山吹みそ" | "白みそ",
+//     "category":  "wip" | "aged",  // wip=熟成中（半製品）、aged=熟成済
+//     "deltaKg":   number,           // 正=追加、負=減算
+//     "lotNumber": "202506-001"      // 参照用ロット番号
+//   }
+// レスポンス: HTTP 200 で成功とみなす
+//
+// 呼び出しタイミング：
+//   ロット登録時   → category:"wip",  deltaKg:+(予想歩留まり重量kg)
+//   熟成完了時     → category:"wip",  deltaKg:-(同上)
+//                   category:"aged", deltaKg:+(同上)
+
+export interface StockAdjustPayload {
+  misoType:   string
+  category:   'wip' | 'aged'
+  deltaKg:    number
+  lotNumber?: string
+}
+
+export async function adjustStock(payload: StockAdjustPayload): Promise<boolean> {
+  const url = process.env.STOCK_ADJUST_API_URL
+  if (!url || !process.env.EXTERNAL_API_KEY) return false
+
+  try {
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: headers(),
+      body:    JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      console.error(`在庫調整API エラー: HTTP ${res.status}`, payload)
+    }
+    return res.ok
+  } catch (e) {
+    console.error('在庫調整API 通信エラー:', e, payload)
+    return false
+  }
+}
+
 // ── 接続テスト ────────────────────────────────────────────
 export async function testApiConnection(url: string): Promise<ApiTestResult> {
   if (!process.env.EXTERNAL_API_KEY) {

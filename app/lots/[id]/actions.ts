@@ -3,6 +3,8 @@
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
+import { getMoistureSettings } from '@/lib/settings'
+import { adjustStock } from '@/lib/externalApi'
 
 // ── 熟成メモ追加 ──────────────────────────────────────────
 const noteSchema = z.object({
@@ -61,13 +63,28 @@ export async function changeLotStatus(
   }
   try {
     const completedAt = completedAtStr ? new Date(completedAtStr) : new Date()
-    await prisma.lot.update({
+    const lot = await prisma.lot.update({
       where: { id: lotId },
-      data: {
-        status: newStatus,
-        completedAt,
-      },
+      data: { status: newStatus, completedAt },
+      select: { misoType: true, lotNumber: true, isPrototype: true, yieldRate: true },
     })
+
+    // 熟成完了時：外部在庫システムへ通知（熟成中→熟成済 の在庫移動）
+    if (newStatus === '完成' && !lot.isPrototype) {
+      const [brewRecord, settings] = await Promise.all([
+        prisma.brewRecord.findUnique({ where: { lotId }, select: { shikomiKg: true } }),
+        getMoistureSettings(),
+      ])
+      if (brewRecord) {
+        const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
+        const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+        void Promise.all([
+          adjustStock({ misoType: lot.misoType, category: 'wip',  deltaKg: -yieldKg, lotNumber: lot.lotNumber }),
+          adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lot.lotNumber }),
+        ])
+      }
+    }
+
     revalidatePath(`/lots/${lotId}`)
     revalidatePath('/')
     return { success: true }
