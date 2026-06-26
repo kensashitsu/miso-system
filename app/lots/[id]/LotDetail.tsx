@@ -309,23 +309,27 @@ export default function LotDetail({
   const [isDeleting, startDeleteTransition] = useTransition()
   // 在庫プレビュー（完成確認・削除確認時）
   const [stockPreview, setStockPreview] = useState<StockChangeItem[] | null | 'loading'>(null)
+  const [skipStockUpdate, setSkipStockUpdate] = useState(false)
 
   useEffect(() => {
     if (isPrototype) return
     const yieldKg = Math.floor(totalWeightKg * yieldRate)
     if (confirmStatus === '完成') {
       setStockPreview('loading')
+      setSkipStockUpdate(false)
       getStockPreview(misoType, 'complete', yieldKg)
         .then(items => setStockPreview(items))
         .catch(() => setStockPreview([]))
     } else if (confirmDelete) {
       setStockPreview('loading')
+      setSkipStockUpdate(false)
       const action = status === '完成' ? 'delete-aged' as const : 'delete-wip' as const
       getStockPreview(misoType, action, yieldKg)
         .then(items => setStockPreview(items))
         .catch(() => setStockPreview([]))
     } else {
       setStockPreview(null)
+      setSkipStockUpdate(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [confirmStatus, confirmDelete])
@@ -415,7 +419,7 @@ export default function LotDetail({
     setConfirmStatus(null)
     startStatusTransition(async () => {
       const dateStr = newStatus === '完成' ? completionDate : undefined
-      const result = await changeLotStatus(id, newStatus, dateStr)
+      const result = await changeLotStatus(id, newStatus, dateStr, skipStockUpdate)
       if (result.error) { setStatusError(result.error); return }
       router.refresh()
     })
@@ -426,7 +430,7 @@ export default function LotDetail({
     setDeleteError(null)
     setConfirmDelete(false)
     startDeleteTransition(async () => {
-      const result = await deleteLot(id)
+      const result = await deleteLot(id, skipStockUpdate)
       if (result.error) { setDeleteError(result.error); return }
       router.push('/')
     })
@@ -1490,7 +1494,18 @@ export default function LotDetail({
                   </div>
                   <div className="space-y-1">
                     <p className="text-xs text-muted-foreground">在庫システムへの反映</p>
-                    <StockPreviewPanel state={stockPreview} />
+                    <div className={skipStockUpdate ? 'opacity-40 pointer-events-none' : ''}>
+                      <StockPreviewPanel state={stockPreview} />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none pt-0.5">
+                      <input
+                        type="checkbox"
+                        checked={!skipStockUpdate}
+                        onChange={e => setSkipStockUpdate(!e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      在庫システムへ反映する
+                    </label>
                   </div>
                 </>
               )}
@@ -1634,7 +1649,18 @@ export default function LotDetail({
             </p>
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">在庫システムへの反映</p>
-              <StockPreviewPanel state={stockPreview} />
+              <div className={skipStockUpdate ? 'opacity-40 pointer-events-none' : ''}>
+                <StockPreviewPanel state={stockPreview} />
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none pt-0.5">
+                <input
+                  type="checkbox"
+                  checked={!skipStockUpdate}
+                  onChange={e => setSkipStockUpdate(!e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                在庫システムへ反映する
+              </label>
             </div>
             <div className="flex gap-2">
               <button

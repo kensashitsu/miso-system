@@ -192,6 +192,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
   type PreviewState = { data: unknown; items: StockChangeItem[] }
   const [previewState, setPreviewState]   = useState<PreviewState | null>(null)
   const [isPreviewPending, startPreviewTransition] = useTransition()
+  const [skipStockUpdate, setSkipStockUpdate] = useState(false)
 
   const set = (key: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -259,6 +260,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       mizuameBrand:       strOpt(form.mizuameBrand),
       mizuameLotNo:       strOpt(form.mizuameLotNo),
       brewPlanId:         brewPlanId ?? null,
+      skipStockUpdate,
     }
   }
 
@@ -945,7 +947,18 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
           <>
             <div className="rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 space-y-2">
               <p className="text-sm font-medium text-gray-800">在庫システムへの反映内容を確認してください</p>
-              <StockPreviewPanel state={previewState.items} />
+              <div className={skipStockUpdate ? 'opacity-40 pointer-events-none' : ''}>
+                <StockPreviewPanel state={previewState.items} />
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={!skipStockUpdate}
+                  onChange={e => setSkipStockUpdate(!e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                在庫システムへ反映する
+              </label>
             </div>
             <div className="flex gap-3">
               <button

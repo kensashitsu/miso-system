@@ -57,6 +57,7 @@ export async function changeLotStatus(
   lotId: string,
   newStatus: string,
   completedAtStr?: string,
+  skipStockUpdate?: boolean,
 ): Promise<{ success?: true; error?: string }> {
   if (!(ALLOWED_STATUSES as readonly string[]).includes(newStatus)) {
     return { error: '不正なステータスです。' }
@@ -70,7 +71,7 @@ export async function changeLotStatus(
     })
 
     // 熟成完了時：外部在庫システムへ通知（熟成中→熟成済 の在庫移動）
-    if (newStatus === '完成' && !lot.isPrototype) {
+    if (newStatus === '完成' && !lot.isPrototype && !skipStockUpdate) {
       const [brewRecord, settings] = await Promise.all([
         prisma.brewRecord.findUnique({ where: { lotId }, select: { shikomiKg: true } }),
         getMoistureSettings(),
@@ -259,7 +260,7 @@ export async function deleteBucketUsage(usageId: string): Promise<{ success?: tr
 }
 
 // ── ロット削除（関連データをすべて削除） ──────────────────
-export async function deleteLot(lotId: string): Promise<{ success?: true; error?: string }> {
+export async function deleteLot(lotId: string, skipStockUpdate?: boolean): Promise<{ success?: true; error?: string }> {
   try {
     // 削除前に在庫調整用の情報を取得
     const [lot, brewRecord, settings] = await Promise.all([
@@ -286,8 +287,8 @@ export async function deleteLot(lotId: string): Promise<{ success?: true; error?
       prisma.lot.delete({ where: { id: lotId } }),
     ])
 
-    // 外部在庫システムから削除分を減算（試作品・情報取得失敗時はスキップ）
-    if (lot && !lot.isPrototype && brewRecord) {
+    // 外部在庫システムから削除分を減算（試作品・スキップ指定・情報取得失敗時はスキップ）
+    if (lot && !lot.isPrototype && !skipStockUpdate && brewRecord) {
       const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
       const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
       if (lot.status === '完成') {

@@ -26,7 +26,8 @@ const nonNegNum = (label: string) =>
 
 const schema = z.object({
   // ① 基本情報
-  isPrototype:     z.boolean().default(false),
+  isPrototype:      z.boolean().default(false),
+  skipStockUpdate:  z.boolean().default(false),
   misoType:        z.string().min(1, '品種名を入力してください'),
   brewedAt:        z.string().min(1, '仕込み日を入力してください'),
   totalWeightKg:   positiveNum('仕込み総量'),
@@ -201,9 +202,9 @@ export async function createLot(input: unknown): Promise<ActionResult> {
     revalidatePath('/', 'layout')
   }
 
-  // 外部在庫システムへ熟成中在庫を通知（試作品・白みそは除外・失敗してもロット登録は成功）
+  // 外部在庫システムへ熟成中在庫を通知（試作品・白みそ・スキップ指定時は除外）
   // 白みそは在庫システムに熟成中品目がないためスキップ（完成時に直接 aged へ計上）
-  if (!d.isPrototype && d.misoType !== '白みそ') {
+  if (!d.isPrototype && !d.skipStockUpdate && d.misoType !== '白みそ') {
     const yieldKg = Math.floor(d.shikomiKg * yieldRate)
     void adjustStock({ misoType: d.misoType, category: 'wip', deltaKg: yieldKg, lotNumber: newLotNumber })
   }
