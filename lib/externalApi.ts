@@ -114,6 +114,37 @@ export async function fetchMonthlySales(): Promise<MonthlySalesItem[] | null> {
   }
 }
 
+// ── 熟成中（半製品）在庫の取得 ──────────────────────────────────
+// 外部システム開発者への依頼：
+// STOCK_WIP_API_URL に熟成中（半製品）在庫を返すエンドポイントを追加してください。
+// レスポンス形式は STOCK_API_URL（熟成済在庫）と同じ形式で返してください：
+//   [ { "misoType": "無添加麦みそ", "stockKg": 3200 }, ... ]
+// ※ 白みそは熟成中品目がないため対象外
+export async function fetchWipStock(): Promise<AgedStockItem[] | null> {
+  const url = process.env.STOCK_WIP_API_URL
+  if (!url || !process.env.EXTERNAL_API_KEY) return null
+
+  try {
+    const res = await fetch(url, { headers: headers(), cache: 'no-store' })
+    if (!res.ok) return null
+    const json = await res.json()
+    const items: unknown = Array.isArray(json) ? json : json?.data ?? null
+    if (!Array.isArray(items)) return null
+    return items
+      .filter((i): boolean => {
+        if (typeof i !== 'object' || i === null) return false
+        const obj = i as Record<string, unknown>
+        return typeof obj.misoType === 'string' && typeof obj.stockKg === 'number'
+      })
+      .map((i): AgedStockItem => {
+        const obj = i as Record<string, unknown>
+        return { misoType: obj.misoType as string, stockKg: obj.stockKg as number }
+      })
+  } catch {
+    return null
+  }
+}
+
 // ── 在庫調整（書き込み）──────────────────────────────────────
 // zaiko.mitsuura.jp 開発者への依頼：
 // 以下の POST エンドポイントを追加し、環境変数 STOCK_ADJUST_API_URL にURLを設定してください。

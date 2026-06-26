@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition, useMemo, useRef } from 'react'
+import { useState, useTransition, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
@@ -8,6 +8,8 @@ import { ChevronDown, ChevronUp, ArrowLeft, MapPin, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import LotSimChart from './LotSimChart'
 import { addAgingNote, changeLotStatus, revertLotStatus, deleteLot, updateBucketNumbers, updateBucketRemaining, addBucketToLot, addBucketUsage, deleteBucketUsage, updateCompletedAt, updateLocationTemp, updateBrewRecord, type NoteResult, type BucketUsageResult } from './actions'
+import { getStockPreview, type StockChangeItem } from '@/app/lots/stock-preview-action'
+import StockPreviewPanel from '@/components/StockPreviewPanel'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 
 const BUCKET_PAIRS = Array.from({ length: 15 }, (_, i) => `${i * 2 + 1}・${i * 2 + 2}`)
@@ -305,6 +307,29 @@ export default function LotDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [isDeleting, startDeleteTransition] = useTransition()
+  // 在庫プレビュー（完成確認・削除確認時）
+  const [stockPreview, setStockPreview] = useState<StockChangeItem[] | null | 'loading'>(null)
+
+  useEffect(() => {
+    if (isPrototype) return
+    const yieldKg = Math.floor(totalWeightKg * yieldRate)
+    if (confirmStatus === '完成') {
+      setStockPreview('loading')
+      getStockPreview(misoType, 'complete', yieldKg)
+        .then(items => setStockPreview(items))
+        .catch(() => setStockPreview([]))
+    } else if (confirmDelete) {
+      setStockPreview('loading')
+      const action = status === '完成' ? 'delete-aged' as const : 'delete-wip' as const
+      getStockPreview(misoType, action, yieldKg)
+        .then(items => setStockPreview(items))
+        .catch(() => setStockPreview([]))
+    } else {
+      setStockPreview(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmStatus, confirmDelete])
+
   // 桶管理
   const [buckets, setBuckets] = useState<BucketItem[]>(initialBuckets)
   const [bucketDrafts, setBucketDrafts] = useState<Record<string, string>>({})
@@ -1453,15 +1478,21 @@ export default function LotDetail({
             <div className="space-y-3">
               <p className="text-sm font-medium">「{confirmStatus}」に変更しますか？</p>
               {confirmStatus === '完成' && (
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground">完成日</label>
-                  <input
-                    type="date"
-                    value={completionDate}
-                    onChange={e => setCompletionDate(e.target.value)}
-                    className="block w-full rounded-md border bg-background px-2 py-1.5 text-sm"
-                  />
-                </div>
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">完成日</label>
+                    <input
+                      type="date"
+                      value={completionDate}
+                      onChange={e => setCompletionDate(e.target.value)}
+                      className="block w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">在庫システムへの反映</p>
+                    <StockPreviewPanel state={stockPreview} />
+                  </div>
+                </>
               )}
               <div className="flex gap-2">
                 <button
@@ -1601,6 +1632,10 @@ export default function LotDetail({
             <p className="text-sm font-medium">
               「{lotNumber}」を削除しますか？この操作は取り消せません。
             </p>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">在庫システムへの反映</p>
+              <StockPreviewPanel state={stockPreview} />
+            </div>
             <div className="flex gap-2">
               <button
                 type="button"

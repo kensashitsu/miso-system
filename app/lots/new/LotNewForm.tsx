@@ -13,6 +13,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { createLot } from './actions'
+import { getStockPreview, type StockChangeItem } from '@/app/lots/stock-preview-action'
+import StockPreviewPanel from '@/components/StockPreviewPanel'
 import {
   type MoistureSettings,
   calcMushiSoybeanMoisture,
@@ -187,6 +189,9 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [globalError, setGlobalError] = useState('')
   const [isPending, startTransition] = useTransition()
+  type PreviewState = { data: unknown; items: StockChangeItem[] }
+  const [previewState, setPreviewState]   = useState<PreviewState | null>(null)
+  const [isPreviewPending, startPreviewTransition] = useTransition()
 
   const set = (key: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -215,15 +220,11 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
     }))
   }
 
-  const handleSubmit = () => {
-    setErrors({})
-    setGlobalError('')
-
-    const num     = (v: string) => parseFloat(v)          // 必須数値
-    const numOpt  = (v: string) => v.trim() ? parseFloat(v)  : null  // 任意数値
-    const strOpt  = (v: string) => v.trim() || null               // 任意文字列
-
-    const data = {
+  const buildData = () => {
+    const num    = (v: string) => parseFloat(v)
+    const numOpt = (v: string) => v.trim() ? parseFloat(v) : null
+    const strOpt = (v: string) => v.trim() || null
+    return {
       isPrototype:   isPrototype ?? false,
       misoType:      form.misoType,
       brewedAt:      form.brewedAt,
@@ -259,12 +260,38 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       mizuameLotNo:       strOpt(form.mizuameLotNo),
       brewPlanId:         brewPlanId ?? null,
     }
+  }
 
+  // ① 「ロットを登録する」ボタン押下 → 在庫プレビューを取得して確認画面へ
+  const handlePreviewClick = () => {
+    setErrors({})
+    setGlobalError('')
+    const data = buildData()
+
+    // 試作品は在庫変動なし → 確認なしで直接登録
+    if (isPrototype) {
+      startTransition(async () => {
+        const result = await createLot(data)
+        if (result?.errors)      setErrors(result.errors)
+        if (result?.globalError) setGlobalError(result.globalError)
+      })
+      return
+    }
+
+    const yieldKg = Math.floor(shikomiCalc * moisture.yieldRate)
+    startPreviewTransition(async () => {
+      const items = await getStockPreview(form.misoType, 'register', yieldKg)
+      setPreviewState({ data, items })
+    })
+  }
+
+  // ② 確認画面で「確認して登録する」ボタン押下 → createLot 実行
+  const handleConfirmedSubmit = () => {
+    if (!previewState) return
     startTransition(async () => {
-      const result = await createLot(data)
-      if (result?.errors)      setErrors(result.errors)
-      if (result?.globalError) setGlobalError(result.globalError)
-      // redirect が発生した場合はここに到達しない
+      const result = await createLot(previewState.data)
+      if (result?.errors)      { setErrors(result.errors);           setPreviewState(null) }
+      if (result?.globalError) { setGlobalError(result.globalError); setPreviewState(null) }
     })
   }
 
@@ -913,15 +940,42 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       </Card>
 
       {/* 送信ボタン */}
-      <div className="pb-8">
-        <Button
-          onClick={handleSubmit}
-          disabled={isPending}
-          size="lg"
-          className="w-full sm:w-auto min-h-[48px] px-8 text-base"
-        >
-          {isPending ? '登録中...' : 'ロットを登録する'}
-        </Button>
+      <div className="pb-8 space-y-4">
+        {previewState ? (
+          <>
+            <div className="rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 space-y-2">
+              <p className="text-sm font-medium text-gray-800">在庫システムへの反映内容を確認してください</p>
+              <StockPreviewPanel state={previewState.items} />
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPreviewState(null)}
+                disabled={isPending}
+                className="flex-1 rounded-md border px-4 py-2.5 text-sm disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <Button
+                onClick={handleConfirmedSubmit}
+                disabled={isPending}
+                size="lg"
+                className="flex-1 min-h-[48px] px-8 text-base"
+              >
+                {isPending ? '登録中...' : '確認して登録する'}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <Button
+            onClick={handlePreviewClick}
+            disabled={isPending || isPreviewPending}
+            size="lg"
+            className="w-full sm:w-auto min-h-[48px] px-8 text-base"
+          >
+            {isPreviewPending ? '在庫確認中...' : 'ロットを登録する'}
+          </Button>
+        )}
       </div>
     </div>
   )
