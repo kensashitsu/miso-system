@@ -261,6 +261,16 @@ export async function deleteBucketUsage(usageId: string): Promise<{ success?: tr
 // ── ロット削除（関連データをすべて削除） ──────────────────
 export async function deleteLot(lotId: string): Promise<{ success?: true; error?: string }> {
   try {
+    // 削除前に在庫調整用の情報を取得
+    const [lot, brewRecord, settings] = await Promise.all([
+      prisma.lot.findUnique({
+        where:  { id: lotId },
+        select: { misoType: true, lotNumber: true, status: true, isPrototype: true, yieldRate: true },
+      }),
+      prisma.brewRecord.findUnique({ where: { lotId }, select: { shikomiKg: true } }),
+      getMoistureSettings(),
+    ])
+
     const buckets = await prisma.bucket.findMany({ where: { lotId }, select: { id: true } })
     const bucketIds = buckets.map(b => b.id)
     await prisma.$transaction([
@@ -275,6 +285,16 @@ export async function deleteLot(lotId: string): Promise<{ success?: true; error?
       prisma.brewRecord.deleteMany({ where: { lotId } }),
       prisma.lot.delete({ where: { id: lotId } }),
     ])
+
+    // 外部在庫システムから削除分を減算（試作品・情報取得失敗時はスキップ）
+    if (lot && !lot.isPrototype && brewRecord) {
+      const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
+      const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+      // 熟成中なら wip から、完成済みなら aged から引く
+      const category = lot.status === '完成' ? 'aged' : 'wip'
+      void adjustStock({ misoType: lot.misoType, category, deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+    }
+
     revalidatePath('/')
     return { success: true }
   } catch (e) {
