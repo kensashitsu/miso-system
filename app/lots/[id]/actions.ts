@@ -1,10 +1,11 @@
 'use server'
 
 import { z } from 'zod'
+import { format } from 'date-fns'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
-import { adjustStock } from '@/lib/externalApi'
+import { adjustStock, updateStockNotes } from '@/lib/externalApi'
 
 // ── 熟成メモ追加 ──────────────────────────────────────────
 const noteSchema = z.object({
@@ -67,7 +68,7 @@ export async function changeLotStatus(
     const lot = await prisma.lot.update({
       where: { id: lotId },
       data: { status: newStatus, completedAt },
-      select: { misoType: true, lotNumber: true, isPrototype: true, yieldRate: true },
+      select: { misoType: true, lotNumber: true, isPrototype: true, yieldRate: true, brewedAt: true, bucketNumbers: true },
     })
 
     // 熟成完了時：外部在庫システムへ通知（熟成中→熟成済 の在庫移動）
@@ -84,6 +85,18 @@ export async function changeLotStatus(
           adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lot.lotNumber }),
         ])
       }
+      // 在庫システムの備考欄に完成情報を記入
+      const noteParts: string[] = []
+      if (lot.bucketNumbers) noteParts.push(`桶: ${lot.bucketNumbers}`)
+      noteParts.push(`仕込み: ${format(lot.brewedAt, 'yyyy/MM/dd')}`)
+      noteParts.push(`完成: ${format(completedAt, 'yyyy/MM/dd')}`)
+      const agingDays = Math.floor((completedAt.getTime() - lot.brewedAt.getTime()) / (1000 * 60 * 60 * 24))
+      noteParts.push(`熟成日数: ${agingDays}日`)
+      void updateStockNotes({
+        misoType:  lot.misoType,
+        notes:     `【${lot.lotNumber}】${noteParts.join(' / ')}`,
+        lotNumber: lot.lotNumber,
+      })
     }
 
     revalidatePath(`/lots/${lotId}`)

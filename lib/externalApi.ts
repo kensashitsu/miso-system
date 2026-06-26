@@ -196,6 +196,41 @@ export async function adjustStock(payload: StockAdjustPayload): Promise<boolean>
   }
 }
 
+// ── 備考更新 ──────────────────────────────────────────────
+// zaiko.mitsuura.jp 開発者への依頼：
+// 以下の PATCH エンドポイントを追加してください（認証は既存の X-API-Key を共用）。
+//
+// PATCH ${STOCK_NOTES_API_URL}
+// Body: { "misoType": "無添加麦みそ", "notes": "...", "lotNumber": "202506-001" }
+//
+// 呼び出しタイミング：
+//   ロット登録時 → notes: "【202506-001】桶: 5・6 / 仕込み: 2025/06/01"
+//   熟成完了時   → notes: "【202506-001】桶: 5・6 / 仕込み: 2025/06/01 / 完成: 2025/07/15 / 熟成日数: 44日"
+
+export interface StockNotesPayload {
+  misoType:  string
+  notes:     string
+  lotNumber: string
+}
+
+export async function updateStockNotes(payload: StockNotesPayload): Promise<boolean> {
+  const url = process.env.STOCK_NOTES_API_URL
+  if (!url || !process.env.EXTERNAL_API_KEY) return false
+
+  try {
+    const res = await fetch(url, {
+      method:  'PATCH',
+      headers: headers(),
+      body:    JSON.stringify(payload),
+    })
+    if (!res.ok) console.error(`備考更新API エラー: HTTP ${res.status}`, payload)
+    return res.ok
+  } catch (e) {
+    console.error('備考更新API 通信エラー:', e, payload)
+    return false
+  }
+}
+
 // ── 接続テスト ────────────────────────────────────────────
 export async function testApiConnection(url: string): Promise<ApiTestResult> {
   if (!process.env.EXTERNAL_API_KEY) {
