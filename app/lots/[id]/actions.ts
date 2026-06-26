@@ -290,9 +290,13 @@ export async function deleteLot(lotId: string): Promise<{ success?: true; error?
     if (lot && !lot.isPrototype && brewRecord) {
       const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
       const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
-      // 熟成中なら wip から、完成済みなら aged から引く
-      const category = lot.status === '完成' ? 'aged' : 'wip'
-      void adjustStock({ misoType: lot.misoType, category, deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+      if (lot.status === '完成') {
+        // 完成済みなら aged から引く（白みそは aged = 西京みそ バラ）
+        void adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+      } else if (lot.misoType !== '白みそ') {
+        // 熟成中なら wip から引く（白みそは wip 品目なしのためスキップ）
+        void adjustStock({ misoType: lot.misoType, category: 'wip', deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+      }
     }
 
     revalidatePath('/')

@@ -129,10 +129,14 @@ export async function fetchMonthlySales(): Promise<MonthlySalesItem[] | null> {
 //   }
 // レスポンス: HTTP 200 で成功とみなす
 //
+// 品種別マッピング（外部システム側で対応してください）：
+//   白みそ + category:"aged" → 「西京みそ　ﾊﾞﾗ」に反映
+//   白みそは熟成中品目がないため category:"wip" の呼び出しは行いません
+//
 // 呼び出しタイミング：
-//   ロット登録時   → category:"wip",  deltaKg:+(予想歩留まり重量kg)
-//   熟成完了時     → category:"wip",  deltaKg:-(同上)
-//                   category:"aged", deltaKg:+(同上)
+//   ロット登録時   → category:"wip",  deltaKg:+(予想歩留まり重量kg) ※白みそを除く
+//   熟成完了時     → category:"wip",  deltaKg:-(同上)               ※白みそを除く
+//                   category:"aged", deltaKg:+(同上)               ※白みそは 西京みそ ﾊﾞﾗ へ
 
 export interface StockAdjustPayload {
   misoType:   string

@@ -201,8 +201,9 @@ export async function createLot(input: unknown): Promise<ActionResult> {
     revalidatePath('/', 'layout')
   }
 
-  // 外部在庫システムへ熟成中在庫を通知（試作品は除外・失敗してもロット登録は成功）
-  if (!d.isPrototype) {
+  // 外部在庫システムへ熟成中在庫を通知（試作品・白みそは除外・失敗してもロット登録は成功）
+  // 白みそは在庫システムに熟成中品目がないためスキップ（完成時に直接 aged へ計上）
+  if (!d.isPrototype && d.misoType !== '白みそ') {
     const yieldKg = Math.floor(d.shikomiKg * yieldRate)
     void adjustStock({ misoType: d.misoType, category: 'wip', deltaKg: yieldKg, lotNumber: newLotNumber })
   }
