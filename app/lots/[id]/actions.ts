@@ -479,13 +479,39 @@ export async function updateBrewRecord(
 // ── ステータスを熟成中に戻す ───────────────────────────────
 export async function revertLotStatus(lotId: string): Promise<{ success?: true; error?: string }> {
   try {
+    // 在庫調整用の情報を事前に取得
+    const [lot, brewRecord, settings] = await Promise.all([
+      prisma.lot.findUnique({
+        where:  { id: lotId },
+        select: { misoType: true, lotNumber: true, isPrototype: true, yieldRate: true },
+      }),
+      prisma.brewRecord.findUnique({ where: { lotId }, select: { shikomiKg: true } }),
+      getMoistureSettings(),
+    ])
+
     await prisma.lot.update({
       where: { id: lotId },
-      data: {
-        status:      '熟成中',
-        completedAt: null,
-      },
+      data:  { status: '熟成中', completedAt: null },
     })
+
+    // 熟成済→熟成中の在庫移動（試作品・情報取得失敗時はスキップ）
+    if (lot && !lot.isPrototype && brewRecord) {
+      const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
+      const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+      const calls = [
+        adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+          .catch(e => console.error('aged在庫戻しエラー:', e)),
+      ]
+      // 白みそは wip 品目なしのためスキップ
+      if (lot.misoType !== '白みそ') {
+        calls.push(
+          adjustStock({ misoType: lot.misoType, category: 'wip', deltaKg: yieldKg, lotNumber: lot.lotNumber })
+            .catch(e => console.error('wip在庫戻しエラー:', e))
+        )
+      }
+      await Promise.all(calls)
+    }
+
     revalidatePath(`/lots/${lotId}`)
     revalidatePath('/')
     return { success: true }
