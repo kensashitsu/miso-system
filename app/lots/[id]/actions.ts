@@ -477,7 +477,7 @@ export async function updateBrewRecord(
 }
 
 // ── ステータスを熟成中に戻す ───────────────────────────────
-export async function revertLotStatus(lotId: string): Promise<{ success?: true; error?: string }> {
+export async function revertLotStatus(lotId: string, skipStockUpdate?: boolean): Promise<{ success?: true; error?: string }> {
   try {
     // 在庫調整用の情報を事前に取得
     const [lot, brewRecord, settings] = await Promise.all([
@@ -494,8 +494,8 @@ export async function revertLotStatus(lotId: string): Promise<{ success?: true; 
       data:  { status: '熟成中', completedAt: null },
     })
 
-    // 熟成済→熟成中の在庫移動（試作品・情報取得失敗時はスキップ）
-    if (lot && !lot.isPrototype && brewRecord) {
+    // 熟成済→熟成中の在庫移動（試作品・スキップ指定・情報取得失敗時はスキップ）
+    if (lot && !lot.isPrototype && !skipStockUpdate && brewRecord) {
       const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
       const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
       const calls = [

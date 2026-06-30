@@ -327,12 +327,18 @@ export default function LotDetail({
       getStockPreview(misoType, action, yieldKg)
         .then(items => setStockPreview(items))
         .catch(() => setStockPreview([]))
+    } else if (confirmRevert) {
+      setStockPreview('loading')
+      setSkipStockUpdate(false)
+      getStockPreview(misoType, 'revert', yieldKg)
+        .then(items => setStockPreview(items))
+        .catch(() => setStockPreview([]))
     } else {
       setStockPreview(null)
       setSkipStockUpdate(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmStatus, confirmDelete])
+  }, [confirmStatus, confirmDelete, confirmRevert])
 
   // 桶管理
   const [buckets, setBuckets] = useState<BucketItem[]>(initialBuckets)
@@ -588,7 +594,7 @@ export default function LotDetail({
     setRevertError(null)
     setConfirmRevert(false)
     startRevertTransition(async () => {
-      const result = await revertLotStatus(id)
+      const result = await revertLotStatus(id, skipStockUpdate)
       if (result.error) { setRevertError(result.error); return }
       router.refresh()
     })
@@ -1599,8 +1605,23 @@ export default function LotDetail({
           {revertError && <p className="text-sm text-red-600">{revertError}</p>}
 
           {confirmRevert ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <p className="text-sm font-medium">「熟成中」に戻しますか？完了日もクリアされます。</p>
+              {!isPrototype && (
+                <>
+                  <p className="text-sm font-medium text-gray-700">在庫システムへの反映内容を確認してください</p>
+                  <StockPreviewPanel state={stockPreview} />
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={!skipStockUpdate}
+                      onChange={e => setSkipStockUpdate(!e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-foreground"
+                    />
+                    <span className="text-sm">在庫システムへ反映する</span>
+                  </label>
+                </>
+              )}
               <div className="flex gap-2">
                 <button
                   type="button"

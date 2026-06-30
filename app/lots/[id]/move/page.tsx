@@ -23,10 +23,15 @@ export default async function MovePage({ params }: Props) {
 
   const currentLocation = getCurrentLocation(lot.locationHistory)
 
+  const yieldKg = Math.floor(lot.totalWeightKg * moisture.yieldRate)
+
   return (
     <MoveForm
       lotId={lot.id}
       lotNumber={lot.lotNumber}
+      misoType={lot.misoType}
+      isPrototype={lot.isPrototype}
+      yieldKg={yieldKg}
       currentLocation={currentLocation}
       currentStatus={lot.status}
       heatingDefaultTemp={moisture.heatingDefaultTemp}

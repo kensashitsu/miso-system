@@ -10,7 +10,7 @@ export interface StockChangeItem {
 
 export async function getStockPreview(
   misoType:  string,
-  action:    'register' | 'complete' | 'delete-wip' | 'delete-aged',
+  action:    'register' | 'complete' | 'revert' | 'delete-wip' | 'delete-aged',
   yieldKg:   number,
 ): Promise<StockChangeItem[]> {
   const [wipStocks, agedStocks] = await Promise.all([
@@ -35,6 +35,16 @@ export async function getStockPreview(
         items.push({ label: wipLbl, currentKg: wipKg, deltaKg: -yieldKg })
       }
       items.push({ label: agedLbl, currentKg: agedKg, deltaKg: yieldKg })
+      return items
+    }
+
+    case 'revert': {
+      const items: StockChangeItem[] = [
+        { label: agedLbl, currentKg: agedKg, deltaKg: -yieldKg },
+      ]
+      if (misoType !== '白みそ') {
+        items.push({ label: wipLbl, currentKg: wipKg, deltaKg: yieldKg })
+      }
       return items
     }
 

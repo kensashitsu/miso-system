@@ -18,6 +18,7 @@ export async function moveLot(
   newLocation: string,
   moveDateStr: string,
   markAsComplete: boolean = false,
+  skipStockUpdate: boolean = false,
 ): Promise<{ success?: true; error?: string }> {
   if (!isValidLocation(newLocation)) {
     return { error: '不正な場所です。' }
@@ -69,8 +70,8 @@ export async function moveLot(
     })
 
     // 熟成完了時：外部在庫システムへ通知（熟成中→熟成済 の在庫移動）
-    // 試作品・brewRecord無し・情報取得失敗時はスキップ
-    if (markAsComplete && lotInfo && !lotInfo.isPrototype && shikomiKg !== null) {
+    // 試作品・スキップ指定・情報取得失敗時はスキップ
+    if (markAsComplete && !skipStockUpdate && lotInfo && !lotInfo.isPrototype && shikomiKg !== null) {
       const settings = await getMoistureSettings()
       const effectiveYieldRate = lotInfo.yieldRate ?? settings.yieldRate
       const yieldKg = Math.floor(shikomiKg * effectiveYieldRate)
