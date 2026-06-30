@@ -168,12 +168,18 @@ export async function fetchWipStock(): Promise<AgedStockItem[] | null> {
 //   ロット登録時   → category:"wip",  deltaKg:+(予想歩留まり重量kg) ※白みそを除く
 //   熟成完了時     → category:"wip",  deltaKg:-(同上)               ※白みそを除く
 //                   category:"aged", deltaKg:+(同上)               ※白みそは 西京みそ ﾊﾞﾗ へ
+//
+// notes フィールド（任意）: 在庫変更履歴の備考列に追記する文字列。
+//   ロット登録時: "桶: 5・6 / 仕込み: 2026/06/30"
+//   熟成完了時:   "桶: 5・6 / 仕込み: 2026/06/30 / 完成: 2026/07/15 / 熟成日数: 44日"
+//   ← 既存の "味噌仕込み管理連携: ..." 文字列の末尾に " / " で連結してください
 
 export interface StockAdjustPayload {
   misoType:   string
   category:   'wip' | 'aged'
   deltaKg:    number
   lotNumber?: string
+  notes?:     string  // 在庫変更履歴の備考列に追記
 }
 
 export async function adjustStock(payload: StockAdjustPayload): Promise<boolean> {

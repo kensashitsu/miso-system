@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
-import { adjustStock, updateStockNotes } from '@/lib/externalApi'
+import { adjustStock } from '@/lib/externalApi'
 
 // ── 熟成メモ追加 ──────────────────────────────────────────
 const noteSchema = z.object({
@@ -80,23 +80,18 @@ export async function changeLotStatus(
       if (brewRecord) {
         const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
         const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+        const noteParts: string[] = []
+        if (lot.bucketNumbers) noteParts.push(`桶: ${lot.bucketNumbers}`)
+        noteParts.push(`仕込み: ${format(lot.brewedAt, 'yyyy/MM/dd')}`)
+        noteParts.push(`完成: ${format(completedAt, 'yyyy/MM/dd')}`)
+        const agingDays = Math.floor((completedAt.getTime() - lot.brewedAt.getTime()) / (1000 * 60 * 60 * 24))
+        noteParts.push(`熟成日数: ${agingDays}日`)
+        const completionNotes = noteParts.join(' / ')
         void Promise.all([
-          adjustStock({ misoType: lot.misoType, category: 'wip',  deltaKg: -yieldKg, lotNumber: lot.lotNumber }),
-          adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lot.lotNumber }),
+          adjustStock({ misoType: lot.misoType, category: 'wip',  deltaKg: -yieldKg, lotNumber: lot.lotNumber, notes: completionNotes }),
+          adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lot.lotNumber, notes: completionNotes }),
         ])
       }
-      // 在庫システムの備考欄に完成情報を記入
-      const noteParts: string[] = []
-      if (lot.bucketNumbers) noteParts.push(`桶: ${lot.bucketNumbers}`)
-      noteParts.push(`仕込み: ${format(lot.brewedAt, 'yyyy/MM/dd')}`)
-      noteParts.push(`完成: ${format(completedAt, 'yyyy/MM/dd')}`)
-      const agingDays = Math.floor((completedAt.getTime() - lot.brewedAt.getTime()) / (1000 * 60 * 60 * 24))
-      noteParts.push(`熟成日数: ${agingDays}日`)
-      void updateStockNotes({
-        misoType:  lot.misoType,
-        notes:     `【${lot.lotNumber}】${noteParts.join(' / ')}`,
-        lotNumber: lot.lotNumber,
-      })
     }
 
     revalidatePath(`/lots/${lotId}`)

@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
-import { adjustStock, updateStockNotes } from '@/lib/externalApi'
+import { adjustStock } from '@/lib/externalApi'
 
 // 既存品種（非試作品の場合のバリデーション用）
 const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
@@ -206,18 +206,15 @@ export async function createLot(input: unknown): Promise<ActionResult> {
   // 白みそは在庫システムに熟成中品目がないためスキップ（完成時に直接 aged へ計上）
   if (!d.isPrototype && !d.skipStockUpdate && d.misoType !== '白みそ') {
     const yieldKg = Math.floor(d.shikomiKg * yieldRate)
-    void adjustStock({ misoType: d.misoType, category: 'wip', deltaKg: yieldKg, lotNumber: newLotNumber })
-  }
-
-  // 在庫システムの備考欄に仕込み情報を記入（試作品・スキップ指定時は除外）
-  if (!d.isPrototype && !d.skipStockUpdate) {
     const noteParts: string[] = []
     if (d.bucketNumbers) noteParts.push(`桶: ${d.bucketNumbers}`)
     noteParts.push(`仕込み: ${format(brewDate, 'yyyy/MM/dd')}`)
-    void updateStockNotes({
+    void adjustStock({
       misoType:  d.misoType,
-      notes:     `【${newLotNumber}】${noteParts.join(' / ')}`,
+      category:  'wip',
+      deltaKg:   yieldKg,
       lotNumber: newLotNumber,
+      notes:     noteParts.join(' / '),
     })
   }
 
