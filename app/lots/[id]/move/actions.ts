@@ -1,7 +1,10 @@
 'use server'
 
+import { format } from 'date-fns'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
+import { getMoistureSettings } from '@/lib/settings'
+import { adjustStock } from '@/lib/externalApi'
 
 const STATIC_LOCATIONS = ['常温', '冷蔵庫'] as const
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)\d+(?:\.\d+)?℃$/
@@ -25,6 +28,24 @@ export async function moveLot(
     return { error: '日付が不正です。' }
   }
 
+  // markAsComplete 時は在庫調整に必要な情報を事前に取得
+  let lotInfo: {
+    misoType: string; lotNumber: string; isPrototype: boolean
+    yieldRate: number | null; brewedAt: Date; bucketNumbers: string | null
+  } | null = null
+  let shikomiKg: number | null = null
+  if (markAsComplete) {
+    const [lot, brewRecord] = await Promise.all([
+      prisma.lot.findUnique({
+        where:  { id: lotId },
+        select: { misoType: true, lotNumber: true, isPrototype: true, yieldRate: true, brewedAt: true, bucketNumbers: true },
+      }),
+      prisma.brewRecord.findUnique({ where: { lotId }, select: { shikomiKg: true } }),
+    ])
+    lotInfo  = lot
+    shikomiKg = brewRecord?.shikomiKg ?? null
+  }
+
   try {
     await prisma.$transaction(async (tx) => {
       // 現在アクティブな場所履歴（endDateがnull）のendDateに移動日をセット
@@ -46,6 +67,25 @@ export async function moveLot(
         })
       }
     })
+
+    // 熟成完了時：外部在庫システムへ通知（熟成中→熟成済 の在庫移動）
+    // 試作品・brewRecord無し・情報取得失敗時はスキップ
+    if (markAsComplete && lotInfo && !lotInfo.isPrototype && shikomiKg !== null) {
+      const settings = await getMoistureSettings()
+      const effectiveYieldRate = lotInfo.yieldRate ?? settings.yieldRate
+      const yieldKg = Math.floor(shikomiKg * effectiveYieldRate)
+      const noteParts: string[] = []
+      if (lotInfo.bucketNumbers) noteParts.push(`桶: ${lotInfo.bucketNumbers}`)
+      noteParts.push(`仕込み: ${format(lotInfo.brewedAt, 'yyyy/MM/dd')}`)
+      noteParts.push(`完成: ${format(moveDate, 'yyyy/MM/dd')}`)
+      const agingDays = Math.floor((moveDate.getTime() - lotInfo.brewedAt.getTime()) / (1000 * 60 * 60 * 24))
+      noteParts.push(`熟成日数: ${agingDays}日`)
+      const completionNotes = noteParts.join(' / ')
+      await Promise.all([
+        adjustStock({ misoType: lotInfo.misoType, category: 'wip',  deltaKg: -yieldKg, lotNumber: lotInfo.lotNumber, notes: completionNotes }).catch(e => console.error('wip在庫調整エラー:', e)),
+        adjustStock({ misoType: lotInfo.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lotInfo.lotNumber, notes: completionNotes }).catch(e => console.error('aged在庫調整エラー:', e)),
+      ])
+    }
 
     revalidatePath(`/lots/${lotId}`)
     revalidatePath('/')
