@@ -209,13 +209,13 @@ export async function createLot(input: unknown): Promise<ActionResult> {
     const noteParts: string[] = []
     if (d.bucketNumbers) noteParts.push(`桶: ${d.bucketNumbers}`)
     noteParts.push(`仕込み: ${format(brewDate, 'yyyy/MM/dd')}`)
-    void adjustStock({
+    await adjustStock({
       misoType:  d.misoType,
       category:  'wip',
       deltaKg:   yieldKg,
       lotNumber: newLotNumber,
       notes:     noteParts.join(' / '),
-    })
+    }).catch(e => console.error('wip在庫登録エラー:', e))
   }
 
   redirect(`/lots/${newId}`)

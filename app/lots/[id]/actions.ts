@@ -87,9 +87,9 @@ export async function changeLotStatus(
         const agingDays = Math.floor((completedAt.getTime() - lot.brewedAt.getTime()) / (1000 * 60 * 60 * 24))
         noteParts.push(`熟成日数: ${agingDays}日`)
         const completionNotes = noteParts.join(' / ')
-        void Promise.all([
-          adjustStock({ misoType: lot.misoType, category: 'wip',  deltaKg: -yieldKg, lotNumber: lot.lotNumber, notes: completionNotes }),
-          adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lot.lotNumber, notes: completionNotes }),
+        await Promise.all([
+          adjustStock({ misoType: lot.misoType, category: 'wip',  deltaKg: -yieldKg, lotNumber: lot.lotNumber, notes: completionNotes }).catch(e => console.error('wip在庫調整エラー:', e)),
+          adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg:  yieldKg, lotNumber: lot.lotNumber, notes: completionNotes }).catch(e => console.error('aged在庫調整エラー:', e)),
         ])
       }
     }
@@ -301,10 +301,10 @@ export async function deleteLot(lotId: string, skipStockUpdate?: boolean): Promi
       const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
       if (lot.status === '完成') {
         // 完成済みなら aged から引く（白みそは aged = 西京みそ バラ）
-        void adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+        await adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber }).catch(e => console.error('aged在庫削除エラー:', e))
       } else if (lot.misoType !== '白みそ') {
         // 熟成中なら wip から引く（白みそは wip 品目なしのためスキップ）
-        void adjustStock({ misoType: lot.misoType, category: 'wip', deltaKg: -yieldKg, lotNumber: lot.lotNumber })
+        await adjustStock({ misoType: lot.misoType, category: 'wip', deltaKg: -yieldKg, lotNumber: lot.lotNumber }).catch(e => console.error('wip在庫削除エラー:', e))
       }
     }
 
