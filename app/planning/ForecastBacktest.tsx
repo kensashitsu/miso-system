@@ -14,6 +14,7 @@ const WINDOW = 24
 interface Props {
   shipmentMap:          Record<string, Record<string, number>>
   sarimaxPastForecast?: Record<string, Record<string, number>>
+  largeOrderCount?:     number   // 実績から差し引き済みの確認済み大口注文の件数（脚注表示用）
 }
 
 function biasLabel(biasPct: number | null): { text: string; cls: string } {
@@ -31,7 +32,7 @@ function mapeCls(mapePct: number | null): string {
   return 'text-gray-500'
 }
 
-export default function ForecastBacktest({ shipmentMap, sarimaxPastForecast }: Props) {
+export default function ForecastBacktest({ shipmentMap, sarimaxPastForecast, largeOrderCount }: Props) {
   const [open, setOpen] = useState(false)
   // 品種ごとに3方式のバックテスト結果を算出（表示と自動方式選択で共有のロジック）
   const perType = computeBacktest([...MISO_TYPES], shipmentMap, sarimaxPastForecast, { window: WINDOW })
@@ -118,6 +119,12 @@ export default function ForecastBacktest({ shipmentMap, sarimaxPastForecast }: P
                 偏りが続く品種は、保守モード（90%）への切替や在庫の手動調整で補正できます。
                 <span className="font-medium">平均誤差（MAPE）</span>が最小の方式が「最も的中」。
                 評価は同月より前の実績のみで予測（先読み防止）。
+                {largeOrderCount != null && largeOrderCount > 0 && (
+                  <>
+                    実績は確認済み大口注文（{largeOrderCount}件）を差し引いた
+                    ベース需要で評価しています（大口は予測対象外・「予定出荷」で個別に織り込む運用）。
+                  </>
+                )}
               </p>
             </>
           )}

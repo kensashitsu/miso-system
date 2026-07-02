@@ -35,6 +35,30 @@ const BRAND_RATIOS: Record<string, number> = {
   '白みそ':       1 - 33347 / 58210 - 21566 / 58210 - 2883 / 58210,
 }
 
+// 確認済み大口注文（SystemSetting: forecast_largeOrders）を実績から差し引く。
+// SARIMAX予測はPython側で差し引き済みのベース需要を返すため、TS側の需要推計
+// （HW・3年平均）とバックテストも同じベース需要に揃えないと、
+// 大口混入月（例: 2024-05は+22%過大）の消費推計・方式選択が歪む。
+// 生実績のまま使うもの：DemandChart（出荷実績の表示）・BufferDaySuggestion
+// （バッファは予定外の需要変動への備えなので、大口込みの変動係数が適切）。
+function subtractLargeOrders(
+  map:    Record<string, Record<string, number>>,
+  orders: { yearMonth: string; misoType: string; kg: number }[],
+): Record<string, Record<string, number>> {
+  if (orders.length === 0) return map
+  const result: Record<string, Record<string, number>> = {}
+  for (const [type, data] of Object.entries(map)) result[type] = { ...data }
+  for (const o of orders) {
+    if (!o.yearMonth || !o.misoType || !(o.kg > 0)) continue
+    // 品種別と全品種合計の両方から差し引く
+    for (const type of [o.misoType, '全品種合計']) {
+      const kg = result[type]?.[o.yearMonth]
+      if (kg != null) result[type][o.yearMonth] = Math.max(0, kg - o.kg)
+    }
+  }
+  return result
+}
+
 // 全品種合計から比率で品種別データを補完する
 // 月単位でマージ：明示的データ（API・インポート）を優先し、ない月は全品種合計から補完
 function enrichShipmentMap(
@@ -64,7 +88,7 @@ function enrichShipmentMap(
 }
 
 export default async function PlanningPage() {
-  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount] = await Promise.all([
+  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount, largeOrderSetting] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
@@ -90,7 +114,18 @@ export default async function PlanningPage() {
     prisma.brewPlan.findMany({ orderBy: { brewDate: 'asc' } }),
     // 月末在庫スナップショットの蓄積数
     prisma.monthlyInventorySnapshot.count(),
+    // 確認済み大口注文リスト（forecast_largeOrders）
+    prisma.systemSetting.findUnique({ where: { key: 'forecast_largeOrders' } }),
   ])
+
+  // 確認済み大口注文をパース（不正JSONは空扱い）
+  let largeOrders: { yearMonth: string; misoType: string; kg: number }[] = []
+  try {
+    const parsed = JSON.parse(largeOrderSetting?.value ?? '[]')
+    if (Array.isArray(parsed)) largeOrders = parsed
+  } catch {
+    largeOrders = []
+  }
 
   // 熟成中ロットを品種別に集計（Bucketがある場合は残量で計算）
   const fermentingByType: Record<string, { totalKg: number; count: number }> = {}
@@ -172,6 +207,9 @@ export default async function PlanningPage() {
   // 品種別データがなければ「全品種合計」から比率で補完
   const shipmentMap = enrichShipmentMap(rawShipmentMap)
 
+  // 需要推計・バックテスト用のベース需要マップ（確認済み大口を差し引き）
+  const baseShipmentMap = subtractLargeOrders(shipmentMap, largeOrders)
+
   // API在庫を品種別Mapに変換（熟成済 + 小分け製品の合計）
   const apiStockByType: Record<string, number> = {}
   for (const item of apiStock ?? []) {
@@ -233,7 +271,8 @@ export default async function PlanningPage() {
   }))
 
   // 品種別の自動方式選択：バックテストで最も的中する方式（精度しきい値以下のみ採用）
-  const backtest        = computeBacktest(recipeList.map(r => r.name), shipmentMap, sarimaxPastForecast)
+  // ベース需要で評価（大口混入月でSARIMAXが不当に不利にならないように）
+  const backtest        = computeBacktest(recipeList.map(r => r.name), baseShipmentMap, sarimaxPastForecast)
   const autoMethodByType = pickAutoMethods(backtest)
 
   // 仮登録済み（確定）の未来の仕込み予定（ロット化前のみ）を品種別に整理。
@@ -278,8 +317,9 @@ export default async function PlanningPage() {
 
       <div className="no-print">
         <ForecastBacktest
-          shipmentMap={shipmentMap}
+          shipmentMap={baseShipmentMap}
           sarimaxPastForecast={Object.keys(sarimaxPastForecast).length > 0 ? sarimaxPastForecast : undefined}
+          largeOrderCount={largeOrders.length}
         />
       </div>
 
@@ -302,7 +342,7 @@ export default async function PlanningPage() {
 
       <BrewSuggestions
         recipes={recipeList}
-        shipmentMap={shipmentMap}
+        shipmentMap={baseShipmentMap}
         heatingDefaultTemp={moisture.heatingDefaultTemp}
         coolingDefaultTemp={moisture.coolingDefaultTemp}
         fridgeTemp={moisture.fridgeTemp}
