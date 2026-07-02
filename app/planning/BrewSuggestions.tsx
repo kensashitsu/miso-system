@@ -12,6 +12,7 @@ import {
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { holtWinters, getTimeSeries } from '@/lib/forecast'
 import { createBrewPlan } from './brew-plan-actions'
+import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
 interface Recipe {
   name:            string
@@ -128,6 +129,7 @@ interface RecipePlan {
     tempDelta:      number
     temp:           { n: number; newDays: number; dayDelta: number; newCompletion: Date }[]  // 常温のみ・他は空
   } | null
+  stockPoints:      StockPoint[] | null  // 在庫推移グラフ用の日次系列（計算の根拠の可視化）
 }
 
 const BATCH_OPTIONS = [1, 3, 5] as const
@@ -1110,6 +1112,44 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       ? { demandPct: wifPct, demandStockOut, demand: demandBatches, delayDays: wifDelay, delay: delayBatches, tempDelta: wifTemp, temp: tempBatches }
       : null
 
+    // ── 在庫推移グラフ用の日次系列（計算の根拠の可視化） ─────────────
+    // findStockOutDate と同じ歩き方（供給を加えてから消費を引く）で、
+    // 新規提案バッチの完成補充も供給に加えて最終バッチの在庫切れ日過ぎまで在庫残量を出す。
+    // 縦線マーカーと整合するようQ10補正あり（メイン）チェーンの完成日を使う。
+    const stockPoints: StockPoint[] | null = (() => {
+      if (!canCalc || batches.length === 0) return null
+      const endTime = Math.max(...batches.map(b => (b.isFixed ? b.completionDate : b.stockOutDate).getTime()))
+      const horizon = Math.min(differenceInDays(new Date(endTime), today) + 8, 550)
+      if (horizon <= 1) return null
+      const events = new Map<string, number>()
+      for (const ev of activeSupplyEvents ?? []) {
+        const k = format(ev.date, 'yyyy-MM-dd')
+        events.set(k, (events.get(k) ?? 0) + ev.kg)
+      }
+      for (const b of batches) {
+        if (b.isFixed) continue  // 確定行（仮登録）の完成分は activeSupplyEvents に算入済み
+        const k = format(b.completionDate, 'yyyy-MM-dd')
+        events.set(k, (events.get(k) ?? 0) + recipe.totalWeightKg)
+      }
+      let stock = effectiveStock
+      const daily: StockPoint[] = []
+      let d = today
+      for (let i = 0; i <= horizon; i++) {
+        const k = format(d, 'yyyy-MM-dd')
+        stock += events.get(k) ?? 0
+        stock -= getDailyRateFn(d)
+        if (stock < 0) stock = 0
+        daily.push({ d: k, kg: Math.round(stock) })
+        d = addDays(d, 1)
+      }
+      // 描画点を間引く（補充ジャンプの前後の点は形が崩れないよう必ず残す）
+      const step = Math.max(1, Math.ceil(daily.length / 180))
+      if (step === 1) return daily
+      return daily.filter((p, i) =>
+        i % step === 0 || i === daily.length - 1 ||
+        events.has(p.d) || (i + 1 < daily.length && events.has(daily[i + 1].d)))
+    })()
+
     return {
       name: recipe.name,
       monthlyAvg, usingHW, usingSarimax, autoApplied, fermentationDays,
@@ -1117,7 +1157,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, manualPinActive: manualFirstBrewDate !== undefined,
-      idealBrewDate0, stockOutInDays, orderImpact, whatIf,
+      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints,
     }
   })
 
@@ -2076,6 +2116,27 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                         </button>
                         {openBasis[plan.name] && (
                           <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            {/* 在庫推移グラフ：計算の根拠を時間軸で可視化 */}
+                            {plan.stockPoints && plan.stockPoints.length > 1 && (
+                              <div className="mb-3">
+                                <StockProjectionChart
+                                  points={plan.stockPoints}
+                                  markers={plan.batches.map(b => ({
+                                    n:          b.n,
+                                    deadline:   b.materialOrderDeadline >= today ? format(b.materialOrderDeadline, 'yyyy-MM-dd') : null,
+                                    brew:       format(b.brewDate, 'yyyy-MM-dd'),
+                                    completion: format(b.completionDate, 'yyyy-MM-dd'),
+                                    stockOut:   b.isFixed ? null : format(b.stockOutDate, 'yyyy-MM-dd'),
+                                    isFixed:    b.isFixed,
+                                  }))}
+                                  todayStr={format(today, 'yyyy-MM-dd')}
+                                />
+                                <p className="text-[10px] text-muted-foreground/70 mt-1">
+                                  完成の補充を織り込んだ在庫見込み。赤の縦線は「その回の完成が間に合わない場合に在庫が尽きる日」。
+                                  {plan.location === '常温' && q10Value !== 1 && 'グラフはQ10補正あり基準。'}
+                                </p>
+                              </div>
+                            )}
                             {/* ① 消費量推計：全回共通 */}
                             <p>
                               {plan.usingSarimax
