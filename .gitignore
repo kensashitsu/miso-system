@@ -62,3 +62,6 @@ __pycache__/
 
 # claude code config
 .claude/
+
+# 売上データ（取引先名を含むためコミット禁止）
+/data/
