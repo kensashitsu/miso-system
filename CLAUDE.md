@@ -254,6 +254,7 @@ interface MonthlySalesItem { yearMonth: string; misoType: string; weightKg: numb
 - `ForecastUpdater` コンポーネントのボタンから手動実行
 - 環境変数 `PYTHON_PATH` でPythonパスを指定可能
 - **確認済み大口注文の差し引き**: `SystemSetting` キー `forecast_largeOrders`（JSON配列 `[{yearMonth, misoType, kg, note}]`）に登録された大口分を学習・LOO評価前に実績から差し引き、**ベース需要**で予測する（例: 2024-05/2024-09 オイシックス各1500kg）。スパイク月の誤差とlag特徴量汚染による翌月過大予測の両方を防ぐ。将来の大口は「予定出荷」入力で織り込む。**統計的閾値での自動スパイク除去は禁止**（2019〜2022の高需要は大口でなく水準シフトのため、閾値除去は学習データを破壊する）。新たな大口が判明したらこのJSONに1行追加する
+- **営業日数特徴量（田舎みそのみ）**: 月の平日数（月〜金）の同暦月平年値からの偏差をSARIMA外生変数・XGBoost特徴量に使用（`MISO_USE_BIZDAYS`）。全履歴OLSで田舎みそのみ有意（+4.6%/営業日, p=0.003。県内業販中心のため）。LOO A/Bで田舎10.6%→9.5%に改善、無添加麦・山吹は悪化したため不使用。営業日数は将来も確定値なので予測不要の理想的な外生変数
 - **TS側もベース需要に統一**（`app/planning/page.tsx` の `subtractLargeOrders`）: BrewSuggestions（HW・3年平均の需要推計）と computeBacktest / ForecastBacktest には大口差し引き済みの `baseShipmentMap` を渡す（大口混入だと3年平均の該当月が+20%超過大になり、バックテストでSARIMAXが不当に不利になるため）。**生実績のまま使うもの**: DemandChart（出荷実績の表示）・BufferDaySuggestion（バッファは予定外変動への備えなので大口込みCVが適切）
 - **バイアス自動補正は不採用**（2026-07判断）: ベース需要でのLOO偏りは24ヶ月でほぼゼロ（無添加麦+1.0%・田舎−0.1%・山吹−2.8%）。直近12ヶ月の+4〜5%はSE±4%でノイズと区別できず、補正はノイズ追随になる。偏りはバックテストパネルで監視し、続くようなら保守モードで運用対応
 

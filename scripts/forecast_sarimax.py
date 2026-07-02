@@ -88,6 +88,26 @@ _MISO_POP_DATA = {
 # （人口は緩やかな単調トレンドで既存のラグ・移動平均と強相関し重要度ほぼ0）ため不使用。
 MISO_USE_POPULATION = {'白みそ'}
 
+# 営業日数偏差（同暦月平年比の平日数の差）をSARIMA外生変数・XGBoost特徴量に使う品種。
+# 全履歴OLS（log需要 ~ トレンド+月ダミー+営業日偏差）で有意だったのは田舎みそのみ
+# （+4.6%/日, p=0.003。県内業販中心のため営業日ベースで出荷が動く）。
+# 2026-07のLOO A/B検証でも田舎のみ改善（10.6%→9.5%）、
+# 無添加麦（11.6%→11.8%）・山吹（10.4%→11.0%）は悪化のため不使用。営業日数は将来も確定値。
+MISO_USE_BIZDAYS = {'田舎みそ'}
+
+
+def bizday_anomaly(yms):
+    """各月の平日数（月〜金）の「同じ暦月の平年値（2015〜2027平均）」からの偏差"""
+    import calendar
+    from datetime import date as _date
+
+    def weekdays_in(y, m):
+        last = calendar.monthrange(y, m)[1]
+        return sum(1 for d in range(1, last + 1) if _date(y, m, d).weekday() < 5)
+
+    norm = {m: np.mean([weekdays_in(y, m) for y in range(2015, 2028)]) for m in range(1, 13)}
+    return [weekdays_in(int(ym[:4]), int(ym[5:7])) - norm[int(ym[5:7])] for ym in yms]
+
 
 def get_population_index(miso_type, yms):
     pop_data = _MISO_POP_DATA.get(miso_type, _POP_NATIONAL)
@@ -198,7 +218,7 @@ def load_large_orders(conn):
 # XGBoost 特徴量
 # ─────────────────────────────────────────────
 
-def build_features(yms, values, temps, pop_index=None):
+def build_features(yms, values, temps, pop_index=None, bizdays=None):
     rows = []
     for i in range(len(values)):
         month = int(yms[i][5:7])
@@ -218,6 +238,8 @@ def build_features(yms, values, temps, pop_index=None):
         }
         if pop_index is not None:
             row['pop_index'] = pop_index[i]
+        if bizdays is not None:
+            row['bd_anom'] = bizdays[i]
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -286,7 +308,7 @@ def xgb_loo_step(feat_df, values, i):
         return None
 
 
-def xgb_forecast(feat_df, values, future_yms, future_temps, future_pop=None):
+def xgb_forecast(feat_df, values, future_yms, future_temps, future_pop=None, future_bizdays=None):
     X_tr = feat_df.dropna()
     if len(X_tr) < MIN_TRAIN:
         return None
@@ -316,6 +338,8 @@ def xgb_forecast(feat_df, values, future_yms, future_temps, future_pop=None):
         }
         if future_pop is not None:
             row['pop_index'] = future_pop[step]
+        if future_bizdays is not None:
+            row['bd_anom'] = future_bizdays[step]
         try:
             pred = max(0.0, float(model.predict(pd.DataFrame([row]))[0]))
         except Exception:
@@ -329,7 +353,7 @@ def xgb_forecast(feat_df, values, future_yms, future_temps, future_pop=None):
 # LOO と MAPE
 # ─────────────────────────────────────────────
 
-def run_loo(values, temps, yms, feat_df):
+def run_loo(values, temps, yms, feat_df, bizdays=None):
     n          = len(values)
     start_eval = max(MIN_TRAIN, n - N_EVAL)
     actuals, sarima_preds, xgb_preds = {}, {}, {}
@@ -341,8 +365,12 @@ def run_loo(values, temps, yms, feat_df):
         ym      = yms[i]
         actuals[ym] = actual
         train_y = np.array(values[:i], float)
-        train_x = np.array(temps[:i],  float).reshape(-1, 1)
-        pred_x  = np.array([[temps[i]]])
+        if bizdays is not None:
+            train_x = np.column_stack([temps[:i], bizdays[:i]]).astype(float)
+            pred_x  = np.array([[temps[i], bizdays[i]]], float)
+        else:
+            train_x = np.array(temps[:i], float).reshape(-1, 1)
+            pred_x  = np.array([[temps[i]]])
 
         s = sarima_loo_step(train_y, train_x, pred_x)
         if s is not None:
@@ -402,10 +430,13 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
         if subtracted:
             print(f'  大口差し引き: {", ".join(subtracted)}', file=sys.stderr)
 
-    exog    = np.array(temps, float).reshape(-1, 1)
+    use_pop     = miso_type in MISO_USE_POPULATION
+    pop_index   = get_population_index(miso_type, all_yms) if use_pop else None
+    use_bizdays = miso_type in MISO_USE_BIZDAYS
+    bd          = bizday_anomaly(all_yms) if use_bizdays else None
 
-    use_pop    = miso_type in MISO_USE_POPULATION
-    pop_index  = get_population_index(miso_type, all_yms) if use_pop else None
+    exog = (np.column_stack([temps, bd]).astype(float) if use_bizdays
+            else np.array(temps, float).reshape(-1, 1))
 
     ly, lm = int(all_yms[-1][:4]), int(all_yms[-1][5:7])
     future_yms = []
@@ -415,21 +446,24 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
         m    = (m - 1) % 12 + 1
         future_yms.append(f'{ly + yoff}-{m:02d}')
     future_temps = [seasonal_avg.get(int(ym[5:7]), 14.0) for ym in future_yms]
-    future_exog  = np.array(future_temps, float).reshape(-1, 1)
+    future_bd    = bizday_anomaly(future_yms) if use_bizdays else None
+    future_exog  = (np.column_stack([future_temps, future_bd]).astype(float) if use_bizdays
+                    else np.array(future_temps, float).reshape(-1, 1))
     future_pop   = get_population_index(miso_type, future_yms) if use_pop else None
 
     pop_label = '人口特徴量あり' if use_pop else '人口特徴量なし'
-    print(f'[{miso_type}] 将来予測中... ({pop_label})', file=sys.stderr)
+    bd_label  = '・営業日あり' if use_bizdays else ''
+    print(f'[{miso_type}] 将来予測中... ({pop_label}{bd_label})', file=sys.stderr)
 
     s_mean, s_lower, s_upper = sarima_forecast(y, exog, future_exog, forecast_months)
 
-    feat_df = build_features(all_yms, list(y), temps, pop_index)
-    x_mean  = xgb_forecast(feat_df, list(y), future_yms, future_temps, future_pop)
+    feat_df = build_features(all_yms, list(y), temps, pop_index, bd)
+    x_mean  = xgb_forecast(feat_df, list(y), future_yms, future_temps, future_pop, future_bd)
     if x_mean is not None:
-        print(f'  XGBoost完了（{pop_label}）', file=sys.stderr)
+        print(f'  XGBoost完了（{pop_label}{bd_label}）', file=sys.stderr)
 
     print(f'[{miso_type}] LOO評価中...', file=sys.stderr)
-    actuals, sarima_loo, xgb_loo = run_loo(list(y), temps, all_yms, feat_df)
+    actuals, sarima_loo, xgb_loo = run_loo(list(y), temps, all_yms, feat_df, bd)
 
     s_mape = calc_mape(actuals, sarima_loo)
     x_mape = calc_mape(actuals, xgb_loo)
