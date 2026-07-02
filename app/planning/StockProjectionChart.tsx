@@ -4,7 +4,7 @@
 // 有効在庫が消費ペースで減り、完成補充でジャンプし、在庫切れに向かう様子を
 // 手配締切・仕込み日・完成日・在庫切れ日の縦線とともに時間軸で表示する。
 import {
-  ComposedChart, Area, XAxis, YAxis, Tooltip, ReferenceLine,
+  ComposedChart, Area, XAxis, YAxis, Tooltip, ReferenceLine, ReferenceDot,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 
@@ -26,6 +26,8 @@ interface Props {
   points:   StockPoint[]
   markers:  BatchMarker[]
   todayStr: string
+  // 熟成中ロット完成日の桶番号ラベル（補充ジャンプ地点に点＋ラベルで表示）
+  supplyMarkers?: { d: string; label: string }[]
 }
 
 const COLOR = {
@@ -42,10 +44,13 @@ function fmtMd(d: string): string {
   return `${Number(m)}/${Number(day)}`
 }
 
-export default function StockProjectionChart({ points, markers, todayStr }: Props) {
+export default function StockProjectionChart({ points, markers, todayStr, supplyMarkers }: Props) {
   if (points.length < 2) return null
   const dateSet = new Set(points.map(p => p.d))
   const has = (d: string | null): d is string => d !== null && dateSet.has(d)
+  // 桶番号ラベル：グラフ範囲内のもののみ。ジャンプ後の在庫値（その日の点）に打つ
+  const kgAt = new Map(points.map(p => [p.d, p.kg]))
+  const buckets = (supplyMarkers ?? []).filter(m => dateSet.has(m.d))
   const multi = markers.length > 1
   const lbl = (base: string, n: number) => (multi ? `${base}${n}` : base)
 
@@ -97,6 +102,18 @@ export default function StockProjectionChart({ points, markers, todayStr }: Prop
               strokeDasharray="4 3"
               label={{ value: '今日', position: 'insideTopLeft', fontSize: 10, fill: COLOR.today }}
             />
+            {buckets.map(m => (
+              <ReferenceDot
+                key={`bucket-${m.d}`}
+                x={m.d}
+                y={kgAt.get(m.d) ?? 0}
+                r={3.5}
+                fill={COLOR.comp}
+                stroke="#fff"
+                strokeWidth={1.5}
+                label={{ value: m.label, position: 'top', fontSize: 9, fill: COLOR.comp }}
+              />
+            ))}
             {markers.map(m => (
               <g key={m.n}>
                 {has(m.deadline) && (
@@ -139,6 +156,7 @@ export default function StockProjectionChart({ points, markers, todayStr }: Prop
         <span style={{ color: COLOR.deadline }}>┆ 手配締切</span>
         <span style={{ color: COLOR.brew }}>│ 仕込み日</span>
         <span style={{ color: COLOR.comp }}>│ 完成（補充）</span>
+        {buckets.length > 0 && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶番号）</span>}
         <span style={{ color: COLOR.out }}>┆ 在庫切れ</span>
       </div>
     </div>

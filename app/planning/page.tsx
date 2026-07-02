@@ -100,6 +100,8 @@ export default async function PlanningPage() {
         totalWeightKg: true,
         brewedAt:      true,
         targetTempSum: true,
+        lotNumber:     true,
+        bucketNumbers: true,
         buckets:         { select: { status: true, remainingWeightKg: true, initialWeightKg: true } },
         locationHistory: { select: { location: true, endDate: true }, orderBy: { startDate: 'desc' }, take: 1 },
       },
@@ -157,7 +159,7 @@ export default async function PlanningPage() {
   // 熟成中ロットの完成予定日スケジュール（品種別・仕込み計画の在庫補充タイミング用）
   const recipeTargetMap = Object.fromEntries(recipes.map(r => [r.name, r.targetTempSum]))
   const dailyRoomAccum  = moisture.heatingDefaultTemp - 10
-  const fermentingScheduleByType: Record<string, { completionDateStr: string; yieldKg: number }[]> = {}
+  const fermentingScheduleByType: Record<string, { completionDateStr: string; yieldKg: number; label?: string }[]> = {}
   for (const lot of fermentingLotRows) {
     const nonEmptyBuckets = lot.buckets.filter(b => b.status !== '空')
     const yieldKg = lot.buckets.length > 0
@@ -184,6 +186,8 @@ export default async function PlanningPage() {
     fermentingScheduleByType[lot.misoType].push({
       completionDateStr: format(startOfDay(completionDate), 'yyyy-MM-dd'),
       yieldKg,
+      // 在庫推移グラフの補充ジャンプに表示するラベル（桶番号がなければロット番号）
+      label: lot.bucketNumbers ? `桶${lot.bucketNumbers}` : lot.lotNumber,
     })
   }
 

@@ -29,6 +29,7 @@ interface FermentingInfo {
 interface FermentingLotSchedule {
   completionDateStr: string  // 'yyyy-MM-dd'
   yieldKg:           number
+  label?:            string  // 在庫推移グラフに表示する桶番号（例: 桶12・13）
 }
 
 // SARIMAX予測データの型（品種ごと）
@@ -130,6 +131,7 @@ interface RecipePlan {
     temp:           { n: number; newDays: number; dayDelta: number; newCompletion: Date }[]  // 常温のみ・他は空
   } | null
   stockPoints:      StockPoint[] | null  // 在庫推移グラフ用の日次系列（計算の根拠の可視化）
+  supplyMarkers:    { d: string; label: string }[]  // 熟成中ロット完成日の桶番号ラベル（悲観モードのみ）
 }
 
 const BATCH_OPTIONS = [1, 3, 5] as const
@@ -904,6 +906,16 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 完成予定日が今日以前のロットは即時在庫として扱う
     const immediateKg  = allSupplyEvents.filter(e => e.date <= today).reduce((s, e) => s + e.kg, 0)
     const futureEvents = allSupplyEvents.filter(e => e.date > today)
+    // 在庫推移グラフ用：熟成中ロット完成日の桶番号ラベル（同日完成は結合）。
+    // 楽観モードでは熟成中を即時在庫扱いにするためジャンプが無く、表示しない
+    const supplyMarkers: { d: string; label: string }[] = optimisticStock ? [] : (() => {
+      const byDay = new Map<string, string[]>()
+      for (const s of rawSchedule) {
+        if (!s.label || s.completionDateStr <= format(today, 'yyyy-MM-dd')) continue
+        byDay.set(s.completionDateStr, [...(byDay.get(s.completionDateStr) ?? []), s.label])
+      }
+      return [...byDay.entries()].map(([d, labels]) => ({ d, label: labels.join(' / ') }))
+    })()
     // 楽観的モード: 熟成中ロットを全量即時在庫として扱う（完成予定日を無視）
     // 悲観的モード: 完成予定日に補充されるスケジュールとして管理
     const effectiveStock = optimisticStock
@@ -1157,7 +1169,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, manualPinActive: manualFirstBrewDate !== undefined,
-      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints,
+      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, supplyMarkers,
     }
   })
 
@@ -2130,6 +2142,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                     isFixed:    b.isFixed,
                                   }))}
                                   todayStr={format(today, 'yyyy-MM-dd')}
+                                  supplyMarkers={plan.supplyMarkers}
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
                                   完成の補充を織り込んだ在庫見込み。赤の縦線は「その回の完成が間に合わない場合に在庫が尽きる日」。
