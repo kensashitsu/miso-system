@@ -327,7 +327,7 @@ function computeConsumed(
 
 // 1バッチの歩留まり(kg)を消費しきるまでの日数（月別変動レートで積分）
 // = このバッチが「何日分の需要を賄えるか」。連続バッチの完成日がこの間隔より
-// 密集すると仕込み日が1〜数日差で団子になるため、最小完成間隔として使う。
+// 密集すると仕込み日が1〜数日差で団子になるため、最小完成間隔の基準として使う。
 function computeCoverageDays(
   batchKg:        number,
   startDate:      Date,
@@ -342,6 +342,40 @@ function computeCoverageDays(
     d = addDays(d, 1)
   }
   return 730
+}
+
+// 完成間隔を詰められる下限（週1本ペース。水木仕込みで物理的に可能な範囲での団子防止）
+const MIN_COMPLETION_GAP_DAYS = 7
+
+// 次バッチの完成日下限を計算する。
+// 基本は「前バッチ完成日＋カバー日数」（団子防止）だが、完成時点の在庫の底が
+// バッファ日数分を下回る見込みのときは、不足日数分だけ間隔を詰めることを許し、
+// 数バッチかけてバッファを回復できるようにする。
+// ※従来はカバー日数固定の下限だったため間隔が常に消費とトントン以上となり、
+//   一度食い込んだバッファ（例: 秋冬の需要増×熟成長期化）を回復する手段がなく
+//   在庫ゼロ張り付きの提案が連鎖する「ラチェット」になっていた。
+function calcMinNextCompletion(
+  completionDate: Date,
+  stockAtRef:     number,   // refDate時点の在庫（前バッチの歩留まり加算済み）
+  refDate:        Date,     // 前バッチの完成日（初回は今日）
+  batchYieldKg:   number,
+  bufferDays:     number,
+  getDailyRateFn: (date: Date) => number,
+  supplyEvents?:  { date: Date; kg: number }[],
+): Date {
+  const coverage = computeCoverageDays(batchYieldKg, completionDate, getDailyRateFn)
+  // このバッチ完成時点の在庫の底（歩留まり加算前）
+  const floorKg = Math.max(
+    0,
+    stockAtRef
+      - computeConsumed(refDate, completionDate, getDailyRateFn)
+      + computeSupplyReceived(refDate, completionDate, supplyEvents),
+  )
+  const rate        = Math.max(getDailyRateFn(completionDate), 1e-9)
+  const deficitDays = Math.max(0, bufferDays - floorKg / rate)
+  const minGap      = Math.min(MIN_COMPLETION_GAP_DAYS, coverage)
+  const gapDays     = Math.max(minGap, Math.ceil(coverage - deficitDays))
+  return addDays(completionDate, gapDays)
 }
 
 // 予測方式・データから「日付→1日消費量(kg)」関数を生成
@@ -519,7 +553,8 @@ function calcBatches(
     }
     currentEstimate   = actualFermentDays
     minNextBrewDate   = addDays(brewDate, 1)
-    minNextCompletion = addDays(completionDate, computeCoverageDays(batchYieldKg, completionDate, getDailyRateFn))
+    // バッファ不足時は間隔を詰められる下限（stock/refDateはこの時点ではまだ前バッチ基準）
+    minNextCompletion = calcMinNextCompletion(completionDate, stock, refDate, batchYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
 
     const materialOrderDeadline = addDays(brewDate, -orderLeadDays)
     const daysUntilOrder        = differenceInDays(materialOrderDeadline, today)
@@ -566,7 +601,7 @@ function calcBatches(
       rawFermentationDays      = rr.days
       rawCompletionDate        = rr.completionDate
       rawCurrentEstimate       = rawFermentationDays   // 次回の推定に実績値を使う
-      minNextRawCompletion     = addDays(rawCompletionDate, computeCoverageDays(batchYieldKg, rawCompletionDate, getDailyRateFn))
+      minNextRawCompletion     = calcMinNextCompletion(rawCompletionDate, rawStock, rawRefDate, batchYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
       rawMaterialOrderDeadline = addDays(rawBrewDate, -orderLeadDays)
     }
 
