@@ -246,3 +246,15 @@ model ForecastCache {
 
   @@id([misoType, yearMonth])
 }
+
+// 取引先別月次売上（商品別出荷記録Excelから scripts/import_customer_sales.py で取り込み）
+// customer は正規化済み名称（NFKC・空白/会社種別除去）。合せみそは山吹50%/田舎50%に按分済み
+model CustomerMonthlySales {
+  yearMonth String
+  misoType  String
+  customer  String
+  kg        Float
+  updatedAt DateTime @updatedAt
+
+  @@id([yearMonth, misoType, customer])
+}

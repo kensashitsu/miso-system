@@ -95,6 +95,47 @@ MISO_USE_POPULATION = {'白みそ'}
 # 無添加麦（11.6%→11.8%）・山吹（10.4%→11.0%）は悪化のため不使用。営業日数は将来も確定値。
 MISO_USE_BIZDAYS = {'田舎みそ'}
 
+# ─────────────────────────────────────────────
+# 上位取引先の分離（2階建て予測）
+# ベース需要 = 品種実績 − 上位取引先実績（CustomerMonthlySales）。
+# ベースをSARIMA+XGBで予測し、上位取引先は直近ACCOUNT_WINDOWヶ月の移動平均で予測して合算する。
+# 分離が有効な品種では forecast_largeOrders の差し引きは行わない
+# （大口は取引先系列側に含まれ二重差し引きになるため）。
+# LOO評価は「生実績合計 vs ベース予測+取引先予測」で行う。
+#
+# 2026-07のLOO A/B検証（生実績比）:
+#   田舎みそ:     9.5% → 9.3% 採用（ジャパンフード1社47%の構造リスク隔離の利点も）
+#   無添加麦みそ: 14.2% → 14.8% 不採用（オイシックスの月次発注タイミングが原理的に
+#                 予測不能で、分離すると取引先予測の外れが毎月の誤差に直乗りする。
+#                 大口差し引き方式(forecast_largeOrders)の方が良く、そちらを継続）
+#   山吹みそ:     10.4% → 11.2% 不採用
+# ─────────────────────────────────────────────
+MISO_TOP_ACCOUNTS = {
+    '田舎みそ': ['ジャパンフード-本部'],
+}
+ACCOUNT_WINDOW = 12
+
+
+def load_customer_sales(conn):
+    """CustomerMonthlySales → ({(misoType, customer): {ym: kg}}, {misoType: set(ym)})"""
+    cur = conn.cursor()
+    try:
+        cur.execute('SELECT "yearMonth", "misoType", customer, kg FROM "CustomerMonthlySales"')
+    except Exception:
+        return {}, {}
+    data = {}
+    coverage = {}
+    for ym, t, c, kg in cur.fetchall():
+        data.setdefault((t, c), {})[ym] = float(kg)
+        coverage.setdefault(t, set()).add(ym)
+    return data, coverage
+
+
+def account_forecast_at(series, covered_yms, upto_ym, window=ACCOUNT_WINDOW):
+    """coverage内で upto_ym より前の直近windowヶ月平均（発注なし月は0として含む）"""
+    past = [series.get(ym, 0.0) for ym in covered_yms if ym < upto_ym][-window:]
+    return sum(past) / len(past) if past else 0.0
+
 
 def bizday_anomaly(yms):
     """各月の平日数（月〜金）の「同じ暦月の平年値（2015〜2027平均）」からの偏差"""
@@ -403,7 +444,8 @@ def ensemble_preds(actuals, sarima_preds, xgb_preds):
 # ─────────────────────────────────────────────
 
 def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
-                      large_orders=None, forecast_months=N_FORECAST):
+                      large_orders=None, cust_sales=None, cust_coverage=None,
+                      forecast_months=N_FORECAST):
     type_df = (shipment_df[shipment_df['misoType'] == miso_type]
                .sort_values('yearMonth').reset_index(drop=True))
 
@@ -417,10 +459,33 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     temps   = [w_dict.get(ym, seasonal_avg.get(int(ym[5:7]), 14.0)) for ym in all_yms]
     y       = type_df['weightKg'].values.astype(float)
 
+    # ── 上位取引先の分離（2階建て予測） ──
+    accounts     = MISO_TOP_ACCOUNTS.get(miso_type, [])
+    covered_yms  = sorted((cust_coverage or {}).get(miso_type, set()))
+    use_accounts = bool(accounts) and len(covered_yms) >= MIN_TRAIN
+    y_raw_by_ym  = dict(zip(all_yms, map(float, y)))
+    acct_series  = {}
+    if use_accounts:
+        for a in accounts:
+            acct_series[a] = (cust_sales or {}).get((miso_type, a), {})
+        covered = set(covered_yms)
+        acct_hist = []
+        for ym in all_yms:
+            if ym in covered:
+                kg = sum(s.get(ym, 0.0) for s in acct_series.values())
+            else:
+                # 明細データ欠落月（例: 2026-03）は取引先ごとの直近平均で補完
+                kg = sum(account_forecast_at(s, covered_yms, ym) for s in acct_series.values())
+            acct_hist.append(kg)
+        y = np.maximum(0.0, y - np.array(acct_hist))
+        share = sum(acct_hist) / max(1e-9, sum(y_raw_by_ym.values())) * 100
+        print(f'  上位取引先分離: {"/".join(accounts)}（実績比{share:.0f}%）', file=sys.stderr)
+
     # 確認済み大口注文を差し引き、ベース需要で学習・評価する
     # （スパイク月自体が予測不能な上、lag特徴量を汚染し翌月以降も過大予測になるため。
-    #   将来の大口は仕込み計画の「予定出荷」入力で別途織り込む）
-    if large_orders:
+    #   将来の大口は仕込み計画の「予定出荷」入力で別途織り込む。
+    #   取引先分離が有効な品種では大口は取引先系列に含まれるため差し引かない）
+    if large_orders and not use_accounts:
         subtracted = []
         for i, ym in enumerate(all_yms):
             kg = large_orders.get((miso_type, ym), 0)
@@ -465,6 +530,14 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     print(f'[{miso_type}] LOO評価中...', file=sys.stderr)
     actuals, sarima_loo, xgb_loo = run_loo(list(y), temps, all_yms, feat_df, bd)
 
+    # 分離時: LOO予測に取引先予測（直近平均）を足し、実績は生実績合計に置き換えて評価
+    if use_accounts:
+        acct_loo = {ym: sum(account_forecast_at(s, covered_yms, ym) for s in acct_series.values())
+                    for ym in actuals}
+        actuals    = {ym: y_raw_by_ym[ym] for ym in actuals if y_raw_by_ym.get(ym, 0) > 0}
+        sarima_loo = {ym: v + acct_loo[ym] for ym, v in sarima_loo.items() if ym in actuals}
+        xgb_loo    = {ym: v + acct_loo[ym] for ym, v in xgb_loo.items() if ym in actuals}
+
     s_mape = calc_mape(actuals, sarima_loo)
     x_mape = calc_mape(actuals, xgb_loo)
     if s_mape is not None:
@@ -486,6 +559,17 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
     else:
         ens_lower = ens_mean * 0.80
         ens_upper = ens_mean * 1.20
+
+    # 分離時: 将来予測にも取引先予測（直近平均・coverage外は一定値）を合算
+    if use_accounts:
+        acct_future = np.array([
+            sum(account_forecast_at(s, covered_yms, ym) for s in acct_series.values())
+            for ym in future_yms
+        ])
+        ens_mean  = ens_mean + acct_future
+        ens_lower = ens_lower + acct_future
+        ens_upper = ens_upper + acct_future
+        print(f'  取引先予測を合算: {acct_future[0]:.0f} kg/月', file=sys.stderr)
 
     method = 'sarima+xgb' if len(models_mean) == 2 else ('sarima' if s_mean is not None else 'xgb')
     print(f'[{miso_type}] アンサンブル({method})', file=sys.stderr)
@@ -578,11 +662,14 @@ def main():
         weather_monthly = load_weather_data(conn)
         seasonal_avg    = get_seasonal_avg_temp(weather_monthly)
         large_orders    = load_large_orders(conn)
+        cust_sales, cust_coverage = load_customer_sales(conn)
 
         print(f'出荷データ: {len(shipment_df)}件', file=sys.stderr)
         print(f'気象データ: {len(weather_monthly)}ヶ月', file=sys.stderr)
         if large_orders:
             print(f'確認済み大口: {len(large_orders)}件', file=sys.stderr)
+        if cust_sales:
+            print(f'取引先別売上: {len(cust_sales)}系列', file=sys.stderr)
 
         all_records = []
         mape_map    = {}
@@ -590,7 +677,8 @@ def main():
         for miso_type in MISO_TYPES:
             print(f'\n═══ {miso_type} ═══', file=sys.stderr)
             records, mape = forecast_one_type(
-                miso_type, shipment_df, weather_monthly, seasonal_avg, large_orders)
+                miso_type, shipment_df, weather_monthly, seasonal_avg,
+                large_orders, cust_sales, cust_coverage)
             all_records.extend(records)
             mape_map[miso_type] = mape
 

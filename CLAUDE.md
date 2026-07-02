@@ -253,7 +253,10 @@ interface MonthlySalesItem { yearMonth: string; misoType: string; weightKg: numb
 - MAPE（予測誤差）は `SystemSetting`（キー: `forecast_mape_{misoType}`）に保存
 - `ForecastUpdater` コンポーネントのボタンから手動実行
 - 環境変数 `PYTHON_PATH` でPythonパスを指定可能
-- **確認済み大口注文の差し引き**: `SystemSetting` キー `forecast_largeOrders`（JSON配列 `[{yearMonth, misoType, kg, note}]`）に登録された大口分を学習・LOO評価前に実績から差し引き、**ベース需要**で予測する（例: 2024-05/2024-09 オイシックス各1500kg）。スパイク月の誤差とlag特徴量汚染による翌月過大予測の両方を防ぐ。将来の大口は「予定出荷」入力で織り込む。**統計的閾値での自動スパイク除去は禁止**（2019〜2022の高需要は大口でなく水準シフトのため、閾値除去は学習データを破壊する）。新たな大口が判明したらこのJSONに1行追加する
+- **確認済み大口注文の差し引き**: `SystemSetting` キー `forecast_largeOrders`（JSON配列 `[{yearMonth, misoType, kg, note}]`）に登録された大口分を学習・LOO評価前に実績から差し引き、**ベース需要**で予測する（現登録: 2024-02/2024-05/2024-09 オイシックス各1500kg）。スパイク月の誤差とlag特徴量汚染による翌月過大予測の両方を防ぐ。将来の大口は「予定出荷」入力で織り込む。**統計的閾値での自動スパイク除去は禁止**（2019〜2022の高需要は大口でなく水準シフトのため、閾値除去は学習データを破壊する。なお明細データ分析で2019〜2022シフトの主因は日本珈琲貿易1社の成長と判明）。新たな大口が判明したらこのJSONに1行追加する
+- **取引先別月次売上（CustomerMonthlySales）**: `data/sales/`（**gitignore済・コミット禁止**）の商品別出荷記録Excelを `scripts/import_customer_sales.py` で取り込み（全置き換え方式・ShipmentHistoryとの整合検証付き）。新しい月のExcelを置いて再実行すれば更新される。パーサーはヘッダー行ベース（列構成が年により36種類異なるため）。合せみそは山吹50%/田舎50%に按分
+- **上位取引先の分離（田舎みそのみ・`MISO_TOP_ACCOUNTS`）**: ベース需要=実績−ジャパンフード本部（47%集中）で学習し、取引先分は直近12ヶ月平均で予測して合算。LOO A/Bで9.5%→9.3%＋1社集中リスクの隔離。**無添加麦・山吹は不採用**（オイシックス等の月次発注タイミングが原理的に予測不能で、分離すると取引先予測誤差が毎月直乗りし悪化。無添加麦は大口差し引き方式が優位: 生実績比14.2-14.8% vs ベース評価10.5%）
+- 現在のMAPE（2026-07）: 無添加麦10.5% / 田舎9.3% / 山吹10.4% / 白41.1%（白は改善不要・イレギュラー製品）
 - **営業日数特徴量（田舎みそのみ）**: 月の平日数（月〜金）の同暦月平年値からの偏差をSARIMA外生変数・XGBoost特徴量に使用（`MISO_USE_BIZDAYS`）。全履歴OLSで田舎みそのみ有意（+4.6%/営業日, p=0.003。県内業販中心のため）。LOO A/Bで田舎10.6%→9.5%に改善、無添加麦・山吹は悪化したため不使用。営業日数は将来も確定値なので予測不要の理想的な外生変数
 - **TS側もベース需要に統一**（`app/planning/page.tsx` の `subtractLargeOrders`）: BrewSuggestions（HW・3年平均の需要推計）と computeBacktest / ForecastBacktest には大口差し引き済みの `baseShipmentMap` を渡す（大口混入だと3年平均の該当月が+20%超過大になり、バックテストでSARIMAXが不当に不利になるため）。**生実績のまま使うもの**: DemandChart（出荷実績の表示）・BufferDaySuggestion（バッファは予定外変動への備えなので大口込みCVが適切）
 - **バイアス自動補正は不採用**（2026-07判断）: ベース需要でのLOO偏りは24ヶ月でほぼゼロ（無添加麦+1.0%・田舎−0.1%・山吹−2.8%）。直近12ヶ月の+4〜5%はSE±4%でノイズと区別できず、補正はノイズ追随になる。偏りはバックテストパネルで監視し、続くようなら保守モードで運用対応
@@ -465,6 +468,15 @@ model ForecastCache {
   upper90    Float
   updatedAt  DateTime @updatedAt
   @@id([misoType, yearMonth])
+}
+
+model CustomerMonthlySales {
+  yearMonth String
+  misoType  String
+  customer  String   // 正規化済み取引先名（NFKC・空白/会社種別除去）
+  kg        Float    // 合せみそは山吹50%/田舎50%に按分済み
+  updatedAt DateTime @updatedAt
+  @@id([yearMonth, misoType, customer])
 }
 
 model IngredientAlert {
