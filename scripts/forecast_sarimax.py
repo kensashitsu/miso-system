@@ -164,6 +164,36 @@ def get_seasonal_avg_temp(weather_monthly):
     return wm.groupby('month')['avgTempC'].mean().to_dict()
 
 
+def load_large_orders(conn):
+    """確認済み大口注文リスト（SystemSetting: forecast_largeOrders）を読み込む。
+
+    形式: [{"yearMonth": "2024-05", "misoType": "無添加麦みそ", "kg": 1500, "note": "オイシックス"}]
+    戻り値: {(misoType, yearMonth): kg合計}
+
+    ※ 統計的閾値による自動スパイク検出は使わない。2019〜2022年の高需要は
+       大口ではなく持続的な水準シフト（成長期・コロナ需要）であり、
+       閾値で丸めると本物の需要変動の学習データを壊すため、人手確認済みのみ扱う。
+    """
+    cur = conn.cursor()
+    cur.execute('SELECT value FROM "SystemSetting" WHERE key = %s', ('forecast_largeOrders',))
+    row = cur.fetchone()
+    if not row:
+        return {}
+    try:
+        entries = json.loads(row[0])
+    except (json.JSONDecodeError, TypeError):
+        print('forecast_largeOrders のJSONが不正のため無視します', file=sys.stderr)
+        return {}
+    result = {}
+    for e in entries:
+        miso_type = e.get('misoType')
+        ym        = e.get('yearMonth')
+        kg        = float(e.get('kg', 0) or 0)
+        if miso_type and ym and kg > 0:
+            result[(miso_type, ym)] = result.get((miso_type, ym), 0) + kg
+    return result
+
+
 # ─────────────────────────────────────────────
 # XGBoost 特徴量
 # ─────────────────────────────────────────────
@@ -345,7 +375,7 @@ def ensemble_preds(actuals, sarima_preds, xgb_preds):
 # ─────────────────────────────────────────────
 
 def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
-                      forecast_months=N_FORECAST):
+                      large_orders=None, forecast_months=N_FORECAST):
     type_df = (shipment_df[shipment_df['misoType'] == miso_type]
                .sort_values('yearMonth').reset_index(drop=True))
 
@@ -358,6 +388,20 @@ def forecast_one_type(miso_type, shipment_df, weather_monthly, seasonal_avg,
                if not weather_monthly.empty else {})
     temps   = [w_dict.get(ym, seasonal_avg.get(int(ym[5:7]), 14.0)) for ym in all_yms]
     y       = type_df['weightKg'].values.astype(float)
+
+    # 確認済み大口注文を差し引き、ベース需要で学習・評価する
+    # （スパイク月自体が予測不能な上、lag特徴量を汚染し翌月以降も過大予測になるため。
+    #   将来の大口は仕込み計画の「予定出荷」入力で別途織り込む）
+    if large_orders:
+        subtracted = []
+        for i, ym in enumerate(all_yms):
+            kg = large_orders.get((miso_type, ym), 0)
+            if kg > 0:
+                subtracted.append(f'{ym}: {y[i]:.0f}−{kg:.0f}kg')
+                y[i] = max(0.0, y[i] - kg)
+        if subtracted:
+            print(f'  大口差し引き: {", ".join(subtracted)}', file=sys.stderr)
+
     exog    = np.array(temps, float).reshape(-1, 1)
 
     use_pop    = miso_type in MISO_USE_POPULATION
@@ -499,9 +543,12 @@ def main():
         shipment_df     = load_shipment_data(conn)
         weather_monthly = load_weather_data(conn)
         seasonal_avg    = get_seasonal_avg_temp(weather_monthly)
+        large_orders    = load_large_orders(conn)
 
         print(f'出荷データ: {len(shipment_df)}件', file=sys.stderr)
         print(f'気象データ: {len(weather_monthly)}ヶ月', file=sys.stderr)
+        if large_orders:
+            print(f'確認済み大口: {len(large_orders)}件', file=sys.stderr)
 
         all_records = []
         mape_map    = {}
@@ -509,7 +556,7 @@ def main():
         for miso_type in MISO_TYPES:
             print(f'\n═══ {miso_type} ═══', file=sys.stderr)
             records, mape = forecast_one_type(
-                miso_type, shipment_df, weather_monthly, seasonal_avg)
+                miso_type, shipment_df, weather_monthly, seasonal_avg, large_orders)
             all_records.extend(records)
             mape_map[miso_type] = mape
 

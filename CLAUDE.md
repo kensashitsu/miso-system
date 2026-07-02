@@ -253,6 +253,7 @@ interface MonthlySalesItem { yearMonth: string; misoType: string; weightKg: numb
 - MAPE（予測誤差）は `SystemSetting`（キー: `forecast_mape_{misoType}`）に保存
 - `ForecastUpdater` コンポーネントのボタンから手動実行
 - 環境変数 `PYTHON_PATH` でPythonパスを指定可能
+- **確認済み大口注文の差し引き**: `SystemSetting` キー `forecast_largeOrders`（JSON配列 `[{yearMonth, misoType, kg, note}]`）に登録された大口分を学習・LOO評価前に実績から差し引き、**ベース需要**で予測する（例: 2024-05/2024-09 オイシックス各1500kg）。スパイク月の誤差とlag特徴量汚染による翌月過大予測の両方を防ぐ。将来の大口は「予定出荷」入力で織り込む。**統計的閾値での自動スパイク除去は禁止**（2019〜2022の高需要は大口でなく水準シフトのため、閾値除去は学習データを破壊する）。新たな大口が判明したらこのJSONに1行追加する
 
 ### 品種別データ補完（BRAND_RATIOS）
 
