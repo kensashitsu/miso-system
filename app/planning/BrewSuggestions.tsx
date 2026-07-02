@@ -69,6 +69,7 @@ interface Props {
     completionDateStr:        string
     materialOrderDeadlineStr: string
     fermentationDays:         number
+    bucketNumbers?:           string | null
   }[]>
   // 本登録済み（ロット化済み）の仕込み日（品種別・yyyy-MM-dd）。
   // 同じ日付の手動調整ピンは実現済みのため自動解除するために使う。
@@ -906,16 +907,6 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 完成予定日が今日以前のロットは即時在庫として扱う
     const immediateKg  = allSupplyEvents.filter(e => e.date <= today).reduce((s, e) => s + e.kg, 0)
     const futureEvents = allSupplyEvents.filter(e => e.date > today)
-    // 在庫推移グラフ用：熟成中ロット完成日の桶番号ラベル（同日完成は結合）。
-    // 楽観モードでは熟成中を即時在庫扱いにするためジャンプが無く、表示しない
-    const supplyMarkers: { d: string; label: string }[] = optimisticStock ? [] : (() => {
-      const byDay = new Map<string, string[]>()
-      for (const s of rawSchedule) {
-        if (!s.label || s.completionDateStr <= format(today, 'yyyy-MM-dd')) continue
-        byDay.set(s.completionDateStr, [...(byDay.get(s.completionDateStr) ?? []), s.label])
-      }
-      return [...byDay.entries()].map(([d, labels]) => ({ d, label: labels.join(' / ') }))
-    })()
     // 楽観的モード: 熟成中ロットを全量即時在庫として扱う（完成予定日を無視）
     // 悲観的モード: 完成予定日に補充されるスケジュールとして管理
     const effectiveStock = optimisticStock
@@ -934,10 +925,30 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         completionDate:        new Date(p.completionDateStr + 'T00:00:00'),
         materialOrderDeadline: new Date(p.materialOrderDeadlineStr + 'T00:00:00'),
         fermentationDays:      p.fermentationDays,
+        bucketNumbers:         p.bucketNumbers ?? null,
       }))
       .filter(p => p.completionDate > today)
       .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
     const registeredSupplyEvents = regPlans.map(p => ({ date: p.completionDate, kg: recipe.totalWeightKg }))
+    // 在庫推移グラフ用：補充ジャンプ地点の桶番号ラベル（同日は結合）。
+    // 熟成中ロットは悲観モードのみ（楽観モードは即時在庫扱いでジャンプが無い）、
+    // 仮登録の完成分は常に供給算入されるためモードに関わらず表示する
+    const supplyMarkers: { d: string; label: string }[] = (() => {
+      const byDay = new Map<string, string[]>()
+      const todayStr = format(today, 'yyyy-MM-dd')
+      if (!optimisticStock) {
+        for (const s of rawSchedule) {
+          if (!s.label || s.completionDateStr <= todayStr) continue
+          byDay.set(s.completionDateStr, [...(byDay.get(s.completionDateStr) ?? []), s.label])
+        }
+      }
+      for (const p of regPlans) {
+        if (!p.bucketNumbers) continue
+        const d = format(p.completionDate, 'yyyy-MM-dd')
+        byDay.set(d, [...(byDay.get(d) ?? []), `桶${p.bucketNumbers}`])
+      }
+      return [...byDay.entries()].map(([d, labels]) => ({ d, label: labels.join(' / ') }))
+    })()
     // 熟成中ロット補充＋仮登録の確定生産（予定出荷を除く供給）
     const baseSupplyEvents = [...(optimisticStock ? [] : futureEvents), ...registeredSupplyEvents]
     const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
