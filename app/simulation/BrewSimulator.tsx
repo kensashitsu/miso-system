@@ -483,9 +483,11 @@ export default function BrewSimulator({
 
   // ── 仕上がりプロファイル帯（収穫窓中央で評価・基準配合＝中央50%） ──
   const tasteAxes: TasteAxis[] = [
-    // 甘味＝最大糖産生量×穀物量（デンプン絶対量）。甘味ポテンシャルと同じ指標
+    // 甘味＝最大糖産生量(bMax)×穀物量（デンプン絶対量）。甘味ポテンシャルと同じ指標
     { key: 'sweet',  label: '甘味', raw: result.bMax * ingredients.grainKg, baseRaw: base.bMax * baseIngredients.grainKg, dir: 'high-good' },
-    { key: 'umami',  label: '旨味', raw: result.umamiAt,      baseRaw: base.umamiAt,      dir: 'high-good' },
+    // 旨味＝アミノ酸蓄積率×大豆量（タンパク質絶対量）。甘味と対称にし、低麹歩合で大豆が
+    // 増える分（＝タンパク源増）を織り込む。効率のみだと低麹歩合の旨味を過小評価するため
+    { key: 'umami',  label: '旨味', raw: result.umamiAt * ingredients.soybeanKg, baseRaw: base.umamiAt * baseIngredients.soybeanKg, dir: 'high-good' },
     { key: 'bitter', label: '苦味', raw: result.bitterAt,     baseRaw: base.bitterAt,     dir: 'low-good'  },
     { key: 'sour',   label: '酸味', raw: result.aromaSour,    baseRaw: base.aromaSour,    dir: 'neutral'   },
     { key: 'roast',  label: '焦げ', raw: result.aromaRoasted, baseRaw: base.aromaRoasted, dir: 'low-good'  },
