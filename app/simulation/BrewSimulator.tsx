@@ -549,36 +549,17 @@ export default function BrewSimulator({
     return () => { if (rafRef.current != null) cancelAnimationFrame(rafRef.current) }
   }, [result.windowStart, result.windowEnd])
 
-  const [mobileTab, setMobileTab] = useState<'config' | 'result'>('config')
-
   return (
     <div className="space-y-5">
 
-      {/* ── モバイルタブ（スマホのみ表示） ── */}
-      <div className="flex sm:hidden border-b border-gray-200 -mx-3 px-3">
-        {(['config', 'result'] as const).map(tab => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setMobileTab(tab)}
-            className={`flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-              mobileTab === tab
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-400'
-            }`}
-          >
-            {tab === 'config' ? '設定' : 'グラフ・結果'}
-          </button>
-        ))}
-      </div>
+      {/* ── 2カラム：左=操作パネル（PCではsticky）/ 右=ライブ結果。配合を変えると右が即変化 ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(300px,360px)_1fr] gap-5 items-start">
 
-      {/* ── 配合設定（モバイル: 設定タブのみ / デスクトップ: 常時表示） ── */}
-      <div className={mobileTab === 'result' ? 'hidden sm:block' : undefined}>
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
-        <div className="grid grid-cols-1 sm:grid-cols-2">
+        {/* ── 左：操作パネル ── */}
+        <div className="lg:sticky lg:top-4 space-y-4">
 
-          {/* 左：配合設定 */}
-          <div className="p-5 sm:border-r border-b sm:border-b-0 border-gray-100">
+          {/* 配合設定カード */}
+          <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">配合設定
               <span className="text-xs font-normal text-gray-400 ml-2">{grainType}使用・水飴なし</span>
             </h2>
@@ -652,10 +633,80 @@ export default function BrewSimulator({
               <p className="text-xs text-gray-400">水分活性 aw = {result.aw.toFixed(3)}</p>
               <p className="text-xs text-gray-400">対水食塩濃度 = {(saltPct / targetMoisturePct * 100).toFixed(1)}%</p>
             </div>
-          </div>
 
-          {/* 右：原料逆算 */}
-          <div className="p-5 flex flex-col gap-3">
+            {/* 仕込み場所・収穫窓モード（結果を左右する入力なのでここに集約） */}
+            <div className="border-t border-gray-100 mt-4 pt-3 space-y-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14 shrink-0">仕込み場所</span>
+                <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
+                  {(['暖房', '冷房', '常温', '速醸'] as const).map(loc => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => setSelectedLocation(loc)}
+                      className={`px-2.5 py-1 transition-colors ${
+                        selectedLocation === loc
+                          ? loc === '速醸' ? 'bg-rose-500 text-white' : 'bg-violet-600 text-white'
+                          : 'bg-white text-gray-500 hover:bg-gray-50'
+                      }`}
+                    >
+                      {loc}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {selectedLocation === '常温' && (
+                <div className="flex items-center gap-1.5 text-xs pl-16">
+                  <select
+                    value={brewMonth}
+                    onChange={e => setBrewMonth(Number(e.target.value))}
+                    className="border border-gray-200 rounded px-1.5 py-0.5 bg-white text-gray-700 text-xs"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                      <option key={m} value={m}>{m}月</option>
+                    ))}
+                  </select>
+                  <span className="text-gray-400">月平均 {(weatherMonthlyTempC[brewMonth] ?? 14).toFixed(1)}℃</span>
+                </div>
+              )}
+              {selectedLocation === '速醸' && (
+                <div className="flex items-center gap-1.5 text-xs pl-16">
+                  <select
+                    value={sokkoTemp}
+                    onChange={e => setSokkoTemp(Number(e.target.value))}
+                    className="border border-rose-200 rounded px-1.5 py-0.5 bg-white text-gray-700 text-xs"
+                  >
+                    {[45, 48, 50, 52, 55, 58, 60, 63, 65].map(t => (
+                      <option key={t} value={t}>{t}℃</option>
+                    ))}
+                  </select>
+                  <span className="text-gray-400">微生物死滅・酵素のみ</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-14 shrink-0">収穫窓</span>
+                <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setWindowMode('balance')}
+                    className={`px-3 py-1 transition-colors ${windowMode === 'balance' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    品質バランス
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWindowMode('sweet')}
+                    className={`px-3 py-1 transition-colors ${windowMode === 'sweet' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                  >
+                    甘味重視
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>{/* /配合設定カード */}
+
+          {/* 原料逆算カード */}
+          <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 flex flex-col gap-3">
             <h2 className="text-sm font-semibold text-gray-700">原料逆算</h2>
             <table className="w-full text-sm">
               <thead>
@@ -742,100 +793,14 @@ export default function BrewSimulator({
                 この配合でロット登録へ →
               </a>
             )}
-          </div>
+          </div>{/* /原料逆算カード */}
 
-        </div>
-      </div>
-      </div>{/* /設定タブ wrapper */}
+        </div>{/* ── 左：操作パネル ここまで ── */}
 
-      {/* ── 結果（モバイル: グラフ・結果タブのみ / デスクトップ: 常時表示） ── */}
-      <div className={`space-y-5 ${mobileTab === 'config' ? 'hidden sm:block' : undefined}`}>
+        {/* ── 右：ライブ結果（発酵進行度グラフ＋仕上がりプロファイル） ── */}
+        <div className="space-y-5 min-w-0">
 
-      {/* ── コントロールバー：仕込み場所・収穫窓モード（プロファイルを左右する入力） ── */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-gray-500">仕込み場所</span>
-          <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
-            {(['暖房', '冷房', '常温', '速醸'] as const).map(loc => (
-              <button
-                key={loc}
-                type="button"
-                onClick={() => setSelectedLocation(loc)}
-                className={`px-2.5 py-1 transition-colors ${
-                  selectedLocation === loc
-                    ? loc === '速醸' ? 'bg-rose-500 text-white' : 'bg-violet-600 text-white'
-                    : 'bg-white text-gray-500 hover:bg-gray-50'
-                }`}
-              >
-                {loc}
-              </button>
-            ))}
-          </div>
-          {selectedLocation === '常温' && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <select
-                value={brewMonth}
-                onChange={e => setBrewMonth(Number(e.target.value))}
-                className="border border-gray-200 rounded px-1.5 py-0.5 bg-white text-gray-700 text-xs"
-              >
-                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                  <option key={m} value={m}>{m}月</option>
-                ))}
-              </select>
-              <span className="text-gray-400">（月平均 {(weatherMonthlyTempC[brewMonth] ?? 14).toFixed(1)}℃）</span>
-            </div>
-          )}
-          {selectedLocation === '速醸' && (
-            <div className="flex items-center gap-1.5 text-xs">
-              <select
-                value={sokkoTemp}
-                onChange={e => setSokkoTemp(Number(e.target.value))}
-                className="border border-rose-200 rounded px-1.5 py-0.5 bg-white text-gray-700 text-xs"
-              >
-                {[45, 48, 50, 52, 55, 58, 60, 63, 65].map(t => (
-                  <option key={t} value={t}>{t}℃</option>
-                ))}
-              </select>
-              <span className="text-gray-400">微生物死滅・酵素のみ活性</span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-500">収穫窓モード</span>
-          <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
-            <button
-              type="button"
-              onClick={() => setWindowMode('balance')}
-              className={`px-3 py-1.5 transition-colors ${windowMode === 'balance' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-            >
-              品質バランス
-            </button>
-            <button
-              type="button"
-              onClick={() => setWindowMode('sweet')}
-              className={`px-3 py-1.5 transition-colors ${windowMode === 'sweet' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-            >
-              甘味重視
-            </button>
-          </div>
-          <span className="text-xs text-gray-400 hidden sm:inline">
-            {windowMode === 'balance' ? '糖 ≥ 25%（実際の完成タイミング）' : '糖 ≥ 50%（甘味のピーク付近）'}
-          </span>
-        </div>
-      </div>
-
-      {/* ── 仕上がりプロファイル帯（この配合の"答え"） ── */}
-      <ProfileBand axes={tasteAxes} headline={profileHeadline} tone={profileTone} />
-
-      {/* ── 発酵の詳しいグラフ（折りたたみ・詳細指標） ── */}
-      <details className="group">
-        <summary className="cursor-pointer select-none list-none py-2 text-sm font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1.5">
-          <span className="transition-transform group-open:rotate-90">▸</span>
-          発酵の詳しいグラフを見る（デンプン・糖・アミノ酸・pH・香気・サマリー）
-        </summary>
-        <div className="space-y-5 pt-3">
-
-      {/* ── 進行度グラフ ── */}
+      {/* ── 発酵進行度グラフ（メイン） ── */}
       <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
         <div className="flex flex-wrap items-center gap-2 mb-0.5">
           <h2 className="text-sm font-semibold text-gray-700">発酵進行度</h2>
@@ -887,7 +852,7 @@ export default function BrewSimulator({
           )}
         </div>
 
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={340}>
           <ComposedChart data={chartPoints} margin={{ top: 22, right: 52, left: -12, bottom: 0 }}>
             <CartesianGrid strokeDasharray="2 4" stroke="#F3F4F6" vertical={false} />
             {/* 下軸：積算温度（℃・日） */}
@@ -1014,9 +979,16 @@ export default function BrewSimulator({
             <Line yAxisId="right" dataKey="pH"       stroke="#9B7FC8" strokeWidth={1.5} dot={false} hide={hiddenLines.has('pH')}  animationDuration={400} animationEasing="ease-out" />
           </ComposedChart>
         </ResponsiveContainer>
+      </div>{/* /発酵進行度グラフカード */}
 
-        {/* ── 香気傾向（グラフカード内） ── */}
-        <div className="border-t border-gray-100 mt-4 pt-4">
+      {/* ── 仕上がりプロファイル帯（グラフ直下・配合変更でライブ更新） ── */}
+      <ProfileBand axes={tasteAxes} headline={profileHeadline} tone={profileTone} />
+
+        </div>{/* ── 右：ライブ結果 ここまで ── */}
+      </div>{/* ── 2カラムグリッド ここまで ── */}
+
+      {/* ── 香気傾向（全幅・詳細） ── */}
+      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-xs font-semibold text-gray-600">香気傾向</span>
             <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">定性・精度±100%</span>
@@ -1054,10 +1026,9 @@ export default function BrewSimulator({
               )
             })}
           </div>
-        </div>
-      </div>
+        </div>{/* /香気傾向カード */}
 
-      {/* ── サマリーカード（詳細指標・折りたたみ内） ── */}
+      {/* ── サマリーカード（全幅・詳細指標） ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard
           label="糖ピーク"
@@ -1095,9 +1066,6 @@ export default function BrewSimulator({
         />
       </div>
 
-        </div>{/* /折りたたみ内コンテナ */}
-      </details>
-
       {/* ── モデル注記 ── */}
       <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-4 space-y-1 border border-gray-100">
         <p className="font-medium text-gray-600">モデルの前提と限界</p>
@@ -1119,7 +1087,6 @@ export default function BrewSimulator({
         <p>場所による影響：アミラーゼ Q10≈2.0・微生物 Q10≈4.0 の差を反映。低温ほど微生物が相対的に減速し糖が長く残る（収穫窓が広がる・甘味が出やすい）。暖房25℃をキャリブレーション基準とした近似値。</p>
         <p>速醸モード：50〜60℃の加温でアミラーゼを最大活性化・微生物を死滅させ数日で糖化を完了させる手法（西京みそ等）。kMic=0・pH変化なし。B線は単調増加（ピークなし）。収穫窓は糖×アミノ酸の積 ≥ {SOKKO_BA_CLOSE}（Maillard基質が過剰になる時点）で閉じる。グラフ範囲は0〜300℃・日（約2〜7日相当）。</p>
       </div>
-      </div>{/* /結果タブ wrapper */}
     </div>
   )
 }
