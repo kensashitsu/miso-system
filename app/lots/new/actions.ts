@@ -210,11 +210,12 @@ export async function createLot(input: unknown): Promise<ActionResult> {
     if (d.bucketNumbers) noteParts.push(`桶: ${d.bucketNumbers}`)
     noteParts.push(`仕込み: ${format(brewDate, 'yyyy/MM/dd')}`)
     await adjustStock({
-      misoType:  d.misoType,
-      category:  'wip',
-      deltaKg:   yieldKg,
-      lotNumber: newLotNumber,
-      notes:     noteParts.join(' / '),
+      misoType:    d.misoType,
+      category:    'wip',
+      deltaKg:     yieldKg,
+      lotNumber:   newLotNumber,
+      notes:       noteParts.join(' / '),
+      applyRecipe: true,  // zaiko側のレシピ展開で原材料（裸麦・大豆・塩等）を自動消費
     }).catch(e => console.error('wip在庫登録エラー:', e))
   }
 

@@ -3,9 +3,10 @@
 import { fetchAgedStock, fetchWipStock } from '@/lib/externalApi'
 
 export interface StockChangeItem {
-  label:     string
-  currentKg: number | null  // null = API未設定 or 取得失敗
-  deltaKg:   number         // 正=追加、負=減算
+  label:        string
+  currentKg:    number | null  // null = API未設定 or 取得失敗
+  deltaKg:      number         // 正=追加、負=減算
+  recipeLinked?: boolean       // true=zaiko側でレシピ展開され原材料在庫も連動調整される
 }
 
 export async function getStockPreview(
@@ -27,7 +28,7 @@ export async function getStockPreview(
     case 'register':
       // 白みそは熟成中品目なし
       if (misoType === '白みそ') return []
-      return [{ label: wipLbl, currentKg: wipKg, deltaKg: yieldKg }]
+      return [{ label: wipLbl, currentKg: wipKg, deltaKg: yieldKg, recipeLinked: true }]
 
     case 'complete': {
       const items: StockChangeItem[] = []
@@ -50,7 +51,7 @@ export async function getStockPreview(
 
     case 'delete-wip':
       if (misoType === '白みそ') return []
-      return [{ label: wipLbl, currentKg: wipKg, deltaKg: -yieldKg }]
+      return [{ label: wipLbl, currentKg: wipKg, deltaKg: -yieldKg, recipeLinked: true }]
 
     case 'delete-aged':
       return [{ label: agedLbl, currentKg: agedKg, deltaKg: -yieldKg }]

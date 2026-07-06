@@ -153,21 +153,32 @@ export async function fetchWipStock(): Promise<AgedStockItem[] | null> {
 // 認証: X-API-Key ヘッダー（既存の EXTERNAL_API_KEY を共用）
 // リクエストボディ（JSON）:
 //   {
-//     "misoType":  "無添加麦みそ" | "田舎みそ" | "山吹みそ" | "白みそ",
-//     "category":  "wip" | "aged",  // wip=熟成中（半製品）、aged=熟成済
-//     "deltaKg":   number,           // 正=追加、負=減算
-//     "lotNumber": "202506-001"      // 参照用ロット番号
+//     "misoType":    "無添加麦みそ" | "田舎みそ" | "山吹みそ" | "白みそ",
+//     "category":    "wip" | "aged",  // wip=熟成中（半製品）、aged=熟成済
+//     "deltaKg":     number,           // 正=追加、負=減算
+//     "lotNumber":   "202506-001",     // 参照用ロット番号
+//     "applyRecipe": boolean           // true=品目に登録されたレシピを展開し原材料在庫も連動調整
 //   }
 // レスポンス: HTTP 200 で成功とみなす
+//
+// applyRecipe（zaiko側で対応してください）：
+//   true のとき、手入力の在庫登録（「在庫のみ変更（レシピ連動なし）」チェックなし）と
+//   同じレシピ展開処理を通し、deltaKg に応じて原材料在庫を増減してください。
+//   deltaKg が正 → 原材料を消費（減算）、負 → 原材料を復元（加算・誤登録の取り消し用）
+//   false または未指定 → 従来どおり在庫数量のみ変更
 //
 // 品種別マッピング（外部システム側で対応してください）：
 //   白みそ + category:"aged" → 「西京みそ　ﾊﾞﾗ」に反映
 //   白みそは熟成中品目がないため category:"wip" の呼び出しは行いません
 //
 // 呼び出しタイミング：
-//   ロット登録時   → category:"wip",  deltaKg:+(予想歩留まり重量kg) ※白みそを除く
-//   熟成完了時     → category:"wip",  deltaKg:-(同上)               ※白みそを除く
-//                   category:"aged", deltaKg:+(同上)               ※白みそは 西京みそ ﾊﾞﾗ へ
+//   ロット登録時   → category:"wip",  deltaKg:+(予想歩留まり重量kg), applyRecipe:true  ※白みそを除く
+//   熟成完了時     → category:"wip",  deltaKg:-(同上), applyRecipe:false ※白みそを除く
+//                   category:"aged", deltaKg:+(同上), applyRecipe:false ※白みそは 西京みそ ﾊﾞﾗ へ
+//                   （半製品→製品の移動であり原材料消費はないため連動なし）
+//   熟成中に戻す時 → 上記の逆（applyRecipe:false）
+//   ロット削除時   → 熟成中: category:"wip",  deltaKg:-(同上), applyRecipe:true（原材料も復元）
+//                   完成済: category:"aged", deltaKg:-(同上), applyRecipe:false
 //
 // notes フィールド（任意）: 在庫変更履歴の備考列に追記する文字列。
 //   ロット登録時: "桶: 5・6 / 仕込み: 2026/06/30"
@@ -175,11 +186,12 @@ export async function fetchWipStock(): Promise<AgedStockItem[] | null> {
 //   ← 既存の "味噌仕込み管理連携: ..." 文字列の末尾に " / " で連結してください
 
 export interface StockAdjustPayload {
-  misoType:   string
-  category:   'wip' | 'aged'
-  deltaKg:    number
-  lotNumber?: string
-  notes?:     string  // 在庫変更履歴の備考列に追記
+  misoType:     string
+  category:     'wip' | 'aged'
+  deltaKg:      number
+  lotNumber?:   string
+  notes?:       string   // 在庫変更履歴の備考列に追記
+  applyRecipe?: boolean  // true=レシピ展開で原材料在庫も連動調整（正=消費、負=復元）
 }
 
 export async function adjustStock(payload: StockAdjustPayload): Promise<boolean> {

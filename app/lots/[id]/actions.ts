@@ -304,7 +304,8 @@ export async function deleteLot(lotId: string, skipStockUpdate?: boolean): Promi
         await adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber }).catch(e => console.error('aged在庫削除エラー:', e))
       } else if (lot.misoType !== '白みそ') {
         // 熟成中なら wip から引く（白みそは wip 品目なしのためスキップ）
-        await adjustStock({ misoType: lot.misoType, category: 'wip', deltaKg: -yieldKg, lotNumber: lot.lotNumber }).catch(e => console.error('wip在庫削除エラー:', e))
+        // applyRecipe:true で登録時に消費した原材料も復元（誤登録の取り消し）
+        await adjustStock({ misoType: lot.misoType, category: 'wip', deltaKg: -yieldKg, lotNumber: lot.lotNumber, applyRecipe: true }).catch(e => console.error('wip在庫削除エラー:', e))
       }
     }
 

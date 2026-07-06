@@ -19,6 +19,8 @@ export default function StockPreviewPanel({
       <p className="text-sm text-muted-foreground">在庫システムへの反映なし</p>
     )
   }
+  const hasRecipeLinked = state.some(item => item.recipeLinked)
+  const isConsume = state.some(item => item.recipeLinked && item.deltaKg >= 0)
   return (
     <div className="rounded-md border overflow-hidden text-sm">
       <table className="w-full">
@@ -51,6 +53,12 @@ export default function StockPreviewPanel({
           })}
         </tbody>
       </table>
+      {hasRecipeLinked && (
+        <p className="border-t bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+          ※在庫システムのレシピ連動により、原材料在庫（裸麦・大豆・塩・種麹など）も自動で
+          {isConsume ? '消費（減算）' : '復元（加算）'}されます
+        </p>
+      )}
     </div>
   )
 }
