@@ -5,7 +5,7 @@ import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, ReferenceArea,
 } from 'recharts'
-import { AlertTriangle, Info } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import {
   T_COMPLETE, T_MAX, SALT_KOJI_RATE, WINDOW_SWEET, WINDOW_BALANCE, SOKKO_BA_CLOSE,
   KOME_KOJI_HO_BASE, KOME_SALT_PCT_BASE, KOME_T_COMPLETE,
@@ -109,6 +109,75 @@ function MetricCard({
           'text-gray-400'
         }`}>{diffText}</p>
       )}
+    </div>
+  )
+}
+
+// ── 仕上がりプロファイル帯 ────────────────────────────────────────────────────
+// 収穫窓中央で評価した味の傾向を、基準配合（＝中央50%）からの差分で一望する。
+type TasteDir = 'high-good' | 'low-good' | 'neutral'
+interface TasteAxis {
+  key:     string
+  label:   string
+  raw:     number   // この配合の絶対値
+  baseRaw: number   // 基準配合の絶対値
+  dir:     TasteDir // high-good=多いほど良い / low-good=少ないほど良い / neutral=中立
+}
+
+function ProfileBand({
+  axes, headline, tone,
+}: {
+  axes:     TasteAxis[]
+  headline: string
+  tone:     'good' | 'warn' | 'bad'
+}) {
+  const toneCls = tone === 'bad'
+    ? 'bg-rose-50 border-rose-200 text-rose-800'
+    : tone === 'warn'
+      ? 'bg-amber-50 border-amber-200 text-amber-800'
+      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-1">
+        <h2 className="text-sm font-semibold text-gray-700">仕上がりプロファイル</h2>
+        <span className="text-xs text-gray-400">収穫窓中央で評価・┃＝基準配合</span>
+      </div>
+      <div className={`rounded-lg border px-3 py-2 text-sm ${toneCls}`}>{headline}</div>
+      <div className="space-y-2.5">
+        {axes.map(a => {
+          const ratio = a.baseRaw > 0 ? a.raw / a.baseRaw : 1
+          const fill  = Math.max(0, Math.min(100, ratio * 50))   // 基準配合を50%に置く
+          const pct   = Math.round((ratio - 1) * 100)
+          const level = fill < 20 ? '弱い' : fill < 40 ? 'やや弱い' : fill < 60 ? '中程度' : fill < 80 ? 'やや強い' : '強い'
+          // 差分の善し悪し：high-goodは増で緑・low-goodは減で緑・neutralはグレー
+          const better = a.dir === 'high-good' ? pct > 0 : a.dir === 'low-good' ? pct < 0 : null
+          const barColor = a.dir === 'neutral' ? '#9CA3AF'
+            : better === true  ? '#10B981'
+            : better === false ? '#F59E0B'
+            : '#9CA3AF'
+          const pctColor = Math.abs(pct) < 1 ? 'text-gray-400'
+            : better === true  ? 'text-emerald-600'
+            : better === false ? 'text-amber-600'
+            : 'text-gray-400'
+          return (
+            <div key={a.key} className="flex items-center gap-2 sm:gap-3">
+              <span className="text-sm text-gray-700 w-9 shrink-0">{a.label}</span>
+              <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
+                <div className="h-full rounded-full transition-all duration-300 ease-out"
+                  style={{ width: `${fill}%`, backgroundColor: barColor, opacity: 0.72 }} />
+                <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-gray-500 z-10" style={{ left: '50%' }} />
+              </div>
+              <span className="text-xs text-gray-500 w-14 shrink-0 text-right">{level}</span>
+              <span className={`text-xs font-medium w-11 shrink-0 text-right tabular-nums ${pctColor}`}>
+                {Math.abs(pct) < 1 ? '±0%' : pct > 0 ? `+${pct}%` : `${pct}%`}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-[11px] text-gray-400">
+        バーは基準配合（無添加麦みそ）を50%に置いた相対値。苦味・焦げは低いほど良い軸として、基準より低いと緑・高いと琥珀で表示（精度±30〜50%の傾向把握）。
+      </p>
     </div>
   )
 }
@@ -405,11 +474,29 @@ export default function BrewSimulator({
     return `/lots/new?${p.toString()}`
   })()
 
-  const tPeakDays = dailyAccum > 0 ? Math.round(result.tPeak / dailyAccum) : null
+  const tPeakDays = (result.sugarPeakT != null && dailyAccum > 0)
+    ? Math.round(result.sugarPeakT / dailyAccum) : null
 
   // 収穫窓の警告レベル
   const isWindowNarrow = windowRatio != null && windowRatio < 0.7
   const isWindowMissing = result.windowStart === null
+
+  // ── 仕上がりプロファイル帯（収穫窓中央で評価・基準配合＝中央50%） ──
+  const tasteAxes: TasteAxis[] = [
+    // 甘味＝最大糖産生量×穀物量（デンプン絶対量）。甘味ポテンシャルと同じ指標
+    { key: 'sweet',  label: '甘味', raw: result.bMax * ingredients.grainKg, baseRaw: base.bMax * baseIngredients.grainKg, dir: 'high-good' },
+    { key: 'umami',  label: '旨味', raw: result.umamiAt,      baseRaw: base.umamiAt,      dir: 'high-good' },
+    { key: 'bitter', label: '苦味', raw: result.bitterAt,     baseRaw: base.bitterAt,     dir: 'low-good'  },
+    { key: 'sour',   label: '酸味', raw: result.aromaSour,    baseRaw: base.aromaSour,    dir: 'neutral'   },
+    { key: 'roast',  label: '焦げ', raw: result.aromaRoasted, baseRaw: base.aromaRoasted, dir: 'low-good'  },
+  ]
+  const windowDaysStr = result.windowStart != null && dailyAccum > 0
+    ? `仕込みから約${Math.round(result.windowStart / dailyAccum)}〜${result.windowEnd != null ? Math.round(result.windowEnd / dailyAccum) : '—'}日（${selectedLocation}${selectedLocation === '常温' ? `${brewMonth}月` : ''}）が狙い目`
+    : null
+  const profileHeadline = isWindowMissing
+    ? 'この配合では収穫窓が検出されませんでした。塩分を上げるか麹歩合を下げてください。'
+    : `${windowDaysStr ?? `収穫窓 ${result.windowStart}〜${result.windowEnd ?? '—'} ℃・日`}／収穫窓の余裕：${isWindowNarrow ? 'シビア（タイミングが狭い）' : '余裕あり'}`
+  const profileTone: 'good' | 'warn' | 'bad' = isWindowMissing ? 'bad' : isWindowNarrow ? 'warn' : 'good'
 
   // 収穫窓アニメーション（モード切替時にx1/x2を補間）
   const [animWindow, setAnimWindow] = useState<{ start: number | null; end: number | null }>({
@@ -646,11 +733,11 @@ export default function BrewSimulator({
       {/* ── 結果（モバイル: グラフ・結果タブのみ / デスクトップ: 常時表示） ── */}
       <div className={`space-y-5 ${mobileTab === 'config' ? 'hidden sm:block' : undefined}`}>
 
-      {/* ── 進行度グラフ ── */}
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
-        <div className="flex flex-wrap items-center gap-2 mb-0.5">
-          <h2 className="text-sm font-semibold text-gray-700">発酵進行度</h2>
-          <div className="ml-auto flex rounded border border-gray-200 overflow-hidden text-xs">
+      {/* ── コントロールバー：仕込み場所・収穫窓モード（プロファイルを左右する入力） ── */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-500">仕込み場所</span>
+          <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
             {(['暖房', '冷房', '常温', '速醸'] as const).map(loc => (
               <button
                 key={loc}
@@ -668,7 +755,6 @@ export default function BrewSimulator({
           </div>
           {selectedLocation === '常温' && (
             <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-gray-500">仕込み開始月</span>
               <select
                 value={brewMonth}
                 onChange={e => setBrewMonth(Number(e.target.value))}
@@ -683,7 +769,6 @@ export default function BrewSimulator({
           )}
           {selectedLocation === '速醸' && (
             <div className="flex items-center gap-1.5 text-xs">
-              <span className="text-gray-500">加温温度</span>
               <select
                 value={sokkoTemp}
                 onChange={e => setSokkoTemp(Number(e.target.value))}
@@ -697,11 +782,51 @@ export default function BrewSimulator({
             </div>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mb-4">
-          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{currentChartMax}℃・日表示</span>}{grainType === '無洗米' && !isSokko && <span className="text-amber-500 ml-1">※白みそ通常目標（速醸70℃・日）の基準線は非表示</span>}　右Y軸：pH
-          <span className={`ml-1 ${isSokko ? 'text-rose-500' : 'text-violet-600'}`}>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">収穫窓モード</span>
+          <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setWindowMode('balance')}
+              className={`px-3 py-1.5 transition-colors ${windowMode === 'balance' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+            >
+              品質バランス
+            </button>
+            <button
+              type="button"
+              onClick={() => setWindowMode('sweet')}
+              className={`px-3 py-1.5 transition-colors ${windowMode === 'sweet' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+            >
+              甘味重視
+            </button>
+          </div>
+          <span className="text-xs text-gray-400 hidden sm:inline">
+            {windowMode === 'balance' ? '糖 ≥ 25%（実際の完成タイミング）' : '糖 ≥ 50%（甘味のピーク付近）'}
+          </span>
+        </div>
+      </div>
+
+      {/* ── 仕上がりプロファイル帯（この配合の"答え"） ── */}
+      <ProfileBand axes={tasteAxes} headline={profileHeadline} tone={profileTone} />
+
+      {/* ── 発酵の詳しいグラフ（折りたたみ・詳細指標） ── */}
+      <details className="group">
+        <summary className="cursor-pointer select-none list-none py-2 text-sm font-medium text-violet-600 hover:text-violet-800 flex items-center gap-1.5">
+          <span className="transition-transform group-open:rotate-90">▸</span>
+          発酵の詳しいグラフを見る（デンプン・糖・アミノ酸・pH・香気・サマリー）
+        </summary>
+        <div className="space-y-5 pt-3">
+
+      {/* ── 進行度グラフ ── */}
+      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
+        <div className="flex flex-wrap items-center gap-2 mb-0.5">
+          <h2 className="text-sm font-semibold text-gray-700">発酵進行度</h2>
+          <span className={`ml-auto text-xs ${isSokko ? 'text-rose-500' : 'text-violet-600'}`}>
             {selectedLocation}（{locTemp.toFixed(0)}℃）：{dailyAccum.toFixed(1)} ℃/日換算
           </span>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          X軸：積算温度（℃・日）{isSokko && <span className="text-rose-500 ml-1">※速醸は0〜{currentChartMax}℃・日表示</span>}{grainType === '無洗米' && !isSokko && <span className="text-amber-500 ml-1">※白みそ通常目標（速醸70℃・日）の基準線は非表示</span>}　右Y軸：pH
           {!isSokko && (
             <span className="ml-2 text-blue-400">
               酵母比率 {(result.fYeast * 100).toFixed(0)}%（塩分{saltPct.toFixed(1)}%・{locTemp.toFixed(0)}℃補正）
@@ -814,20 +939,22 @@ export default function BrewSimulator({
                 label={{ value: String(effectiveTComplete), position: 'insideTopRight', fontSize: 9, fill: '#94A3B8' }}
               />
             )}
-            {/* 縦線：基準の糖ピーク */}
-            {Math.abs(result.tPeak - base.tPeak) > 12 && (
+            {/* 縦線：基準の糖ピーク（速醸は単調増加でピークが無いため非表示） */}
+            {base.sugarPeakT != null && result.sugarPeakT != null && Math.abs(result.sugarPeakT - base.sugarPeakT) > 12 && (
               <ReferenceLine
-                yAxisId="left" x={base.tPeak}
+                yAxisId="left" x={base.sugarPeakT}
                 stroke="#FCD34D" strokeDasharray="2 3" strokeWidth={1}
                 label={{ value: '基準糖ピーク', position: 'insideTopLeft', fontSize: 9, fill: '#F59E0B' }}
               />
             )}
             {/* 縦線：現在の糖ピーク */}
-            <ReferenceLine
-              yAxisId="left" x={result.tPeak}
-              stroke="#F59E0B" strokeWidth={1.5}
-              label={{ value: '糖ピーク', position: 'insideTopRight', fontSize: 9, fill: '#F59E0B' }}
-            />
+            {result.sugarPeakT != null && (
+              <ReferenceLine
+                yAxisId="left" x={result.sugarPeakT}
+                stroke="#F59E0B" strokeWidth={1.5}
+                label={{ value: '糖ピーク', position: 'insideTopRight', fontSize: 9, fill: '#F59E0B' }}
+              />
+            )}
             {/* 縦線：苦味ペプチドピーク */}
             {result.tBitterPeak <= currentChartMax && (
               <ReferenceLine
@@ -912,65 +1039,14 @@ export default function BrewSimulator({
         </div>
       </div>
 
-      {/* ── 収穫窓モード切替 + アラート ── */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500">収穫窓モード</span>
-        <div className="flex rounded border border-gray-200 overflow-hidden text-xs">
-          <button
-            type="button"
-            onClick={() => setWindowMode('balance')}
-            className={`px-3 py-1.5 transition-colors ${windowMode === 'balance' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-          >
-            品質バランス
-          </button>
-          <button
-            type="button"
-            onClick={() => setWindowMode('sweet')}
-            className={`px-3 py-1.5 transition-colors ${windowMode === 'sweet' ? 'bg-violet-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
-          >
-            甘味重視
-          </button>
-        </div>
-        <span className="text-xs text-gray-400">
-          {windowMode === 'balance' ? '糖 ≥ 25%（実際の完成タイミングに対応）' : '糖 ≥ 50%（甘味のピーク付近）'}
-        </span>
-      </div>
-
-      {isWindowMissing ? (
-        <div className="rounded-lg px-4 py-3 text-sm flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>この配合では収穫窓が検出されませんでした。塩分を上げるか麹歩合を下げてください。</span>
-        </div>
-      ) : (
-        <div className={`rounded-lg px-4 py-3 text-sm flex items-start gap-2 ${
-          isWindowNarrow
-            ? 'bg-amber-50 border border-amber-200 text-amber-800'
-            : 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-        }`}>
-          {isWindowNarrow
-            ? <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-            : <Info className="h-4 w-4 shrink-0 mt-0.5" />
-          }
-          <div>
-            <span className="font-medium">収穫窓：</span>
-            {result.windowStart}〜{result.windowEnd ?? '（範囲内で終了せず）'} ℃・日
-            {result.windowStart != null && dailyAccum > 0 && (
-              <span className="ml-1 text-xs">
-                （約 {Math.round(result.windowStart / dailyAccum)}〜{result.windowEnd != null ? Math.round(result.windowEnd / dailyAccum) : '—'} 日・{selectedLocation}）
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── サマリーカード ── */}
+      {/* ── サマリーカード（詳細指標・折りたたみ内） ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard
           label="糖ピーク"
-          value={`${Math.round(result.tPeak)} ℃・日`}
-          sub={`${selectedLocation}約${tPeakDays ?? '—'}日`}
+          value={result.sugarPeakT != null ? `${Math.round(result.sugarPeakT)} ℃・日` : '—'}
+          sub={result.sugarPeakT != null ? `${selectedLocation}約${tPeakDays ?? '—'}日` : '速醸は糖化完了型（ピークなし）'}
           diffText={
-            tPeakRatio != null && basePeakRatio != null
+            result.sugarPeakT != null && tPeakRatio != null && basePeakRatio != null
               ? Math.abs(tPeakRatio - basePeakRatio) > 0.01
                 ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
                 : '基準と同等'
@@ -1000,6 +1076,9 @@ export default function BrewSimulator({
           diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
         />
       </div>
+
+        </div>{/* /折りたたみ内コンテナ */}
+      </details>
 
       {/* ── モデル注記 ── */}
       <div className="text-xs text-muted-foreground bg-gray-50/70 rounded-lg p-4 space-y-1 border border-gray-100">

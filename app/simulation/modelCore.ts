@@ -49,6 +49,7 @@ export type ChartPoint = {
 export type ModelOutput = {
   points:       ChartPoint[]
   tPeak:        number
+  sugarPeakT:   number | null   // 糖ピークの積算温度。速醸は単調増加でピークが無いためnull
   tAAPeak:      number
   tBitterPeak:  number
   bitterMax:    number
@@ -56,6 +57,8 @@ export type ModelOutput = {
   aw:           number
   phFinal:      number
   fYeast:       number
+  umamiAt:      number   // 収穫窓中央(evalT)でのアミノ酸蓄積（%）＝旨味の代理
+  bitterAt:     number   // 収穫窓中央(evalT)での苦味ペプチド（%）
   aromaRoasted: number
   aromaFruity:  number
   aromaSour:    number
@@ -179,7 +182,9 @@ export function runModel(
   const aromaSour   = Math.min(100, Ce * (1 - fYeast) * 100 * SOUR_AROMA_SCALE)
 
   return {
-    points, tPeak, tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast,
+    points, tPeak, sugarPeakT: isSokko ? null : tPeak,
+    tAAPeak, tBitterPeak, bitterMax, bMax, aw, phFinal, fYeast,
+    umamiAt: AA_e * 100, bitterAt: bitter_e * 100,
     aromaRoasted, aromaFruity, aromaSour, windowStart, windowEnd,
   }
 }
