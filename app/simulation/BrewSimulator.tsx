@@ -163,7 +163,7 @@ function ProfileBand({
             : 'text-gray-400'
           return (
             <div key={a.key} className="flex items-center gap-2 sm:gap-3">
-              <span className="text-sm text-gray-700 w-9 shrink-0">{a.label}</span>
+              <span className="text-sm text-gray-700 w-12 shrink-0 whitespace-nowrap">{a.label}</span>
               <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden relative">
                 <div className="h-full rounded-full transition-all duration-300 ease-out"
                   style={{ width: `${fill}%`, backgroundColor: barColor, opacity: 0.72 }} />
@@ -178,7 +178,7 @@ function ProfileBand({
         })}
       </div>
       <p className="text-[11px] text-gray-400">
-        バーは一般的な標準みそ（麹歩合10割・塩分11%）を中央50%に置いた対数目盛（2倍/半分ごとに±25%）。無添加麦みそ（24.1割）など麹多めの配合は甘味・旨味が右に振れる。苦味・焦げは低いほど良い軸として、標準より低いと緑・高いと琥珀で表示（精度±30〜50%の傾向把握）。
+        バーは一般的な標準みそ（麹歩合10割・塩分11%）を中央50%に置いた対数目盛（2倍/半分ごとに±25%）。無添加麦みそ（24.1割）など麹多めの配合は甘味・旨味が右に振れる。苦味・焦げは低いほど良い軸として、標準より低いと緑・高いと琥珀で表示（精度±30〜50%の傾向把握。花果香は特に粗い定性推定）。
       </p>
     </div>
   )
@@ -507,6 +507,9 @@ export default function BrewSimulator({
     { key: 'bitter', label: '苦味', raw: result.bitterAt,     baseRaw: base.bitterAt,     dir: 'low-good'  },
     { key: 'sour',   label: '酸味', raw: result.aromaSour,    baseRaw: base.aromaSour,    dir: 'neutral'   },
     { key: 'roast',  label: '焦げ', raw: result.aromaRoasted, baseRaw: base.aromaRoasted, dir: 'low-good'  },
+    // 花果香（フルーティー・エステル）。旧・香気傾向セクションの焦香=焦げ／酸香=酸味は
+    // プロファイルと同値のため重複。独自情報の花果様香だけをここに統合（精度は特に粗い）
+    { key: 'fruity', label: '花果香', raw: result.aromaFruity, baseRaw: base.aromaFruity, dir: 'high-good' },
   ]
   const windowDaysStr = result.windowStart != null && dailyAccum > 0
     ? `仕込みから約${Math.round(result.windowStart / dailyAccum)}〜${result.windowEnd != null ? Math.round(result.windowEnd / dailyAccum) : '—'}日（${selectedLocation}${selectedLocation === '常温' ? `${brewMonth}月` : ''}）が狙い目`
@@ -986,47 +989,6 @@ export default function BrewSimulator({
 
         </div>{/* ── 右：ライブ結果 ここまで ── */}
       </div>{/* ── 2カラムグリッド ここまで ── */}
-
-      {/* ── 香気傾向（全幅・詳細） ── */}
-      <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5">
-          <div className="flex flex-wrap items-center gap-2 mb-3">
-            <span className="text-xs font-semibold text-gray-600">香気傾向</span>
-            <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">定性・精度±100%</span>
-            <span className="text-xs text-gray-400">評価点：収穫窓中央{effectiveTComplete != null ? ` or ${effectiveTComplete}℃・日` : '（目標値未確立）'}　縦線＝標準みそ（10割）</span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {([
-              { key: 'roasted', label: '焦香',     sub: 'カラメル・焦げ',     val: result.aromaRoasted, base: base.aromaRoasted, color: '#C8963E' },
-              { key: 'fruity',  label: '花果様香', sub: 'フルーティー・エステル', val: result.aromaFruity,  base: base.aromaFruity,  color: '#34D399' },
-              { key: 'sour',    label: '酸香',     sub: '酸味・発酵臭',       val: result.aromaSour,    base: base.aromaSour,    color: '#9B7FC8' },
-            ] as const).map(({ key, label, sub, val, base: bVal, color }) => {
-              const diff = val - bVal
-              const qualLabel = val < 10 ? '弱い' : val < 30 ? 'やや弱い' : val < 55 ? '中程度' : val < 75 ? 'やや強い' : '強い'
-              return (
-                <div key={key}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-gray-600">{label}
-                      <span className="text-gray-400 ml-1">（{sub}）</span>
-                    </span>
-                    <span className="tabular-nums text-gray-500">
-                      {Math.abs(diff) >= 1 && (
-                        <span className={`mr-1 font-medium ${diff > 0 ? 'text-amber-600' : 'text-blue-500'}`}>
-                          {diff > 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1)}
-                        </span>
-                      )}
-                      {qualLabel}
-                    </span>
-                  </div>
-                  <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden relative">
-                    <div className="absolute top-0 bottom-0 w-px bg-gray-400 z-10" style={{ left: `${Math.min(100, bVal)}%` }} />
-                    <div className="h-full rounded-full transition-all duration-400 ease-out"
-                      style={{ width: `${Math.min(100, val)}%`, backgroundColor: color, opacity: 0.65 }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>{/* /香気傾向カード */}
 
       {/* ── サマリーカード（全幅・詳細指標） ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
