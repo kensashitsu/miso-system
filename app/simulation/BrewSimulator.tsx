@@ -140,7 +140,7 @@ function ProfileBand({
     <div className="rounded-xl border border-gray-100 bg-white shadow-sm p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-1">
         <h2 className="text-sm font-semibold text-gray-700">仕上がりプロファイル</h2>
-        <span className="text-xs text-gray-400">収穫窓中央で評価・┃＝基準配合</span>
+        <span className="text-xs text-gray-400">収穫窓中央で評価・┃＝標準みそ（麹歩合10割）</span>
       </div>
       <div className={`rounded-lg border px-3 py-2 text-sm ${toneCls}`}>{headline}</div>
       <div className="space-y-2.5">
@@ -176,7 +176,7 @@ function ProfileBand({
         })}
       </div>
       <p className="text-[11px] text-gray-400">
-        バーは基準配合（無添加麦みそ）を50%に置いた相対値。苦味・焦げは低いほど良い軸として、基準より低いと緑・高いと琥珀で表示（精度±30〜50%の傾向把握）。
+        バーは一般的な標準みそ（麹歩合10割）を50%に置いた相対値。無添加麦みそ（24.1割）など麹多めの配合は甘味・旨味が右に振れる。苦味・焦げは低いほど良い軸として、標準より低いと緑・高いと琥珀で表示（精度±30〜50%の傾向把握）。
       </p>
     </div>
   )
@@ -246,6 +246,12 @@ function calcMinMoisturePct(
   const weighted = (R * α * mKoji + β * mSoy) / (R * α + β)
   return (1 - P) * weighted * 100
 }
+
+// 仕上がりプロファイル・各カードの比較基準となる「標準みそ」の麹歩合（世間一般＝10割）。
+// ※モデルのキャリブレーション基準（無添加麦みそ24.1割・K_AMY_BASEの定義点）とは別物。
+//   24.1割を中央に据えると、24.1は世間的に麹多め（甘口）の部類のため"ふつう"が世の中の
+//   感覚からずれる。そこで比較の中央値（50%）だけを一般的な10割に固定する。
+const STANDARD_KOJI_HO = 10
 
 // ── メインコンポーネント ──────────────────────────────────────────────────────
 export default function BrewSimulator({
@@ -383,14 +389,22 @@ export default function BrewSimulator({
     ? [0, 50, 100, 150, 200, 250, 300]
     : [0, 150, 300, 450, 600, 750, 900]
 
+  // 比較基準＝標準みそ（麹歩合10割）。塩分は既存の連動式で算出（麹歩合が低いほど高塩）。
+  // ※runModelの kojiHoBase 引数は currentBaseKojiHo（=無添加麦24.1割のキャリブレーション
+  //   正規化点）のまま。標準みそは「10割の配合をモデルで評価した推計値」であり、モデルの
+  //   反応速度アンカーは動かさない。
+  const stdSaltPct = Math.round(
+    Math.min(16, Math.max(1, currentBaseSaltPct + (currentBaseKojiHo - STANDARD_KOJI_HO) * SALT_KOJI_RATE)) * 10
+  ) / 10
+
   // 出麹評価は固定（6=標準）。result・base とも同じ温度・同じモードで比較
   const result = useMemo(
     () => runModel(kojiHo, saltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold),
     [kojiHo, saltPct, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold]
   )
   const base = useMemo(
-    () => runModel(currentBaseKojiHo, currentBaseSaltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold),
-    [currentBaseKojiHo, currentBaseSaltPct, locTemp, bThreshold, isSokko, currentTComplete, currentProteinThreshold]
+    () => runModel(STANDARD_KOJI_HO, stdSaltPct, 6, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold),
+    [stdSaltPct, locTemp, bThreshold, isSokko, currentBaseKojiHo, currentTComplete, currentProteinThreshold]
   )
 
   // グラフ用データ：表示範囲外を除外して XAxis のスケール計算を正確にする
@@ -431,13 +445,13 @@ export default function BrewSimulator({
     targetMoisturePct / 100,
   ), [shikomiKg, kojiHo, saltPct, currentKojiRatioCalc, soybeanRatio, currentKojiMoisture, steamedSoyMoisture, targetMoisturePct])
 
-  // 基準配合の原料量（デンプン絶対量の比較用）
+  // 標準みそ（麹歩合10割）の原料量（甘味＝穀物量・旨味＝大豆量の絶対量比較用）
   const baseIngredients = useMemo(() => calcIngredients(
-    shikomiKg, currentBaseKojiHo, currentBaseSaltPct,
+    shikomiKg, STANDARD_KOJI_HO, stdSaltPct,
     currentKojiRatioCalc, soybeanRatio,
     currentKojiMoisture, steamedSoyMoisture,
     targetMoisturePct / 100,
-  ), [shikomiKg, currentBaseKojiHo, currentBaseSaltPct, currentKojiRatioCalc, soybeanRatio, currentKojiMoisture, steamedSoyMoisture, targetMoisturePct])
+  ), [shikomiKg, stdSaltPct, currentKojiRatioCalc, soybeanRatio, currentKojiMoisture, steamedSoyMoisture, targetMoisturePct])
 
   // 甘味ポテンシャル = bMax比 × 穀物量比
   // bMaxは「デンプンの何割が糖になるか」の比率、grainKgは「デンプンの絶対量」を代理
@@ -1004,7 +1018,7 @@ export default function BrewSimulator({
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <span className="text-xs font-semibold text-gray-600">香気傾向</span>
             <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded px-1.5 py-0.5">定性・精度±100%</span>
-            <span className="text-xs text-gray-400">評価点：収穫窓中央{effectiveTComplete != null ? ` or ${effectiveTComplete}℃・日` : '（目標値未確立）'}　縦線＝基準配合</span>
+            <span className="text-xs text-gray-400">評価点：収穫窓中央{effectiveTComplete != null ? ` or ${effectiveTComplete}℃・日` : '（目標値未確立）'}　縦線＝標準みそ（10割）</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {([
@@ -1050,8 +1064,8 @@ export default function BrewSimulator({
           diffText={
             result.sugarPeakT != null && tPeakRatio != null && basePeakRatio != null
               ? Math.abs(tPeakRatio - basePeakRatio) > 0.01
-                ? `基準比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
-                : '基準と同等'
+                ? `標準みそ比 ${tPeakRatio > basePeakRatio ? '+' : ''}${((tPeakRatio - basePeakRatio) * 100).toFixed(0)}%`
+                : '標準みそと同等'
               : undefined
           }
           diffGood={null}
@@ -1060,20 +1074,20 @@ export default function BrewSimulator({
           label="最終pH（到達下限）"
           value={result.phFinal.toFixed(2)}
           sub={result.phFinal < 4.8 ? '酸味が強くなる' : result.phFinal < 5.0 ? 'やや酸味あり' : '穏やかな酸味'}
-          diffText={`基準比 ${phDiff >= 0 ? '+' : ''}${phDiff.toFixed(2)}`}
+          diffText={`標準みそ比 ${phDiff >= 0 ? '+' : ''}${phDiff.toFixed(2)}`}
           diffGood={phDiff >= 0 ? true : false}
         />
         <MetricCard
           label="甘味ポテンシャル"
           value={`${sweetnessPotential.toFixed(2)}倍`}
-          sub="最大糖産生量 × 穀物量（デンプン絶対量）基準比"
+          sub="最大糖産生量 × 穀物量（デンプン絶対量）標準みそ比"
           diffText={sweetnessPotential > 1 ? `+${((sweetnessPotential - 1) * 100).toFixed(0)}%` : `${((sweetnessPotential - 1) * 100).toFixed(0)}%`}
           diffGood={sweetnessPotential >= 1 ? true : false}
         />
         <MetricCard
           label="収穫窓の広さ"
           value={windowWidth != null ? `${windowWidth} ℃・日` : '—'}
-          sub={windowRatio != null ? `基準比 ${(windowRatio * 100).toFixed(0)}%` : '窓が開かない'}
+          sub={windowRatio != null ? `標準みそ比 ${(windowRatio * 100).toFixed(0)}%` : '窓が開かない'}
           diffText={isWindowMissing ? '条件未達' : isWindowNarrow ? 'タイミングがシビア' : '余裕あり'}
           diffGood={isWindowMissing ? false : isWindowNarrow ? false : true}
         />
@@ -1093,6 +1107,7 @@ export default function BrewSimulator({
             ? '無洗米（速醸）選択中：コアモデルは裸麦ベースのキャリブレーション。目標70℃・日は速醸時の基準値。'
             : '無洗米（非速醸）選択中：コアモデルは裸麦ベースのキャリブレーション。白みそを速醸以外で熟成した場合の参考値として利用可能。目標積算温度は未確立のため基準線は非表示。')}
         </p>
+        <p>仕上がりプロファイル・各カードの「基準（中央50%・標準みそ比）」＝一般的な標準みそ（麹歩合 {STANDARD_KOJI_HO} 割・塩分は麹歩合連動で約 {stdSaltPct.toFixed(1)}%）。上記キャリブレーション基準（無添加麦24.1割）とは別で、世間一般の感覚に合わせた比較の中央値。麹多めの自社定番（無添加麦・山吹・白）は標準みそより甘味・旨味が右に振れて表示される。</p>
         <p>A→B→C連続反応（デンプン→糖→酸・アルコール）とアミノ酸蓄積の並行反応モデル。精度±30〜50%を前提に傾向把握の目的でご利用ください。</p>
         <p>収穫窓の定義：糖 ≥ {windowMode === 'sweet' ? '50' : '25'}%（相対）かつタンパク質残存 ≤ {currentProteinThreshold}%（{grainType === '無洗米' ? '15%以上分解・甘味主体のため緩和' : '苦味ペプチドを含む総分解量 ≥ 30%'}）かつ pH ≥ 4.8。「品質バランス」モードは無添加麦みそ等の実際の仕上がりタイミング（600℃・日付近）に対応。</p>
         <p>苦味ペプチド：タンパク質→苦味ペプチド→アミノ酸の二段階反応モデル。苦味は熟成中期にピークを持ち、その後アミノ酸（旨味）へ分解される。麹歩合が高いほど苦味ピークが早く・高くなるが解消も速い。</p>
