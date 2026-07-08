@@ -44,6 +44,9 @@ next start を社内PC1台で常時起動
 |--------|------|
 | `DATABASE_URL` | `file:./dev.db`（Prismaが`prisma/`基準で解決） |
 | `STOCK_API_URL` | 熟成済在庫取得エンドポイント |
+| `STOCK_WIP_API_URL` | 熟成中（半製品）在庫取得エンドポイント |
+| `STOCK_ADJUST_API_URL` | 在庫調整POSTエンドポイント（`applyRecipe:true`でzaiko側レシピ展開→原材料連動） |
+| `STOCK_ADJUST_PREVIEW_API_URL` | 在庫調整プレビューPOST（適用なしの試算。原材料の前後値表示に使用。未設定時は原材料行非表示） |
 | `SALES_API_URL` | 月別出荷実績取得エンドポイント |
 | `EXTERNAL_API_KEY` | 上記APIの認証キー（`X-API-Key`ヘッダー） |
 | `PYTHON_PATH` | SARIMAXスクリプト実行用Python3パス（省略時はシステムデフォルト） |

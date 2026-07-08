@@ -214,6 +214,86 @@ export async function adjustStock(payload: StockAdjustPayload): Promise<boolean>
   }
 }
 
+// ── 在庫調整プレビュー（適用なしの試算）─────────────────────
+// zaiko.mitsuura.jp 開発者への依頼：
+// 在庫調整のプレビュー用 POST エンドポイントを追加し、
+// 環境変数 STOCK_ADJUST_PREVIEW_API_URL にURLを設定してください。
+//
+// POST ${STOCK_ADJUST_PREVIEW_API_URL}
+// 認証・リクエストボディ: 在庫調整API（STOCK_ADJUST_API_URL）と完全に同一
+// 動作: 在庫を一切変更せず、実行した場合の結果だけを計算して返す
+// レスポンス: 在庫調整APIと同じ形式。ただし consumedMaterials の各要素に
+//   原材料在庫の前後値 stockBefore / stockAfter（単位は unit と同じ）を追加してください。
+//   {
+//     "ok": true,
+//     "stockBefore": 1639, "stockAfter": 1739,
+//     "consumedMaterials": [
+//       { "name": "山口県産裸麦25kg", "quantity": 1.63, "unit": "袋",
+//         "stockBefore": 10, "stockAfter": 8.37 },
+//       ...
+//     ]
+//   }
+// 用途: 熟成管理システムのロット登録・削除の確認画面に
+//       「原材料の使用前後の数量」を表示するために呼び出します（読み取り専用）。
+
+export interface ConsumedMaterial {
+  name:         string
+  quantity:     number  // 正=消費、負=復元（deltaKgの符号に追従）
+  unit:         string  // 袋・リットル など
+  stockBefore?: number  // 原材料の現在庫（プレビューAPIのみ）
+  stockAfter?:  number  // 変動後の在庫（プレビューAPIのみ）
+}
+
+export interface StockAdjustPreview {
+  stockBefore?:      number
+  stockAfter?:       number
+  recipeApplied?:    boolean
+  consumedMaterials: ConsumedMaterial[]
+}
+
+export async function previewStockAdjust(payload: StockAdjustPayload): Promise<StockAdjustPreview | null> {
+  const url = process.env.STOCK_ADJUST_PREVIEW_API_URL
+  if (!url || !process.env.EXTERNAL_API_KEY) return null
+
+  try {
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: headers(),
+      body:    JSON.stringify(payload),
+      cache:   'no-store',
+    })
+    if (!res.ok) return null
+    const json = await res.json()
+    const mats: unknown = json?.consumedMaterials
+    const consumedMaterials: ConsumedMaterial[] = Array.isArray(mats)
+      ? mats
+          .filter((m): boolean => {
+            if (typeof m !== 'object' || m === null) return false
+            const obj = m as Record<string, unknown>
+            return typeof obj.name === 'string' && typeof obj.quantity === 'number' && typeof obj.unit === 'string'
+          })
+          .map((m): ConsumedMaterial => {
+            const obj = m as Record<string, unknown>
+            return {
+              name:        obj.name as string,
+              quantity:    obj.quantity as number,
+              unit:        obj.unit as string,
+              stockBefore: typeof obj.stockBefore === 'number' ? obj.stockBefore : undefined,
+              stockAfter:  typeof obj.stockAfter  === 'number' ? obj.stockAfter  : undefined,
+            }
+          })
+      : []
+    return {
+      stockBefore:   typeof json?.stockBefore   === 'number'  ? json.stockBefore   : undefined,
+      stockAfter:    typeof json?.stockAfter    === 'number'  ? json.stockAfter    : undefined,
+      recipeApplied: typeof json?.recipeApplied === 'boolean' ? json.recipeApplied : undefined,
+      consumedMaterials,
+    }
+  } catch {
+    return null
+  }
+}
+
 // ── 接続テスト ────────────────────────────────────────────
 export async function testApiConnection(url: string): Promise<ApiTestResult> {
   if (!process.env.EXTERNAL_API_KEY) {

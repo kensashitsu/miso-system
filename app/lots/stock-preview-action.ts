@@ -1,12 +1,27 @@
 'use server'
 
-import { fetchAgedStock, fetchWipStock } from '@/lib/externalApi'
+import { fetchAgedStock, fetchWipStock, previewStockAdjust } from '@/lib/externalApi'
 
 export interface StockChangeItem {
   label:        string
   currentKg:    number | null  // null = API未設定 or 取得失敗
   deltaKg:      number         // 正=追加、負=減算
+  unit?:        string         // 表示単位（省略時 kg。原材料は 袋・リットル など）
+  isMaterial?:  boolean        // true=レシピ連動で増減する原材料行
   recipeLinked?: boolean       // true=zaiko側でレシピ展開され原材料在庫も連動調整される
+}
+
+// レシピ連動で増減する原材料行を取得（プレビューAPI未設定時は空配列）
+async function fetchMaterialItems(misoType: string, deltaKg: number): Promise<StockChangeItem[]> {
+  const preview = await previewStockAdjust({ misoType, category: 'wip', deltaKg, applyRecipe: true })
+  if (!preview) return []
+  return preview.consumedMaterials.map(m => ({
+    label:      m.name,
+    currentKg:  m.stockBefore ?? null,
+    deltaKg:    -m.quantity,  // quantity は消費量（正=消費）なので在庫変動は符号反転
+    unit:       m.unit,
+    isMaterial: true,
+  }))
 }
 
 export async function getStockPreview(
@@ -25,10 +40,15 @@ export async function getStockPreview(
   const wipLbl  = `${misoType}（熟成中）`
 
   switch (action) {
-    case 'register':
+    case 'register': {
       // 白みそは熟成中品目なし
       if (misoType === '白みそ') return []
-      return [{ label: wipLbl, currentKg: wipKg, deltaKg: yieldKg, recipeLinked: true }]
+      const materials = await fetchMaterialItems(misoType, yieldKg)
+      return [
+        { label: wipLbl, currentKg: wipKg, deltaKg: yieldKg, recipeLinked: true },
+        ...materials,
+      ]
+    }
 
     case 'complete': {
       const items: StockChangeItem[] = []
@@ -49,9 +69,14 @@ export async function getStockPreview(
       return items
     }
 
-    case 'delete-wip':
+    case 'delete-wip': {
       if (misoType === '白みそ') return []
-      return [{ label: wipLbl, currentKg: wipKg, deltaKg: -yieldKg, recipeLinked: true }]
+      const materials = await fetchMaterialItems(misoType, -yieldKg)
+      return [
+        { label: wipLbl, currentKg: wipKg, deltaKg: -yieldKg, recipeLinked: true },
+        ...materials,
+      ]
+    }
 
     case 'delete-aged':
       return [{ label: agedLbl, currentKg: agedKg, deltaKg: -yieldKg }]
