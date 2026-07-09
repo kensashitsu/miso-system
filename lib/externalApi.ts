@@ -238,7 +238,7 @@ export async function adjustStock(payload: StockAdjustPayload): Promise<boolean>
 
 export interface ConsumedMaterial {
   name:         string
-  quantity:     number  // 正=消費、負=復元（deltaKgの符号に追従）
+  quantity:     number  // 変動量の絶対値（実装確認済み：復元方向でも正で返る。方向はstockBefore/stockAfterで判定）
   unit:         string  // 袋・リットル など
   stockBefore?: number  // 原材料の現在庫（プレビューAPIのみ）
   stockAfter?:  number  // 変動後の在庫（プレビューAPIのみ）

@@ -18,7 +18,11 @@ async function fetchMaterialItems(misoType: string, deltaKg: number): Promise<St
   return preview.consumedMaterials.map(m => ({
     label:      m.name,
     currentKg:  m.stockBefore ?? null,
-    deltaKg:    -m.quantity,  // quantity は消費量（正=消費）なので在庫変動は符号反転
+    // 在庫変動は前後値の差から算出する（quantityはAPIが復元方向でも正で返すため符号の根拠にしない）
+    deltaKg:
+      m.stockBefore != null && m.stockAfter != null
+        ? m.stockAfter - m.stockBefore
+        : deltaKg >= 0 ? -Math.abs(m.quantity) : Math.abs(m.quantity),
     unit:       m.unit,
     isMaterial: true,
   }))
