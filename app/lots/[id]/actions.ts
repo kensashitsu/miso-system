@@ -189,6 +189,8 @@ export async function updateBucketNumbers(
 const bucketUsageSchema = z.object({
   usedAt: z.string().min(1, '日付を入力してください'),
   usedKg: z.number({ error: '使用量を入力してください' }).positive('0より大きい値を入力してください'),
+  productName: z.string().nullish(),
+  operator:    z.string().nullish(),
   notes:  z.string().nullish(),
 })
 
@@ -219,7 +221,14 @@ export async function addBucketUsage(bucketId: string, input: unknown): Promise<
     if (!bucket) return { globalError: '桶が見つかりません。' }
 
     const usage = await prisma.bucketUsage.create({
-      data: { bucketId, usedAt: new Date(d.usedAt), usedKg: d.usedKg, notes: d.notes ?? null },
+      data: {
+        bucketId,
+        usedAt:      new Date(d.usedAt),
+        usedKg:      d.usedKg,
+        productName: d.productName?.trim() || null,
+        operator:    d.operator?.trim() || null,
+        notes:       d.notes?.trim() || null,
+      },
     })
 
     // 残量を再計算して更新（initialWeightKg - 全使用量合計）

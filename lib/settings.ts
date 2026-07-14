@@ -110,3 +110,64 @@ export async function saveMoistureSettings(settings: MoistureSettings): Promise<
     )
   )
 }
+
+// ==========================================
+// 桶使用記録のプルダウン選択肢（製品名・操作者名）
+// SystemSetting に JSON 文字列配列で保存
+// ==========================================
+export type BucketUsageOptions = {
+  productNames:  string[]
+  operatorNames: string[]
+}
+
+export const DEFAULT_BUCKET_USAGE_OPTIONS: BucketUsageOptions = {
+  productNames:  [],
+  operatorNames: [],
+}
+
+const BUCKET_PRODUCT_KEY  = 'bucket_productNames'
+const BUCKET_OPERATOR_KEY = 'bucket_operatorNames'
+
+function parseStringList(value: string | undefined): string[] {
+  if (!value) return []
+  try {
+    const arr = JSON.parse(value)
+    if (Array.isArray(arr)) {
+      return arr.map(v => String(v).trim()).filter(v => v.length > 0)
+    }
+  } catch {
+    // 不正なJSONは空扱い
+  }
+  return []
+}
+
+export async function getBucketUsageOptions(): Promise<BucketUsageOptions> {
+  const rows = await prisma.systemSetting.findMany({
+    where: { key: { in: [BUCKET_PRODUCT_KEY, BUCKET_OPERATOR_KEY] } },
+  })
+  const map = Object.fromEntries(rows.map(r => [r.key, r.value]))
+  return {
+    productNames:  parseStringList(map[BUCKET_PRODUCT_KEY]),
+    operatorNames: parseStringList(map[BUCKET_OPERATOR_KEY]),
+  }
+}
+
+export async function saveBucketUsageOptions(options: BucketUsageOptions): Promise<void> {
+  // 重複・空白を除去して保存
+  const dedupe = (arr: string[]) =>
+    Array.from(new Set(arr.map(v => v.trim()).filter(v => v.length > 0)))
+  const productNames  = JSON.stringify(dedupe(options.productNames))
+  const operatorNames = JSON.stringify(dedupe(options.operatorNames))
+  await prisma.$transaction([
+    prisma.systemSetting.upsert({
+      where:  { key: BUCKET_PRODUCT_KEY },
+      create: { key: BUCKET_PRODUCT_KEY, value: productNames },
+      update: { value: productNames },
+    }),
+    prisma.systemSetting.upsert({
+      where:  { key: BUCKET_OPERATOR_KEY },
+      create: { key: BUCKET_OPERATOR_KEY, value: operatorNames },
+      update: { value: operatorNames },
+    }),
+  ])
+}

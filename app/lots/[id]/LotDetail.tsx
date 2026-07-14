@@ -62,10 +62,12 @@ interface BrewRecordData {
 }
 
 interface BucketUsageItem {
-  id:     string
-  usedAt: string
-  usedKg: number
-  notes:  string | null
+  id:          string
+  usedAt:      string
+  usedKg:      number
+  productName: string | null
+  operator:    string | null
+  notes:       string | null
 }
 
 interface BucketItem {
@@ -78,6 +80,8 @@ interface BucketItem {
 }
 
 export interface LotDetailProps {
+  productNameOptions: string[]
+  operatorOptions:    string[]
   id: string
   lotNumber: string
   misoType: string
@@ -288,6 +292,8 @@ export default function LotDetail({
   brewRecord,
   buckets: initialBuckets,
   isPrototype,
+  productNameOptions,
+  operatorOptions,
 }: LotDetailProps) {
   const router = useRouter()
 
@@ -364,7 +370,15 @@ export default function LotDetail({
     Object.fromEntries(initialBuckets.map(b => [b.id, b.usages]))
   )
   const [expandedBuckets, setExpandedBuckets] = useState<Record<string, boolean>>({})
-  const [usageForm, setUsageForm] = useState<Record<string, { usedAt: string; usedKg: string; notes: string }>>({})
+  // 前回選んだ操作者を記憶（初期選択に使う）
+  const [lastOperator, setLastOperator] = useState('')
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('bucketUsage_lastOperator')
+      if (saved) setLastOperator(saved)
+    } catch { /* localStorage 不可でも無視 */ }
+  }, [])
+  const [usageForm, setUsageForm] = useState<Record<string, { usedAt: string; usedKg: string; productName: string; operator: string; notes: string }>>({})
   const [usageErrors, setUsageErrors] = useState<Record<string, Record<string, string>>>({})
   const [usageGlobalError, setUsageGlobalError] = useState<Record<string, string | null>>({})
   const [isUsageSubmitting, startUsageTransition] = useTransition()
@@ -490,24 +504,36 @@ export default function LotDetail({
     })
   }
 
+  // 使用記録フォームの初期値（操作者は前回選択を引き継ぐ）
+  function emptyUsageForm() {
+    return { usedAt: format(new Date(), 'yyyy-MM-dd'), usedKg: '', productName: '', operator: lastOperator, notes: '' }
+  }
+
   // ── 桶使用記録を追加 ───────────────────────────────────
   function handleUsageSubmit(bucketId: string) {
-    const form = usageForm[bucketId] ?? { usedAt: format(new Date(), 'yyyy-MM-dd'), usedKg: '', notes: '' }
+    const form = usageForm[bucketId] ?? emptyUsageForm()
     setUsageErrors(prev => ({ ...prev, [bucketId]: {} }))
     setUsageGlobalError(prev => ({ ...prev, [bucketId]: null }))
     startUsageTransition(async () => {
       const input = {
-        usedAt: form.usedAt,
-        usedKg: form.usedKg !== '' ? parseFloat(form.usedKg) : undefined,
-        notes:  form.notes || null,
+        usedAt:      form.usedAt,
+        usedKg:      form.usedKg !== '' ? parseFloat(form.usedKg) : undefined,
+        productName: form.productName || null,
+        operator:    form.operator || null,
+        notes:       form.notes || null,
       }
       const result: BucketUsageResult = await addBucketUsage(bucketId, input)
       if (result.errors) { setUsageErrors(prev => ({ ...prev, [bucketId]: result.errors! })); return }
       if (result.globalError) { setUsageGlobalError(prev => ({ ...prev, [bucketId]: result.globalError! })); return }
       if (result.success && result.id) {
+        // 選んだ操作者を次回の初期値として記憶
+        if (form.operator) {
+          setLastOperator(form.operator)
+          try { localStorage.setItem('bucketUsage_lastOperator', form.operator) } catch { /* 無視 */ }
+        }
         setBucketUsages(prev => ({
           ...prev,
-          [bucketId]: [{ id: result.id!, usedAt: new Date(form.usedAt).toISOString(), usedKg: parseFloat(form.usedKg), notes: form.notes || null }, ...(prev[bucketId] ?? [])],
+          [bucketId]: [{ id: result.id!, usedAt: new Date(form.usedAt).toISOString(), usedKg: parseFloat(form.usedKg), productName: form.productName || null, operator: form.operator || null, notes: form.notes || null }, ...(prev[bucketId] ?? [])],
         }))
         if (result.newRemainingWeightKg !== undefined) {
           setBuckets(prev => prev.map(b => b.id === bucketId
@@ -515,7 +541,7 @@ export default function LotDetail({
             : b
           ))
         }
-        setUsageForm(prev => ({ ...prev, [bucketId]: { usedAt: format(new Date(), 'yyyy-MM-dd'), usedKg: '', notes: '' } }))
+        setUsageForm(prev => ({ ...prev, [bucketId]: { ...emptyUsageForm(), operator: form.operator } }))
       }
     })
   }
@@ -922,7 +948,7 @@ export default function LotDetail({
                                 :                'bg-rose-500'
                 const usages    = bucketUsages[b.id] ?? []
                 const isExpanded = expandedBuckets[b.id] ?? false
-                const form      = usageForm[b.id] ?? { usedAt: format(new Date(), 'yyyy-MM-dd'), usedKg: '', notes: '' }
+                const form      = usageForm[b.id] ?? emptyUsageForm()
                 const errs      = usageErrors[b.id] ?? {}
                 const gErr      = usageGlobalError[b.id] ?? null
                 return (
@@ -1014,13 +1040,59 @@ export default function LotDetail({
                               />
                               {errs.usedKg && <p className="text-xs text-red-600">{errs.usedKg}</p>}
                             </div>
+                            <div className="space-y-0.5 min-w-36">
+                              <label className="text-xs text-muted-foreground">製品名</label>
+                              {productNameOptions.length > 0 ? (
+                                <select
+                                  value={form.productName}
+                                  onChange={e => setUsageForm(prev => ({ ...prev, [b.id]: { ...form, productName: e.target.value } }))}
+                                  className="block w-36 rounded-md border bg-background px-2 py-1 text-sm"
+                                >
+                                  <option value="">選択…</option>
+                                  {productNameOptions.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={form.productName}
+                                  onChange={e => setUsageForm(prev => ({ ...prev, [b.id]: { ...form, productName: e.target.value } }))}
+                                  placeholder="製品名（設定で選択肢を登録可）"
+                                  className="block w-36 rounded-md border bg-background px-2 py-1 text-sm"
+                                />
+                              )}
+                            </div>
+                            <div className="space-y-0.5 min-w-28">
+                              <label className="text-xs text-muted-foreground">操作者</label>
+                              {operatorOptions.length > 0 ? (
+                                <select
+                                  value={form.operator}
+                                  onChange={e => setUsageForm(prev => ({ ...prev, [b.id]: { ...form, operator: e.target.value } }))}
+                                  className="block w-28 rounded-md border bg-background px-2 py-1 text-sm"
+                                >
+                                  <option value="">選択…</option>
+                                  {operatorOptions.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={form.operator}
+                                  onChange={e => setUsageForm(prev => ({ ...prev, [b.id]: { ...form, operator: e.target.value } }))}
+                                  placeholder="操作者（設定で登録可）"
+                                  className="block w-28 rounded-md border bg-background px-2 py-1 text-sm"
+                                />
+                              )}
+                            </div>
                             <div className="space-y-0.5 flex-1 min-w-32">
-                              <label className="text-xs text-muted-foreground">メモ（任意）</label>
+                              <label className="text-xs text-muted-foreground">補足メモ（任意）</label>
                               <input
                                 type="text"
                                 value={form.notes}
                                 onChange={e => setUsageForm(prev => ({ ...prev, [b.id]: { ...form, notes: e.target.value } }))}
-                                placeholder="袋詰め・出荷先など"
+                                placeholder="出荷先など補足"
                                 className="w-full rounded-md border bg-background px-2 py-1 text-sm"
                               />
                             </div>
@@ -1044,8 +1116,12 @@ export default function LotDetail({
                             {usages.map(u => (
                               <div key={u.id} className="flex items-center justify-between px-3 py-2 text-xs gap-2">
                                 <div className="space-y-0.5">
-                                  <span className="font-medium tabular-nums">{format(new Date(u.usedAt), 'yyyy/MM/dd')}</span>
-                                  <span className="ml-2 text-muted-foreground">{u.usedKg.toLocaleString()} kg 使用</span>
+                                  <div>
+                                    <span className="font-medium tabular-nums">{format(new Date(u.usedAt), 'yyyy/MM/dd')}</span>
+                                    <span className="ml-2 text-muted-foreground">{u.usedKg.toLocaleString()} kg 使用</span>
+                                    {u.productName && <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">{u.productName}</span>}
+                                  </div>
+                                  {u.operator && <p className="text-muted-foreground">操作者: {u.operator}</p>}
                                   {u.notes && <p className="text-muted-foreground">{u.notes}</p>}
                                 </div>
                                 <button

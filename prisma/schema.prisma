@@ -191,7 +191,9 @@ model BucketUsage {
   bucket    Bucket   @relation(fields: [bucketId], references: [id])
   usedAt    DateTime
   usedKg    Float
-  notes     String?
+  productName String?            // 使用先の製品名（プルダウン選択・設定画面で管理）
+  operator    String?            // 操作者名（プルダウン選択・設定画面で管理）
+  notes     String?              // 補足の自由記入
   createdAt DateTime @default(now())
 }
 

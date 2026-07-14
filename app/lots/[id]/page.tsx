@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
-import { getMoistureSettings } from '@/lib/settings'
+import { getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
 import {
   calcAccumulatedTemp,
   calcColoringRisk,
@@ -20,7 +20,7 @@ interface Props {
 export default async function LotDetailPage({ params }: Props) {
   const { id } = await params
 
-  const [lot, moisture, allWeatherData] = await Promise.all([
+  const [lot, moisture, allWeatherData, usageOptions] = await Promise.all([
     prisma.lot.findUnique({
       where: { id },
       include: {
@@ -36,6 +36,7 @@ export default async function LotDetailPage({ params }: Props) {
     getMoistureSettings(),
     // 全期間の気象データ取得（MM-dd 月日平均のために全年分必要）
     prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
+    getBucketUsageOptions(),
   ])
   if (!lot) notFound()
 
@@ -103,6 +104,8 @@ export default async function LotDetailPage({ params }: Props) {
   }
 
   const props: LotDetailProps = {
+    productNameOptions:     usageOptions.productNames,
+    operatorOptions:        usageOptions.operatorNames,
     id:                     lot.id,
     lotNumber:              lot.lotNumber,
     misoType:               lot.misoType,
@@ -139,10 +142,12 @@ export default async function LotDetailPage({ params }: Props) {
       remainingWeightKg: b.remainingWeightKg,
       status:            b.status,
       usages: b.usages.map(u => ({
-        id:        u.id,
-        usedAt:    u.usedAt.toISOString(),
-        usedKg:    u.usedKg,
-        notes:     u.notes ?? null,
+        id:          u.id,
+        usedAt:      u.usedAt.toISOString(),
+        usedKg:      u.usedKg,
+        productName: u.productName ?? null,
+        operator:    u.operator ?? null,
+        notes:       u.notes ?? null,
       })),
     })),
     brewStats,

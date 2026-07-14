@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { getMoistureSettings } from '@/lib/settings'
+import { getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
 import { getMisoRecipes } from '@/lib/recipes'
 import { prisma } from '@/lib/prisma'
 import { getWeatherStatus } from './weather-actions'
@@ -9,6 +9,7 @@ import WeatherImportCard from './WeatherImportCard'
 import ApiStatusCard from './ApiStatusCard'
 import BulkTempUpdateCard, { type ActiveLot } from './BulkTempUpdateCard'
 import InventorySnapshotCard from './InventorySnapshotCard'
+import BucketUsageOptionsCard from './BucketUsageOptionsCard'
 
 export const metadata: Metadata = {
   title: '設定 | みそ熟成管理システム',
@@ -18,7 +19,7 @@ const HEATING_RE = /^暖房\d+(?:\.\d+)?℃$/
 const COOLING_RE = /^冷房\d+(?:\.\d+)?℃$/
 
 export default async function SettingsPage() {
-  const [moisture, recipes, weatherStatus, fermentingLots, snapshots] = await Promise.all([
+  const [moisture, recipes, weatherStatus, fermentingLots, snapshots, usageOptions] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     getWeatherStatus(),
@@ -39,6 +40,7 @@ export default async function SettingsPage() {
       orderBy: [{ yearMonth: 'desc' }, { misoType: 'asc' }],
       take: 96, // 最大24ヶ月×4品種
     }),
+    getBucketUsageOptions(),
   ])
 
   const heatingLots: ActiveLot[] = []
@@ -65,6 +67,10 @@ export default async function SettingsPage() {
         normalLots={normalLots}
         heatingDefaultTemp={moisture.heatingDefaultTemp}
         coolingDefaultTemp={moisture.coolingDefaultTemp}
+      />
+      <BucketUsageOptionsCard
+        initialProductNames={usageOptions.productNames}
+        initialOperatorNames={usageOptions.operatorNames}
       />
       <WeatherImportCard initialStatus={weatherStatus} />
       <InventorySnapshotCard snapshots={snapshots} />

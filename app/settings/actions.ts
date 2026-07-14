@@ -2,7 +2,7 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { saveMoistureSettings } from '@/lib/settings'
+import { saveMoistureSettings, saveBucketUsageOptions } from '@/lib/settings'
 import { prisma } from '@/lib/prisma'
 
 const pct     = z.number({ error: '0〜100の数値を入力してください' }).min(0).max(100)
@@ -109,6 +109,30 @@ export async function bulkMoveLocation(
   } catch (e) {
     console.error('一括場所移動エラー:', e)
     return { error: '更新中にエラーが発生しました。' }
+  }
+}
+
+// ── 桶使用記録のプルダウン選択肢（製品名・操作者名） ──────────
+
+const bucketUsageOptionsSchema = z.object({
+  productNames:  z.array(z.string()),
+  operatorNames: z.array(z.string()),
+})
+
+export async function updateBucketUsageOptions(input: unknown): Promise<SettingsResult> {
+  const parsed = bucketUsageOptionsSchema.safeParse(input)
+  if (!parsed.success) {
+    return { globalError: '入力が不正です。' }
+  }
+  try {
+    await saveBucketUsageOptions(parsed.data)
+    revalidatePath('/settings')
+    // 各ロット詳細のプルダウンにも反映
+    revalidatePath('/lots', 'layout')
+    return { success: true }
+  } catch (e) {
+    console.error('桶使用記録の選択肢保存エラー:', e)
+    return { globalError: '選択肢の保存中にエラーが発生しました。' }
   }
 }
 
