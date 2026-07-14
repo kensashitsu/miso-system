@@ -104,7 +104,7 @@ export default async function LotDetailPage({ params }: Props) {
   }
 
   const props: LotDetailProps = {
-    productNameOptions:     usageOptions.productNames,
+    productNameOptions:     usageOptions.productNamesByType[lot.misoType] ?? [],
     operatorOptions:        usageOptions.operatorNames,
     id:                     lot.id,
     lotNumber:              lot.lotNumber,

@@ -116,29 +116,51 @@ export async function saveMoistureSettings(settings: MoistureSettings): Promise<
 // SystemSetting に JSON 文字列配列で保存
 // ==========================================
 export type BucketUsageOptions = {
-  productNames:  string[]
-  operatorNames: string[]
+  // 品種名 → その品種で使う製品名リスト
+  productNamesByType: Record<string, string[]>
+  operatorNames:      string[]
 }
 
 export const DEFAULT_BUCKET_USAGE_OPTIONS: BucketUsageOptions = {
-  productNames:  [],
-  operatorNames: [],
+  productNamesByType: {},
+  operatorNames:      [],
 }
 
 const BUCKET_PRODUCT_KEY  = 'bucket_productNames'
 const BUCKET_OPERATOR_KEY = 'bucket_operatorNames'
 
+function dedupeList(arr: string[]): string[] {
+  return Array.from(new Set(arr.map(v => String(v).trim()).filter(v => v.length > 0)))
+}
+
 function parseStringList(value: string | undefined): string[] {
   if (!value) return []
   try {
     const arr = JSON.parse(value)
-    if (Array.isArray(arr)) {
-      return arr.map(v => String(v).trim()).filter(v => v.length > 0)
-    }
+    if (Array.isArray(arr)) return dedupeList(arr.map(String))
   } catch {
     // 不正なJSONは空扱い
   }
   return []
+}
+
+function parseProductMap(value: string | undefined): Record<string, string[]> {
+  if (!value) return {}
+  try {
+    const obj = JSON.parse(value)
+    // 旧形式（フラットな配列）は品種未分類として無視し、空マップから開始
+    if (Array.isArray(obj)) return {}
+    if (obj && typeof obj === 'object') {
+      const out: Record<string, string[]> = {}
+      for (const [type, list] of Object.entries(obj)) {
+        if (Array.isArray(list)) out[type] = dedupeList(list.map(String))
+      }
+      return out
+    }
+  } catch {
+    // 不正なJSONは空扱い
+  }
+  return {}
 }
 
 export async function getBucketUsageOptions(): Promise<BucketUsageOptions> {
@@ -147,27 +169,30 @@ export async function getBucketUsageOptions(): Promise<BucketUsageOptions> {
   })
   const map = Object.fromEntries(rows.map(r => [r.key, r.value]))
   return {
-    productNames:  parseStringList(map[BUCKET_PRODUCT_KEY]),
-    operatorNames: parseStringList(map[BUCKET_OPERATOR_KEY]),
+    productNamesByType: parseProductMap(map[BUCKET_PRODUCT_KEY]),
+    operatorNames:      parseStringList(map[BUCKET_OPERATOR_KEY]),
   }
 }
 
 export async function saveBucketUsageOptions(options: BucketUsageOptions): Promise<void> {
-  // 重複・空白を除去して保存
-  const dedupe = (arr: string[]) =>
-    Array.from(new Set(arr.map(v => v.trim()).filter(v => v.length > 0)))
-  const productNames  = JSON.stringify(dedupe(options.productNames))
-  const operatorNames = JSON.stringify(dedupe(options.operatorNames))
+  // 重複・空白を除去して保存（品種ごとにdedupe・空リストの品種は落とす）
+  const cleanedMap: Record<string, string[]> = {}
+  for (const [type, list] of Object.entries(options.productNamesByType)) {
+    const cleaned = dedupeList(list)
+    if (cleaned.length > 0) cleanedMap[type] = cleaned
+  }
+  const productJson  = JSON.stringify(cleanedMap)
+  const operatorJson = JSON.stringify(dedupeList(options.operatorNames))
   await prisma.$transaction([
     prisma.systemSetting.upsert({
       where:  { key: BUCKET_PRODUCT_KEY },
-      create: { key: BUCKET_PRODUCT_KEY, value: productNames },
-      update: { value: productNames },
+      create: { key: BUCKET_PRODUCT_KEY, value: productJson },
+      update: { value: productJson },
     }),
     prisma.systemSetting.upsert({
       where:  { key: BUCKET_OPERATOR_KEY },
-      create: { key: BUCKET_OPERATOR_KEY, value: operatorNames },
-      update: { value: operatorNames },
+      create: { key: BUCKET_OPERATOR_KEY, value: operatorJson },
+      update: { value: operatorJson },
     }),
   ])
 }

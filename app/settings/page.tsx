@@ -69,7 +69,8 @@ export default async function SettingsPage() {
         coolingDefaultTemp={moisture.coolingDefaultTemp}
       />
       <BucketUsageOptionsCard
-        initialProductNames={usageOptions.productNames}
+        misoTypes={recipes.map(r => r.name)}
+        initialProductNamesByType={usageOptions.productNamesByType}
         initialOperatorNames={usageOptions.operatorNames}
       />
       <WeatherImportCard initialStatus={weatherStatus} />

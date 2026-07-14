@@ -115,8 +115,8 @@ export async function bulkMoveLocation(
 // ── 桶使用記録のプルダウン選択肢（製品名・操作者名） ──────────
 
 const bucketUsageOptionsSchema = z.object({
-  productNames:  z.array(z.string()),
-  operatorNames: z.array(z.string()),
+  productNamesByType: z.record(z.string(), z.array(z.string())),
+  operatorNames:      z.array(z.string()),
 })
 
 export async function updateBucketUsageOptions(input: unknown): Promise<SettingsResult> {
