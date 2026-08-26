@@ -64,6 +64,13 @@ const CARD_BORDER: Record<ColoringRisk, string> = {
   danger:  'border-rose-300',
 }
 
+const MISO_ABBR: Record<string, string> = {
+  '無添加麦みそ': '無添加',
+  '田舎みそ':     '田舎',
+  '山吹みそ':     '山吹',
+  '白みそ':       '白',
+}
+
 export default function LotCard({
   id,
   lotNumber,
@@ -111,9 +118,17 @@ export default function LotCard({
     const endDate = new Date(completionDate)
     endDate.setDate(endDate.getDate() + 1)
     const toYmd = (d: Date) => format(d, 'yyyyMMdd')
+    const circledBuckets = (bucketNumbers ?? '')
+      .split('・')
+      .map(n => {
+        const num = parseInt(n, 10)
+        return num >= 1 && num <= 20 ? String.fromCodePoint(0x2460 + num - 1) : n
+      })
+      .join('')
+    const agingDays = differenceInDays(completionDate, brewDate)
     const params = new URLSearchParams({
       action: 'TEMPLATE',
-      text: `${lotNumber}（${misoType}）熟成完了予定`,
+      text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBuckets}（${format(brewDate, 'M/d')}仕込 熟成${agingDays}日）`,
       dates: `${toYmd(completionDate)}/${toYmd(endDate)}`,
       details: `完成予定日：${format(completionDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`,
     })
