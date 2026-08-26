@@ -131,6 +131,7 @@ export default function LotCard({
       text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBuckets}（${format(brewDate, 'M/d')}仕込 熟成${agingDays}日）`,
       dates: `${toYmd(completionDate)}/${toYmd(endDate)}`,
       details: `完成予定日：${format(completionDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`,
+      src: '1734b91d3702c0f7c7d08184672490495ec6ab8c74ffac171de070f577610d88@group.calendar.google.com',
     })
     return `https://calendar.google.com/calendar/render?${params.toString()}`
   })() : null
