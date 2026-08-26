@@ -7,7 +7,7 @@ import { format } from 'date-fns'
 import { ChevronDown, ChevronUp, ArrowLeft, MapPin, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import LotSimChart from './LotSimChart'
-import { addAgingNote, changeLotStatus, revertLotStatus, deleteLot, updateBucketNumbers, updateBucketRemaining, addBucketToLot, addBucketUsage, deleteBucketUsage, updateCompletedAt, updateLocationTemp, updateBrewRecord, type NoteResult, type BucketUsageResult } from './actions'
+import { addAgingNote, changeLotStatus, revertLotStatus, deleteLot, updateBucketNumbers, updateBucketRemaining, addBucketToLot, addBucketUsage, updateBucketUsage, deleteBucketUsage, updateCompletedAt, updateLocationTemp, updateBrewRecord, type NoteResult, type BucketUsageResult } from './actions'
 import { getStockPreview, type StockChangeItem } from '@/app/lots/stock-preview-action'
 import StockPreviewPanel from '@/components/StockPreviewPanel'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
@@ -383,6 +383,10 @@ export default function LotDetail({
   const [usageGlobalError, setUsageGlobalError] = useState<Record<string, string | null>>({})
   const [isUsageSubmitting, startUsageTransition] = useTransition()
   const [deletingUsageId, setDeletingUsageId] = useState<string | null>(null)
+  const [editingUsageId, setEditingUsageId] = useState<string | null>(null)
+  const [usageEditDraft, setUsageEditDraft] = useState<{ usedAt: string; usedKg: string; productName: string; operator: string; notes: string } | null>(null)
+  const [usageEditError, setUsageEditError] = useState<string | null>(null)
+  const [isUsageEditSubmitting, startUsageEditTransition] = useTransition()
   // 完成日インライン編集
   const [completedAtValue, setCompletedAtValue] = useState<string | null>(completedAtISO)
   const [editingCompletedAt, setEditingCompletedAt] = useState(false)
@@ -560,6 +564,64 @@ export default function LotDetail({
         ))
       }
     }
+  }
+
+  // ── 桶使用記録の編集を開始 ─────────────────────────────
+  function handleUsageEditStart(u: BucketUsageItem) {
+    setEditingUsageId(u.id)
+    setUsageEditDraft({
+      usedAt:      format(new Date(u.usedAt), 'yyyy-MM-dd'),
+      usedKg:      String(u.usedKg),
+      productName: u.productName ?? '',
+      operator:    u.operator ?? '',
+      notes:       u.notes ?? '',
+    })
+    setUsageEditError(null)
+  }
+
+  function handleUsageEditCancel() {
+    setEditingUsageId(null)
+    setUsageEditDraft(null)
+    setUsageEditError(null)
+  }
+
+  // ── 桶使用記録を保存 ───────────────────────────────────
+  function handleUsageEditSave(usageId: string, bucketId: string) {
+    if (!usageEditDraft) return
+    setUsageEditError(null)
+    startUsageEditTransition(async () => {
+      const input = {
+        usedAt:      usageEditDraft.usedAt,
+        usedKg:      usageEditDraft.usedKg !== '' ? parseFloat(usageEditDraft.usedKg) : undefined,
+        productName: usageEditDraft.productName || null,
+        operator:    usageEditDraft.operator || null,
+        notes:       usageEditDraft.notes || null,
+      }
+      const result: BucketUsageResult = await updateBucketUsage(usageId, input)
+      if (result.errors) {
+        const first = Object.values(result.errors)[0]
+        setUsageEditError(first ?? '入力内容を確認してください。')
+        return
+      }
+      if (result.globalError) { setUsageEditError(result.globalError); return }
+      if (result.success) {
+        setBucketUsages(prev => ({
+          ...prev,
+          [bucketId]: (prev[bucketId] ?? []).map(u => u.id === usageId
+            ? { ...u, usedAt: new Date(usageEditDraft.usedAt).toISOString(), usedKg: parseFloat(usageEditDraft.usedKg), productName: usageEditDraft.productName || null, operator: usageEditDraft.operator || null, notes: usageEditDraft.notes || null }
+            : u
+          ),
+        }))
+        if (result.newRemainingWeightKg !== undefined) {
+          setBuckets(prev => prev.map(b => b.id === bucketId
+            ? { ...b, remainingWeightKg: result.newRemainingWeightKg!, status: result.newStatus ?? b.status }
+            : b
+          ))
+        }
+        setEditingUsageId(null)
+        setUsageEditDraft(null)
+      }
+    })
   }
 
   // ── 完成日を保存 ───────────────────────────────────────
@@ -1114,25 +1176,106 @@ export default function LotDetail({
                         ) : (
                           <div className="divide-y rounded-md border bg-background">
                             {usages.map(u => (
-                              <div key={u.id} className="flex items-center justify-between px-3 py-2 text-xs gap-2">
-                                <div className="space-y-0.5">
-                                  <div>
-                                    <span className="font-medium tabular-nums">{format(new Date(u.usedAt), 'yyyy/MM/dd')}</span>
-                                    <span className="ml-2 text-muted-foreground">{u.usedKg.toLocaleString()} kg 使用</span>
-                                    {u.productName && <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">{u.productName}</span>}
+                              editingUsageId === u.id && usageEditDraft ? (
+                                <div key={u.id} className="px-3 py-2 space-y-2 bg-muted/30">
+                                  <div className="flex flex-wrap gap-2 items-end">
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs text-muted-foreground">日付</label>
+                                      <input
+                                        type="date"
+                                        value={usageEditDraft.usedAt}
+                                        onChange={e => setUsageEditDraft(d => d && { ...d, usedAt: e.target.value })}
+                                        className="block w-32 rounded-md border bg-background px-2 py-1 text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs text-muted-foreground">使用量 (kg)</label>
+                                      <input
+                                        type="number" step="0.1"
+                                        value={usageEditDraft.usedKg}
+                                        onChange={e => setUsageEditDraft(d => d && { ...d, usedKg: e.target.value })}
+                                        className="block w-24 rounded-md border bg-background px-2 py-1 text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs text-muted-foreground">製品名</label>
+                                      <input
+                                        type="text"
+                                        value={usageEditDraft.productName}
+                                        onChange={e => setUsageEditDraft(d => d && { ...d, productName: e.target.value })}
+                                        className="block w-32 rounded-md border bg-background px-2 py-1 text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <label className="text-xs text-muted-foreground">操作者</label>
+                                      <input
+                                        type="text"
+                                        value={usageEditDraft.operator}
+                                        onChange={e => setUsageEditDraft(d => d && { ...d, operator: e.target.value })}
+                                        className="block w-24 rounded-md border bg-background px-2 py-1 text-xs"
+                                      />
+                                    </div>
+                                    <div className="space-y-0.5 flex-1 min-w-32">
+                                      <label className="text-xs text-muted-foreground">補足メモ</label>
+                                      <input
+                                        type="text"
+                                        value={usageEditDraft.notes}
+                                        onChange={e => setUsageEditDraft(d => d && { ...d, notes: e.target.value })}
+                                        className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+                                      />
+                                    </div>
                                   </div>
-                                  {u.operator && <p className="text-muted-foreground">操作者: {u.operator}</p>}
-                                  {u.notes && <p className="text-muted-foreground">{u.notes}</p>}
+                                  {usageEditError && <p className="text-xs text-red-600">{usageEditError}</p>}
+                                  <div className="flex gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUsageEditSave(u.id, b.id)}
+                                      disabled={isUsageEditSubmitting || !usageEditDraft.usedKg}
+                                      className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                                    >
+                                      {isUsageEditSubmitting ? '保存中...' : '保存'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleUsageEditCancel}
+                                      disabled={isUsageEditSubmitting}
+                                      className="rounded-md border px-3 py-1.5 text-xs disabled:opacity-50"
+                                    >
+                                      キャンセル
+                                    </button>
+                                  </div>
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleUsageDelete(u.id, b.id)}
-                                  disabled={deletingUsageId === u.id}
-                                  className="text-muted-foreground hover:text-red-600 disabled:opacity-50 shrink-0 text-xs"
-                                >
-                                  {deletingUsageId === u.id ? '削除中' : '削除'}
-                                </button>
-                              </div>
+                              ) : (
+                                <div key={u.id} className="flex items-center justify-between px-3 py-2 text-xs gap-2">
+                                  <div className="space-y-0.5">
+                                    <div>
+                                      <span className="font-medium tabular-nums">{format(new Date(u.usedAt), 'yyyy/MM/dd')}</span>
+                                      <span className="ml-2 text-muted-foreground">{u.usedKg.toLocaleString()} kg 使用</span>
+                                      {u.productName && <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">{u.productName}</span>}
+                                    </div>
+                                    {u.operator && <p className="text-muted-foreground">操作者: {u.operator}</p>}
+                                    {u.notes && <p className="text-muted-foreground">{u.notes}</p>}
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUsageEditStart(u)}
+                                      className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted/60"
+                                      aria-label="編集"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUsageDelete(u.id, b.id)}
+                                      disabled={deletingUsageId === u.id}
+                                      className="text-muted-foreground hover:text-red-600 disabled:opacity-50 text-xs"
+                                    >
+                                      {deletingUsageId === u.id ? '削除中' : '削除'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )
                             ))}
                           </div>
                         )}

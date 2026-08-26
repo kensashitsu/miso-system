@@ -165,7 +165,7 @@ function applyQ10(effectiveTemp, q10Value, heatingBaseTemp):
 
 **使用記録（BucketUsage）**:
 - 桶ごとに使用量と日付を記録できる（袋詰め・出荷先メモ付き）
-- ロット詳細画面の桶パネルから追加・削除可能
+- ロット詳細画面の桶パネルから追加・編集・削除可能（編集時も残量・ステータスを再計算）
 
 ---
 
@@ -659,6 +659,7 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 | `updateBucketRemaining` | `(bucketId, kg)` | 残量更新・ステータス自動判定・`allEmpty`フラグ返却 |
 | `addBucketToLot` | `(lotId, bucketNumber, initialWeightKg)` | 既存ロットへ桶を追加 |
 | `addBucketUsage` | `(bucketId, {usedAt, usedKg, notes})` | 使用記録を追加 |
+| `updateBucketUsage` | `(usageId, {usedAt, usedKg, notes})` | 使用記録を編集 |
 | `deleteBucketUsage` | `(usageId)` | 使用記録を削除 |
 | `deleteLot` | `(lotId)` | ロットと全関連データを削除 |
 

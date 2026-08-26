@@ -248,6 +248,52 @@ export async function addBucketUsage(bucketId: string, input: unknown): Promise<
   }
 }
 
+// ── 桶使用記録を編集 ──────────────────────────────────────
+export async function updateBucketUsage(usageId: string, input: unknown): Promise<BucketUsageResult> {
+  const parsed = bucketUsageSchema.safeParse(input)
+  if (!parsed.success) {
+    const errors: Record<string, string> = {}
+    for (const [k, msgs] of Object.entries(parsed.error.flatten().fieldErrors)) {
+      if (msgs?.[0]) errors[k] = msgs[0]
+    }
+    return { errors }
+  }
+  const d = parsed.data
+  try {
+    const usage = await prisma.bucketUsage.findUnique({
+      where:  { id: usageId },
+      select: { bucketId: true, bucket: { select: { lotId: true, initialWeightKg: true, usages: { select: { id: true, usedKg: true } } } } },
+    })
+    if (!usage) return { globalError: '記録が見つかりません。' }
+
+    await prisma.bucketUsage.update({
+      where: { id: usageId },
+      data: {
+        usedAt:      new Date(d.usedAt),
+        usedKg:      d.usedKg,
+        productName: d.productName?.trim() || null,
+        operator:    d.operator?.trim() || null,
+        notes:       d.notes?.trim() || null,
+      },
+    })
+
+    // 残量を再計算して更新（編集後の使用量合計）
+    const totalUsed  = usage.bucket.usages.reduce((s, u) => s + (u.id === usageId ? d.usedKg : u.usedKg), 0)
+    const newRemaining = Math.max(usage.bucket.initialWeightKg - totalUsed, 0)
+    const newStatus  = newRemaining <= 0 ? '空' : newRemaining < usage.bucket.initialWeightKg ? '使用中' : '待機中'
+    await prisma.bucket.update({
+      where: { id: usage.bucketId },
+      data:  { remainingWeightKg: newRemaining, status: newStatus },
+    })
+
+    revalidatePath(`/lots/${usage.bucket.lotId}`)
+    return { success: true, id: usageId, newRemainingWeightKg: newRemaining, newStatus }
+  } catch (e) {
+    console.error('使用記録編集エラー:', e)
+    return { globalError: '保存中にエラーが発生しました。' }
+  }
+}
+
 // ── 桶使用記録を削除 ──────────────────────────────────────
 export async function deleteBucketUsage(usageId: string): Promise<{ success?: true; newRemainingWeightKg?: number; newStatus?: string; error?: string }> {
   try {
