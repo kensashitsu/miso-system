@@ -85,7 +85,7 @@ export default function LotCard({
   simConfig,
   locationTransitions,
 }: LotCardProps) {
-  const [detailOpen,  setDetailOpen]  = useState(false)
+  const [detailOpen,  setDetailOpen]  = useState(true)
   const [simModalOpen, setSimModalOpen] = useState(false)
 
   useEffect(() => {

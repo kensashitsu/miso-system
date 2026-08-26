@@ -16,7 +16,7 @@ const MISO_TYPE_ORDER = ['無添加麦みそ', '田舎みそ', '山吹みそ', '
 
 export default function DashboardLotGroups({ agingLots, completedLots, needsActionLots, simConfig }: Props) {
   const [forceSignal, setForceSignal] = useState<{ open: boolean } | null>(null)
-  const [allOpen, setAllOpen] = useState(false)
+  const [allOpen, setAllOpen] = useState(true)
   const [selectedType, setSelectedType] = useState<string | null>(null)
 
   function toggleAll() {
