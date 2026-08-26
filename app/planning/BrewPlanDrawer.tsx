@@ -81,6 +81,13 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                             disabled={isPending}
                             onClick={() => {
                               if (!confirm('この仮登録を削除しますか？')) return
+                              // この仮登録と同じ日付で仕込み提案側に手動固定(調整済)ピンが残っていた場合、
+                              // 仮登録が消えた瞬間にその古いピンが復活して推奨日が固まってしまうため、
+                              // 削除と同時に消しておく（仕込み提案画面はlocalStorageで手動ピンを管理）。
+                              const key = `planning_manualDate_${plan.misoType}`
+                              if (localStorage.getItem(key) === format(plan.brewDate, 'yyyy-MM-dd')) {
+                                localStorage.removeItem(key)
+                              }
                               startTransition(() => deleteBrewPlan(plan.id))
                             }}
                             className="p-1 rounded text-muted-foreground/60 hover:text-rose-500 hover:bg-rose-50 transition-colors disabled:opacity-40"
