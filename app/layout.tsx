@@ -18,7 +18,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const supabase = await createSupabaseServerClient()
   const [{ data: { user } }, brewPlans] = await Promise.all([
     supabase.auth.getUser(),
-    prisma.brewPlan.findMany({ orderBy: { brewDate: 'asc' } }),
+    prisma.brewPlan.findMany({ where: { status: '仮登録' }, orderBy: { brewDate: 'asc' } }),
   ])
   const username = user?.email ? emailToUsername(user.email) : null
 
