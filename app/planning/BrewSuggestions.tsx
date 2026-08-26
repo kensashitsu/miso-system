@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/select'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { holtWinters, getTimeSeries } from '@/lib/forecast'
+import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
 import { createBrewPlan } from './brew-plan-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
@@ -139,19 +140,6 @@ const BATCH_OPTIONS = [1, 3, 5] as const
 
 // 場所名から温度を抽出するパターン
 const TEMP_RE = /^(?:温調室|暖房|冷房)(\d+(?:\.\d+)?)℃$/
-
-// 暖房期（10〜5月）の月別実効レート補正係数。
-// 仕込帳原票（data/shikomicho/仕込帳データ.xlsx、使用開始日ではなく「熟成完了日」列。
-// [[project_completedat_is_usestart]]と同じ理由でDBのcompletedAtは使えないため原票を使用）の
-// 田舎・無添加みそ（目標600℃・日）の実熟成日数から、月ごとに「600÷中央値日数」で逆算した
-// 実効レートを、その当時の実際の暖房設定（24℃・有効14℃/日）に対する倍率として算出（scripts/analyze-shikomicho.mjs）。
-// 12月が最も遅く（12℃/日・約50日）、10月・2月は設定値どおりに近く、3〜5月にかけて暖房中でも
-// 実質的に加速していく（外気の影響で室温が設定以上になりやすいためと推測）。
-// 「暖房○○℃固定」という単純な計算では説明できない季節変動があったため導入。
-const HEATING_MONTHLY_FACTOR: Record<number, number> = {
-  1: 0.93, 2: 0.97, 3: 1.16, 4: 1.30, 5: 1.59,
-  10: 1.07, 11: 0.95, 12: 0.86,
-}
 
 // 場所名から1日あたりの有効積算温度を計算（常温はQ10補正済み年間平均）
 function getDailyAccum(

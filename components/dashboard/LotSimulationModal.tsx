@@ -175,7 +175,7 @@ export default function LotSimulationModal({
 
     const fullData = simulateLotForModal(
       brewDate, targetTempSum, weatherAvg, dailyRoomAccum,
-      q10Value, heatingBaseTemp, futureFixedRate,
+      q10Value, heatingBaseTemp, futureFixedRate, locType === '暖房',
     )
 
     const matCompleteIdx  = fullData.findIndex(d => d.maturityPct >= 100)

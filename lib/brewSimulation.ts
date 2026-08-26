@@ -8,11 +8,13 @@
  */
 
 import { addDays, format, startOfDay } from 'date-fns'
+import { HEATING_MONTHLY_FACTOR } from './tempCalc'
 
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
 
 type LocationInfo =
-  | { kind: 'fixed';   rate: number }   // 暖房・冷房・温調室（固定レート）
+  | { kind: 'heating'; rate: number }   // 暖房（月別補正係数の対象）
+  | { kind: 'fixed';   rate: number }   // 冷房・温調室（固定レート）
   | { kind: 'outdoor' }                 // 常温（weatherAvg を使う）
   | { kind: 'stopped' }                 // 冷蔵庫（率≦0、完成日なし）
 
@@ -20,7 +22,7 @@ function parseLocation(loc: string, fridgeTemp: number): LocationInfo {
   const m = loc.match(TEMP_LOCATION_RE)
   if (m) {
     const rate = Math.max(Number(m[1]) - 10, 0)
-    return { kind: 'fixed', rate }
+    return loc.startsWith('暖房') ? { kind: 'heating', rate } : { kind: 'fixed', rate }
   }
   if (loc === '冷蔵庫') {
     const rate = Math.max(fridgeTemp - 10, 0)
@@ -60,6 +62,19 @@ export function calcSimulatedCompletionDate(
     if (info.rate <= 0) return null
     const days = Math.ceil((targetTempSum - accumulatedTemp) / info.rate)
     return addDays(startOfDay(new Date()), days)
+  }
+
+  if (info.kind === 'heating') {
+    if (info.rate <= 0) return null
+    let acc = 0
+    let curr = startOfDay(new Date())
+    for (let i = 0; i < 730; i++) {
+      const month = curr.getMonth() + 1
+      acc += info.rate * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+      curr = addDays(curr, 1)
+      if (acc >= targetTempSum - accumulatedTemp) return curr
+    }
+    return null
   }
 
   // 常温: weatherAvg（過去複数年の月日平均 effectiveTemp）＋ Q10補正で日別前向きシミュレーション
@@ -113,6 +128,7 @@ export function simulateLotForModal(
   q10Value:       number,
   heatingBaseTemp: number,
   futureFixedRate?: number,    // 今日以降の固定レート（undefined = 常温ロジック継続）
+  futureIsHeating?: boolean,   // futureFixedRateが暖房のときtrue（月別補正係数の対象）
 ): ModalSimDay[] {
   const today = startOfDay(new Date())
   let curr         = new Date(brewDate.getTime())
@@ -123,20 +139,21 @@ export function simulateLotForModal(
   for (let i = 0; i < 730; i++) {
     const isAfterToday = curr.getTime() > today.getTime()
     const month        = curr.getMonth() + 1
+    const heatFactor    = HEATING_MONTHLY_FACTOR[month] ?? 1
 
     // 有効積算温度の決定
     let eff: number
     if (isAfterToday && futureFixedRate !== undefined) {
-      // 今日以降・固定レート（暖房/冷房/冷蔵庫）
-      eff = futureFixedRate
+      // 今日以降・固定レート（暖房/冷房/冷蔵庫）。暖房のみ月別補正係数を適用
+      eff = futureIsHeating ? futureFixedRate * heatFactor : futureFixedRate
     } else if (futureFixedRate === undefined) {
       // 常温: 全期間でweatherAvgを使用（月による屋内/屋外区分なし）
       eff = weatherAvg[format(curr, 'MM-dd')] ?? 0
     } else {
-      // 固定レートあり（暖房/冷房）: 過去は屋内/屋外モデル
+      // 固定レートあり（暖房/冷房）: 過去は屋内/屋外モデル。屋内期間は暖房想定のため月別補正係数を適用
       eff = isOutdoor(month)
         ? (weatherAvg[format(curr, 'MM-dd')] ?? 0)
-        : dailyRoomAccum
+        : dailyRoomAccum * heatFactor
     }
 
     // 単純積算（Q10補正なし）
@@ -181,10 +198,11 @@ export function calcCompletionFromBrew(
   const info = parseLocation(currentLocation, fridgeTemp)
   if (info.kind === 'stopped') return null
 
-  const futureFixedRate = info.kind === 'fixed' ? info.rate : undefined
+  const futureFixedRate = (info.kind === 'fixed' || info.kind === 'heating') ? info.rate : undefined
+  const futureIsHeating = info.kind === 'heating'
 
   const simDays = simulateLotForModal(
-    brewDate, targetTempSum, weatherAvg, dailyRoomAccum, q10Value, heatingBaseTemp, futureFixedRate,
+    brewDate, targetTempSum, weatherAvg, dailyRoomAccum, q10Value, heatingBaseTemp, futureFixedRate, futureIsHeating,
   )
 
   const day = simDays.find(d => d.maturityPct >= 100)

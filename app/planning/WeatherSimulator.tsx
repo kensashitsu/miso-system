@@ -15,6 +15,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Plus, X } from 'lucide-react'
+import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
 
 interface Recipe {
   name: string
@@ -68,7 +69,8 @@ function getDailyAccum(
   fridgeTemp:      number,
 ): { simple: number; corrected: number } {
   if (locType === '暖房') {
-    const eff = Math.max(locTemp - 10, 0)
+    const month = Number(dateStr.slice(5, 7))
+    const eff = Math.max(locTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
     return { simple: eff, corrected: eff }
   }
   if (locType === '冷房') {

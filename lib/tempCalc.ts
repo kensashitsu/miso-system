@@ -22,6 +22,18 @@ const DEFAULT_DAILY_TEMP = 14
 // 暖房・冷房・温調室（後方互換）から温度を抽出するパターン
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
 
+// 暖房期（10〜5月）の月別実効レート補正係数。
+// 仕込帳原票（data/shikomicho/仕込帳データ.xlsx。使用開始日ではなく「熟成完了日」列。
+// [[project_completedat_is_usestart]]参照）の田舎・無添加みそ（目標600℃・日）の実熟成日数から、
+// 月ごとに「600÷中央値日数」で逆算した実効レートを、当時の実際の暖房設定（24℃・14℃/日）に
+// 対する倍率として算出（scripts/analyze-shikomicho.mjs）。12月が最も遅く（12℃/日・約50日）、
+// 3〜5月にかけて暖房中でも実質加速していく（外気の影響と推測）季節変動があったため、
+// 「暖房○○℃固定」の単純計算だけでは説明できず導入。冷房・温調室（後方互換）は対象外。
+export const HEATING_MONTHLY_FACTOR: Record<number, number> = {
+  1: 0.93, 2: 0.97, 3: 1.16, 4: 1.30, 5: 1.59,
+  10: 1.07, 11: 0.95, 12: 0.86,
+}
+
 // 常温の有効積算温度にQ10補正を適用する
 // effectiveTemp = max(avgTempC - 10, 0) を受け取り、Q10補正後の値を返す
 // effectiveTemp > 0 のとき avgTempC = effectiveTemp + BASE_TEMP として逆算
@@ -40,7 +52,14 @@ function getDailyTemp(
   dateKey: string,
 ): number {
   const m = location.match(TEMP_LOCATION_RE)
-  if (m) return Math.max(Number(m[1]) - BASE_TEMP, 0)
+  if (m) {
+    const naive = Math.max(Number(m[1]) - BASE_TEMP, 0)
+    if (location.startsWith('暖房')) {
+      const month = Number(dateKey.slice(5, 7))
+      return naive * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+    }
+    return naive
+  }
   if (location === '冷蔵庫') return Math.max(roomTemps.fridgeTemp - BASE_TEMP, 0)
   // 常温: WeatherCacheから取得してQ10補正を適用、なければデフォルトを補正
   const eff  = weatherMap.get(dateKey) ?? DEFAULT_DAILY_TEMP
@@ -160,6 +179,23 @@ export function calcEstimatedCompletion(
   if (accumulated >= target) return null
 
   const remaining = target - accumulated
+
+  // 暖房: 月別補正係数で日次レートが変わるため、日ごとに積み上げて完成日を求める
+  if (currentLocation.startsWith('暖房')) {
+    const m = currentLocation.match(TEMP_LOCATION_RE)
+    const naive = m ? Math.max(Number(m[1]) - BASE_TEMP, 0) : 0
+    if (naive <= 0) return null
+    let acc = 0
+    let current = startOfDay(new Date())
+    for (let i = 0; i < 730; i++) {
+      const month = current.getMonth() + 1
+      acc += naive * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+      current = addDays(current, 1)
+      if (acc >= remaining) return current
+    }
+    return null
+  }
+
   let dailyTemp: number
 
   const m = currentLocation.match(TEMP_LOCATION_RE)
