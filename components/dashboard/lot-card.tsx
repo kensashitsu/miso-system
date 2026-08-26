@@ -113,9 +113,10 @@ export default function LotCard({
     ? Math.round((completionDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     : null
 
-  // Googleカレンダーへの予定追加リンク（終日イベント。end は翌日を指定する仕様）
-  const googleCalendarUrl = completionDate ? (() => {
-    const endDate = new Date(completionDate)
+  // Googleカレンダーへの予定追加リンクを作る（終日イベント。end は翌日を指定する仕様）
+  // isActual: true = 実際の完成日（completedAt）、false = 完成予定日（estimatedCompletion）
+  const buildGoogleCalendarUrl = (targetDate: Date, isActual: boolean) => {
+    const endDate = new Date(targetDate)
     endDate.setDate(endDate.getDate() + 1)
     const toYmd = (d: Date) => format(d, 'yyyyMMdd')
     const circledBuckets = (bucketNumbers ?? '')
@@ -125,16 +126,21 @@ export default function LotCard({
         return num >= 1 && num <= 20 ? String.fromCodePoint(0x2460 + num - 1) : n
       })
       .join('')
-    const agingDays = differenceInDays(completionDate, brewDate)
+    const agingDays = differenceInDays(targetDate, brewDate)
     const params = new URLSearchParams({
       action: 'TEMPLATE',
       text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBuckets}（${format(brewDate, 'M/d')}仕込 熟成${agingDays}日）`,
-      dates: `${toYmd(completionDate)}/${toYmd(endDate)}`,
-      details: `完成予定日：${format(completionDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`,
+      dates: `${toYmd(targetDate)}/${toYmd(endDate)}`,
+      details: isActual
+        ? `完成日：${format(targetDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`
+        : `完成予定日：${format(targetDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`,
       src: '1734b91d3702c0f7c7d08184672490495ec6ab8c74ffac171de070f577610d88@group.calendar.google.com',
     })
     return `https://calendar.google.com/calendar/render?${params.toString()}`
-  })() : null
+  }
+
+  const googleCalendarUrl = completionDate ? buildGoogleCalendarUrl(completionDate, false) : null
+  const googleCalendarUrlActual = completedAt ? buildGoogleCalendarUrl(completedAt, true) : null
 
   const cardCls = [
     'h-full rounded-xl shadow-sm',
@@ -336,6 +342,7 @@ export default function LotCard({
                     </div>
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">完成日</span>
+                      <span className="flex items-center gap-1.5">
                       <span className="font-medium">
                         {format(completedAt, 'M月d日')}
                         <span className="text-muted-foreground ml-1 text-xs">
@@ -345,6 +352,18 @@ export default function LotCard({
                               ? '（本日）'
                               : `（${diffDays}日前）`}
                         </span>
+                      </span>
+                      <a
+                        href={googleCalendarUrlActual!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                        aria-label="Googleカレンダーに追加"
+                        title="Googleカレンダーに追加"
+                      >
+                        <CalendarPlus className="h-3.5 w-3.5" />
+                      </a>
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-sm">
