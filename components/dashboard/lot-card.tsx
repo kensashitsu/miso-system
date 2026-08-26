@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { ChevronDown, ChevronUp, LineChart } from 'lucide-react'
+import { ChevronDown, ChevronUp, LineChart, CalendarPlus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { differenceInDays, format, startOfDay } from 'date-fns'
@@ -105,6 +105,20 @@ export default function LotCard({
   const daysUntilCompletion = completionDate
     ? Math.round((completionDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     : null
+
+  // Googleカレンダーへの予定追加リンク（終日イベント。end は翌日を指定する仕様）
+  const googleCalendarUrl = completionDate ? (() => {
+    const endDate = new Date(completionDate)
+    endDate.setDate(endDate.getDate() + 1)
+    const toYmd = (d: Date) => format(d, 'yyyyMMdd')
+    const params = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: `${lotNumber}（${misoType}）熟成完了予定`,
+      dates: `${toYmd(completionDate)}/${toYmd(endDate)}`,
+      details: `完成予定日：${format(completionDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`,
+    })
+    return `https://calendar.google.com/calendar/render?${params.toString()}`
+  })() : null
 
   const cardCls = [
     'h-full rounded-xl shadow-sm',
@@ -259,13 +273,26 @@ export default function LotCard({
                   {completionDate && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">完成予定</span>
-                      <span className={`font-medium ${
-                        daysUntilCompletion !== null && daysUntilCompletion <= 7 ? 'text-orange-600' : ''
-                      }`}>
-                        {format(completionDate, 'M月d日')}
-                        <span className="text-muted-foreground ml-1 text-xs">
-                          （あと{daysUntilCompletion}日）
+                      <span className="flex items-center gap-1.5">
+                        <span className={`font-medium ${
+                          daysUntilCompletion !== null && daysUntilCompletion <= 7 ? 'text-orange-600' : ''
+                        }`}>
+                          {format(completionDate, 'M月d日')}
+                          <span className="text-muted-foreground ml-1 text-xs">
+                            （あと{daysUntilCompletion}日）
+                          </span>
                         </span>
+                        <a
+                          href={googleCalendarUrl!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                          aria-label="Googleカレンダーに追加"
+                          title="Googleカレンダーに追加"
+                        >
+                          <CalendarPlus className="h-3.5 w-3.5" />
+                        </a>
                       </span>
                     </div>
                   )}
