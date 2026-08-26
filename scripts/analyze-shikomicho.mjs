@@ -1,5 +1,9 @@
 // 仕込帳データ.xlsx から実際の熟成日数（使用開始日ではなく「熟成完了日」列ベース）を集計する分析スクリプト。
 // 暖房期の月別補正係数の再較正に使う。実行: node scripts/analyze-shikomicho.mjs
+//
+// 注意: 「熟成日数」列(D)は手入力・数式ズレで誤っていることがある
+// （2026-08-26発覚。scripts/validate-shikomicho.mjsで検証可能）。
+// そのため日数はD列を信用せず「熟成完了日(C) − 仕込日(B)」から都度計算する。
 import XLSX from 'xlsx'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -29,8 +33,9 @@ for (const name of wb.SheetNames) {
     const r = rows[i]
     if (!r || r[idxBrew] == null || r[idxDone] == null) continue
     const brewDate = excelDateToJs(r[idxBrew])
-    const days = r[idxDays]
-    if (!brewDate || typeof days !== 'number') continue
+    const doneDate = excelDateToJs(r[idxDone])
+    if (!brewDate || !doneDate) continue
+    const days = Math.round((doneDate.getTime() - brewDate.getTime()) / 86400000)
     results.push({ brewDate, days, misoType: r[idxType] })
   }
 }
