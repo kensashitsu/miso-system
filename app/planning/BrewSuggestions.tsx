@@ -247,6 +247,12 @@ function snapToBrewDay(date: Date): Date {
   return addDays(date, SNAP_DAYS_OFFSET[date.getDay()])
 }
 
+// 翌週の月曜日を返す（当週は原料手配等の都合で提案対象外にするための起点）
+function nextWeekMonday(date: Date): Date {
+  const isoDow = (date.getDay() + 6) % 7  // 月=0, 火=1, ... 日=6
+  return addDays(date, 7 - isoDow)
+}
+
 function get3YearAvg(data: Record<string, number>, month: number, year: number): number | null {
   const values: number[] = []
   for (let i = 1; i <= 3; i++) {
@@ -347,8 +353,9 @@ function computeCoverageDays(
   return 730
 }
 
-// 完成間隔を詰められる下限（週1本ペース。水木仕込みで物理的に可能な範囲での団子防止）
-const MIN_COMPLETION_GAP_DAYS = 7
+// 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、
+// 物理的な下限は1日。2026-08-26にユーザー指摘で「週1本」想定から緩和）
+const MIN_COMPLETION_GAP_DAYS = 1
 
 // 次バッチの完成日下限を計算する。
 // 基本は「前バッチ完成日＋カバー日数」（団子防止）だが、完成時点の在庫の底が
@@ -483,8 +490,8 @@ function calcBatches(
   supplyEvents?:       { date: Date; kg: number }[],  // 熟成中ロットの補充スケジュール
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
-  // 当日はもう仕込み作業に着手できないため、仕込み日として提案できるのは最短で翌日以降
-  const minBrewDate   = addDays(today, 1)
+  // 当週はもう原料手配等の都合で仕込めないため、仕込み日として提案できるのは最短で翌週から
+  const minBrewDate   = snapBrewDate ? snapBrewDate(nextWeekMonday(today)) : nextWeekMonday(today)
   let stock           = effectiveStock
   let refDate         = today
   // Q10補正あり・なしそれぞれの推定値を独立して追跡する
@@ -1071,10 +1078,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const noOrderSupply = baseSupplyEvents.length > 0 ? baseSupplyEvents : undefined
     const noOrders      = hasOrders ? computeIdeal(noOrderSupply) : null
 
-    // 手動調整がない場合のみ自動補正（当日はもう仕込めないため翌日以降で最も早い仕込み可能日）
-    const tomorrow            = addDays(today, 1)
+    // 手動調整がない場合のみ自動補正（当週はもう仕込めないため翌週で最も早い仕込み可能日）
+    const nextWeekStart       = nextWeekMonday(today)
     const autoCorrectDate     = (isBrewDatePast && !manualFirstBrewDate)
-      ? (snapEnabled ? snapToBrewDay(tomorrow) : tomorrow)
+      ? (snapEnabled ? snapToBrewDay(nextWeekStart) : nextWeekStart)
       : undefined
     const effectiveFirstBrewDate = manualFirstBrewDate ?? autoCorrectDate
 
