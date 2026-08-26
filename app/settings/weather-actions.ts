@@ -43,8 +43,11 @@ export async function importWeatherRange(yearFrom: number, yearTo: number): Prom
   const errors: string[] = []
 
   for (let year = yearFrom; year <= yearTo; year++) {
-    // 当月はまだデータが揃っていないため除外
-    const maxMonth = year === currentYear ? currentMonth - 1 : 12
+    // 当月も含める。気象庁は月の途中でも前日分までは公開しており、
+    // fetchMonthlyWeatherは実際に公開されている行だけを返すため未来日は混ざらない
+    // （2026-08-26に「当月は丸ごと除外」だと現在熟成中ロットの積算温度がデフォルト値
+    // フォールバックで低く出てしまう不具合が発覚し、この形に変更）
+    const maxMonth = year === currentYear ? currentMonth : 12
 
     for (let month = 1; month <= maxMonth; month++) {
       try {
