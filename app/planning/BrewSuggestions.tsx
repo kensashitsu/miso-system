@@ -483,14 +483,16 @@ function calcBatches(
   supplyEvents?:       { date: Date; kg: number }[],  // 熟成中ロットの補充スケジュール
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
+  // 当日はもう仕込み作業に着手できないため、仕込み日として提案できるのは最短で翌日以降
+  const minBrewDate   = addDays(today, 1)
   let stock           = effectiveStock
   let refDate         = today
   // Q10補正あり・なしそれぞれの推定値を独立して追跡する
   let currentEstimate    = fermentationDays
   let rawCurrentEstimate = fermentationDaysRaw ?? fermentationDays
   // バッチ間の昇順を保証するための下限日（前バッチの翌日以降）
-  let minNextBrewDate:    Date = today
-  let minNextRawBrewDate: Date = today
+  let minNextBrewDate:    Date = minBrewDate
+  let minNextRawBrewDate: Date = minBrewDate
   // 連続バッチの完成日が密集しないための下限（前バッチの完成日＋カバー期間）。
   // これにより「1バッチを消費しきる前に次が完成」する団子状の仕込み提案を防ぐ。
   let minNextCompletion:    Date = today
@@ -510,9 +512,9 @@ function calcBatches(
     let brewDate: Date
     if (i === 0 && manualFirstBrewDate) {
       brewDate = manualFirstBrewDate
-      // 手動指定日が過去の場合も今日以降に修正（elseブランチと統一）
-      if (brewDate < today) {
-        brewDate = snapBrewDate ? snapBrewDate(today) : today
+      // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
+      if (brewDate < minBrewDate) {
+        brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
       }
     } else {
       // 常温は仕込み日の季節に合った実熟成日数へ不動点反復で収束させる（単発補正だと前倒し過ぎる）。
@@ -523,9 +525,9 @@ function calcBatches(
         const preSnapDate = addDays(stockOutDate, -(currentEstimate + safeBuffer))
         brewDate = snapBrewDate ? snapBrewDate(preSnapDate) : preSnapDate
       }
-      // 計算結果が過去になった場合は今日以降に修正
-      if (brewDate < today) {
-        brewDate = snapBrewDate ? snapBrewDate(today) : today
+      // 計算結果が当日以前になった場合は翌日以降に修正（当日はもう仕込めないため）
+      if (brewDate < minBrewDate) {
+        brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
       }
     }
     // 前バッチ以前にならないよう修正（昇順を保証し、sort後のn=1・n=2が同日になるのを防ぐ）
@@ -571,15 +573,15 @@ function calcBatches(
       let rawProv: Date
       if (i === 0 && manualFirstBrewDate) {
         rawProv = manualFirstBrewDate
-        // 手動指定日が過去の場合も今日以降に修正（elseブランチと統一）
-        if (rawProv < today) {
-          rawProv = snapBrewDate ? snapBrewDate(today) : today
+        // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
+        if (rawProv < minBrewDate) {
+          rawProv = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
         }
       } else {
         // Q10補正ありと同様に、不動点反復で仕込み日の季節に合った熟成日数へ収束させる
         rawProv = refineBrewDateToStockOut(rawStockOutDate, rawCurrentEstimate, safeBuffer, getCompletionRaw, snapBrewDate)
-        if (rawProv < today) {
-          rawProv = snapBrewDate ? snapBrewDate(today) : today
+        if (rawProv < minBrewDate) {
+          rawProv = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
         }
       }
       // rawBrewDateも昇順を保証
@@ -1059,7 +1061,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const withOrders     = computeIdeal(activeSupplyEvents)
     const stockOutDate0  = withOrders.stockOut
     const idealBrewDate0 = withOrders.ideal
-    const isBrewDatePast = !!idealBrewDate0 && idealBrewDate0 < today
+    // 当日はもう仕込めないため、推奨日が「今日以前」なら超過扱いにする
+    const isBrewDatePast = !!idealBrewDate0 && idealBrewDate0 <= today
     const overdueDays    = isBrewDatePast && idealBrewDate0 ? differenceInDays(today, idealBrewDate0) : 0
     const stockOutInDays = stockOutDate0 ? differenceInDays(stockOutDate0, today) : null
 
@@ -1068,9 +1071,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const noOrderSupply = baseSupplyEvents.length > 0 ? baseSupplyEvents : undefined
     const noOrders      = hasOrders ? computeIdeal(noOrderSupply) : null
 
-    // 手動調整がない場合のみ自動補正（今日以降で最も早い仕込み可能日）
+    // 手動調整がない場合のみ自動補正（当日はもう仕込めないため翌日以降で最も早い仕込み可能日）
+    const tomorrow            = addDays(today, 1)
     const autoCorrectDate     = (isBrewDatePast && !manualFirstBrewDate)
-      ? (snapEnabled ? snapToBrewDay(today) : today)
+      ? (snapEnabled ? snapToBrewDay(tomorrow) : tomorrow)
       : undefined
     const effectiveFirstBrewDate = manualFirstBrewDate ?? autoCorrectDate
 
