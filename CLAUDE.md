@@ -587,7 +587,8 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 ### 5. 気象データ取り込み（WeatherImportCard）
 - 年範囲を指定して手動取り込み（0.7秒/月のディレイ）
 - `app/settings/weather-actions.ts` の Server Action
-- **当月も取り込み対象**（2026-08-26修正）: 以前は「当月はまだデータが揃っていない」として`currentMonth-1`までしか取り込まず、当月分のWeatherCacheが永久に欠測していた。気象庁は月の途中でも前日分までは公開しており`fetchMonthlyWeather`は実際に公開されている行だけを返すため、当月を含めても未来日が混ざる心配はない。この欠測により、常温熟成中ロットの熟成度%（`calcAccumulatedTemp`、欠測日はデフォルト14℃にフォールバック）と完成予定日（`calcCompletionFromBrew`、過去複数年平均`weatherAvg`を使用）が別々の代用データを参照する形になり、両者が大きく食い違う不具合があった。手動ボタンである点は変わらないため、**月替わり後に一度も取り込みを実行しないと当月分は依然として欠測したまま**（自動cronは無い）。
+- **当月も取り込み対象**（2026-08-26修正）: 以前は「当月はまだデータが揃っていない」として`currentMonth-1`までしか取り込まず、当月分のWeatherCacheが永久に欠測していた。気象庁は月の途中でも前日分までは公開しており`fetchMonthlyWeather`は実際に公開されている行だけを返すため、当月を含めても未来日が混ざる心配はない。この欠測により、常温熟成中ロットの熟成度%（`calcAccumulatedTemp`、欠測日はデフォルト14℃にフォールバック）と完成予定日（`calcCompletionFromBrew`、過去複数年平均`weatherAvg`を使用）が別々の代用データを参照する形になり、両者が大きく食い違う不具合があった。
+- **自動取り込み（GitHub Actions、2026-08-26追加）**: `.github/workflows/weather-import.yml`が毎日5:00 JSTに`scripts/import_weather.py`を実行し、当月（月初3日以内は前月も併せて）のWeatherCacheを自動更新する。SARIMAX予測（`forecast.yml`）・月末在庫スナップショット（`inventory-snapshot.yml`）と同じくPython+psycopg2で`FORECAST_DATABASE_URL`シークレットに直接接続する方式（Prisma経由はpgbouncer越しにハングする問題があるため踏襲）。`/settings`の手動ボタンは引き続き過去分の一括取り込みに使える。
 
 ---
 

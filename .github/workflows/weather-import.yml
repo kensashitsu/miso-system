@@ -1,0 +1,27 @@
+name: 気象データ自動取り込み
+
+on:
+  schedule:
+    - cron: '0 20 * * *'  # 毎日 5:00 JST（= 前日 20:00 UTC）
+  workflow_dispatch:       # GitHub画面・APIから手動実行可能
+
+jobs:
+  import-weather:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install psycopg2-binary requests
+
+      - name: Import weather data
+        env:
+          DATABASE_URL: ${{ secrets.FORECAST_DATABASE_URL }}
+        run: python scripts/import_weather.py
