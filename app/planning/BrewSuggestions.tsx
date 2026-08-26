@@ -115,7 +115,7 @@ interface RecipePlan {
   canCalc:          boolean
   isBrewDatePast:   boolean       // 1回目AI推奨仕込み日が今日より過去かどうか
   overdueDays:      number        // 何日超過しているか
-  manualPinActive:  boolean       // 手動固定が実際に効いているか（確定日と重複時は無効）
+  manualPinIndices: number[]      // 手動固定が実際に効いている回のインデックス（確定日と重複時は除外）
   idealBrewDate0:   Date | null   // 修正前のAI推奨仕込み日（警告バナー表示用）
   orderImpact:      {             // 予定出荷の反映前後の比較（未入力時はnull）
     orderCount:     number
@@ -251,6 +251,12 @@ function snapToBrewDay(date: Date): Date {
 function nextWeekMonday(date: Date): Date {
   const isoDow = (date.getDay() + 6) % 7  // 月=0, 火=1, ... 日=6
   return addDays(date, 7 - isoDow)
+}
+
+// 手動調整の仕込み日をlocalStorageに保存する際のキー。1回目（idx=0）は後方互換のため
+// 従来どおり品種名のみ、2回目以降（idx>=1）は品種名にインデックスを付与する。
+function manualDateKey(name: string, idx: number): string {
+  return idx === 0 ? name : `${name}#${idx}`
 }
 
 function get3YearAvg(data: Record<string, number>, month: number, year: number): number | null {
@@ -486,7 +492,7 @@ function calcBatches(
   snapBrewDate?:       (date: Date) => Date,
   getCompletionRaw?:   (brewDate: Date) => { days: number; completionDate: Date },
   fermentationDaysRaw?: number,   // Q10補正なしの初期推定値（常温のみ）
-  manualFirstBrewDate?: Date,     // 1回目の仕込み日手動指定（スナップ無効）
+  manualBrewDateByIndex?: Record<number, Date>,  // 回ごと（0始まり）の仕込み日手動指定（スナップ無効）
   supplyEvents?:       { date: Date; kg: number }[],  // 熟成中ロットの補充スケジュール
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
@@ -517,8 +523,8 @@ function calcBatches(
 
     // ── Q10補正あり（メイン） ──────────────────────────────
     let brewDate: Date
-    if (i === 0 && manualFirstBrewDate) {
-      brewDate = manualFirstBrewDate
+    if (manualBrewDateByIndex?.[i]) {
+      brewDate = manualBrewDateByIndex[i]
       // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
       if (brewDate < minBrewDate) {
         brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
@@ -578,8 +584,8 @@ function calcBatches(
     let rawMaterialOrderDeadline: Date | undefined
     if (getCompletionRaw) {
       let rawProv: Date
-      if (i === 0 && manualFirstBrewDate) {
-        rawProv = manualFirstBrewDate
+      if (manualBrewDateByIndex?.[i]) {
+        rawProv = manualBrewDateByIndex[i]
         // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
         if (rawProv < minBrewDate) {
           rawProv = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
@@ -751,8 +757,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [hoveredKey,      setHoveredKey]     = useState<string | null>(null)
   const [calendarOffsets, setCalendarOffsets] = useState<Record<string, number>>({})
   const [useRawAsBase,    setUseRawAsBase]    = useState(false)
+  // キーは manualDateKey(品種名, 回のインデックス0始まり) の形式
   const [manualBrewDates, setManualBrewDates] = useState<Record<string, string>>({})
-  const [editingPlan,     setEditingPlan]     = useState<string | null>(null)
+  const [editingPlan,     setEditingPlan]     = useState<{ name: string; genIndex: number } | null>(null)
   const [editDateValue,   setEditDateValue]   = useState<string>('')
   // 予定出荷（大口）: 品種ごとの { 出荷予定日, kg } リスト（localStorage永続）
   const [scheduledOrders, setScheduledOrders] = useState<Record<string, { date: string; kg: number }[]>>({})
@@ -792,14 +799,19 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const stored   = localStorage.getItem(`planning_location_${r.name}`)
       const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
       savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
-      const storedDate = localStorage.getItem(`planning_manualDate_${r.name}`) ?? initialManualBrewDates?.[r.name]
       // 本登録済み（ロット化済み）と同じ日付の手動調整ピンは実現済みなので自動解除する。
-      // これがないと本登録後も1回目が古い日付に固定表示され続ける。
+      // これがないと本登録後もその回が古い日付に固定表示され続ける。
       const doneDates = registeredDoneDatesByType?.[r.name] ?? []
-      if (storedDate && doneDates.includes(storedDate)) {
-        localStorage.removeItem(`planning_manualDate_${r.name}`)
-      } else if (storedDate) {
-        savedManualDates[r.name] = storedDate
+      // 回ごと（最大5回分・0始まり）の手動固定を読み込む。1回目のみ後方互換でinitialManualBrewDatesも見る
+      for (let idx = 0; idx < 5; idx++) {
+        const key        = manualDateKey(r.name, idx)
+        const storedDate = localStorage.getItem(`planning_manualDate_${key}`)
+          ?? (idx === 0 ? initialManualBrewDates?.[r.name] : undefined)
+        if (storedDate && doneDates.includes(storedDate)) {
+          localStorage.removeItem(`planning_manualDate_${key}`)
+        } else if (storedDate) {
+          savedManualDates[key] = storedDate
+        }
       }
       const rawOrders = localStorage.getItem(`planning_scheduledOrders_${r.name}`)
       if (rawOrders) {
@@ -1039,11 +1051,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const recipeBatches = perRecipeBatches[recipe.name] ?? maxBatches
     // 仮登録（確定）と同じ日付の集合。手動固定や新規提案がこれと重複しないようにする
     const regDateSet    = new Set(regPlans.map(p => format(p.brewDate, 'yyyy-MM-dd')))
-    const manualDateStr = manualBrewDates[recipe.name]
-    // 手動固定が確定行と同じ日付なら無効化（確定供給で算入済み＝二重計上・行重複を防ぐ）
-    const manualFirstBrewDate = (manualDateStr && !regDateSet.has(manualDateStr))
-      ? new Date(manualDateStr + 'T00:00:00')
-      : undefined
+    // 手動固定（回ごと・0始まり）。確定行と同じ日付なら無効化（確定供給で算入済み＝二重計上・行重複を防ぐ）
+    const manualBrewDateRaw: Record<number, Date> = {}
+    for (let idx = 0; idx < recipeBatches; idx++) {
+      const dateStr = manualBrewDates[manualDateKey(recipe.name, idx)]
+      if (dateStr && !regDateSet.has(dateStr)) {
+        manualBrewDateRaw[idx] = new Date(dateStr + 'T00:00:00')
+      }
+    }
 
     // 1回目推奨仕込み日・在庫切れ日を、補充スケジュールを与えて計算する内部ヘルパー。
     // 予定出荷あり／なしを同一ロジックで出し、効果を比較できるようにする。
@@ -1078,16 +1093,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const noOrderSupply = baseSupplyEvents.length > 0 ? baseSupplyEvents : undefined
     const noOrders      = hasOrders ? computeIdeal(noOrderSupply) : null
 
-    // 手動調整がない場合のみ自動補正（当週はもう仕込めないため翌週で最も早い仕込み可能日）
+    // 1回目に手動調整がない場合のみ自動補正（当週はもう仕込めないため翌週で最も早い仕込み可能日）
     const nextWeekStart       = nextWeekMonday(today)
-    const autoCorrectDate     = (isBrewDatePast && !manualFirstBrewDate)
+    const autoCorrectDate     = (isBrewDatePast && manualBrewDateRaw[0] === undefined)
       ? (snapEnabled ? snapToBrewDay(nextWeekStart) : nextWeekStart)
       : undefined
-    const effectiveFirstBrewDate = manualFirstBrewDate ?? autoCorrectDate
+    const manualBrewDateByIndex: Record<number, Date> = { ...manualBrewDateRaw }
+    if (autoCorrectDate) manualBrewDateByIndex[0] = autoCorrectDate
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     const generated = canCalc
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
       : []
 
     // 仮登録の確定行（BatchPlan形）
@@ -1118,7 +1134,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualFirstBrewDate, noOrderSupply)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -1155,7 +1171,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate
@@ -1233,7 +1249,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       effectiveStock, stockKg, fermentingKg, fermentingCount, safetyStockKg,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
-      isBrewDatePast, overdueDays, manualPinActive: manualFirstBrewDate !== undefined,
+      isBrewDatePast, overdueDays, manualPinIndices: Object.keys(manualBrewDateRaw).map(Number),
       idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, supplyMarkers,
     }
   })
@@ -1555,6 +1571,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           const first       = plan.batches[0] ?? null
           // 手配の緊急度は「最初の新規提案」基準（確定行は手配済み前提なので除外）
           const firstNew    = plan.batches.find(b => !b.isFixed) ?? null
+          // 新規提案のみの並び（確定行を除く）。手動調整は回ごとにこのインデックスをキーにする
+          const genBatches  = plan.batches.filter(b => !b.isFixed)
 
           const firstPrimaryDeadline = firstNew
             ? ((useRawAsBase && firstNew.rawMaterialOrderDeadline) ? firstNew.rawMaterialOrderDeadline : firstNew.materialOrderDeadline)
@@ -1910,11 +1928,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                               pDaysUntilOrder <= 30 ? 'text-orange-600 font-semibold' :
                               'text-muted-foreground'
                             const isPast     = pBrew < today
-                            // 手動調整の対象は「最初の新規提案（確定行ではない最初の行）」
-                            const firstGenN  = plan.batches.find(x => !x.isFixed)?.n
-                            const isFirstGen = !b.isFixed && b.n === firstGenN
-                            const isManual   = isFirstGen && plan.manualPinActive
-                            const isEditing  = isFirstGen && editingPlan === plan.name
+                            // 手動調整の対象は「確定行ではない新規提案」すべて（回ごとにインデックスで管理）
+                            const genIndex   = b.isFixed ? -1 : genBatches.indexOf(b)
+                            const isGen      = !b.isFixed
+                            const isManual   = isGen && plan.manualPinIndices.includes(genIndex)
+                            const isEditing  = isGen && editingPlan?.name === plan.name && editingPlan.genIndex === genIndex
+                            const dateKey    = manualDateKey(plan.name, genIndex)
                             return (
                               <tr key={b.n} className={`border-b last:border-0 ${b.isFixed ? 'bg-emerald-50/40' : ''}`}>
                                 <td className="text-center px-2 py-2 text-muted-foreground">{b.n}</td>
@@ -1929,8 +1948,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         if (e.key === 'Enter') {
                                           e.preventDefault()
                                           if (editDateValue) {
-                                            localStorage.setItem(`planning_manualDate_${plan.name}`, editDateValue)
-                                            setManualBrewDates(prev => ({ ...prev, [plan.name]: editDateValue }))
+                                            localStorage.setItem(`planning_manualDate_${dateKey}`, editDateValue)
+                                            setManualBrewDates(prev => ({ ...prev, [dateKey]: editDateValue }))
                                           }
                                           setEditingPlan(null)
                                         }
@@ -1943,8 +1962,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       onBlur={() => {
                                         if (cancelEditRef.current) { cancelEditRef.current = false; return }
                                         if (editDateValue) {
-                                          localStorage.setItem(`planning_manualDate_${plan.name}`, editDateValue)
-                                          setManualBrewDates(prev => ({ ...prev, [plan.name]: editDateValue }))
+                                          localStorage.setItem(`planning_manualDate_${dateKey}`, editDateValue)
+                                          setManualBrewDates(prev => ({ ...prev, [dateKey]: editDateValue }))
                                         }
                                         setEditingPlan(null)
                                       }}
@@ -1962,13 +1981,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         {isManual && (
                                           <span className="text-[10px] text-amber-600 font-medium ml-0.5">調整済</span>
                                         )}
-                                        {isFirstGen && (
+                                        {isGen && (
                                           <span className="inline-flex items-center gap-0.5 ml-0.5">
                                             <button
                                               type="button"
                                               onClick={() => {
-                                                setEditingPlan(plan.name)
-                                                setEditDateValue(manualBrewDates[plan.name] || format(b.brewDate, 'yyyy-MM-dd'))
+                                                setEditingPlan({ name: plan.name, genIndex })
+                                                setEditDateValue(manualBrewDates[dateKey] || format(b.brewDate, 'yyyy-MM-dd'))
                                               }}
                                               className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
                                               title="仕込み日を手動調整"
@@ -1979,10 +1998,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                               <button
                                                 type="button"
                                                 onClick={() => {
-                                                  localStorage.removeItem(`planning_manualDate_${plan.name}`)
+                                                  localStorage.removeItem(`planning_manualDate_${dateKey}`)
                                                   setManualBrewDates(prev => {
                                                     const n = { ...prev }
-                                                    delete n[plan.name]
+                                                    delete n[dateKey]
                                                     return n
                                                   })
                                                 }}
@@ -2239,6 +2258,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                               const isMulti = plan.batches.length > 1
                               const label   = isMulti ? `【${b.n}回目】` : ''
                               const prevCompletion = idx === 0 ? today : plan.batches[idx - 1].completionDate
+                              const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
                               const hasRaw  = b.rawBrewDate !== undefined
                               const sLabel  = useRawAsBase ? 'Q10補正あり' : '補正なし'
                               const pBrew   = (useRawAsBase && hasRaw) ? b.rawBrewDate! : b.brewDate
@@ -2289,7 +2309,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       <>{' '}− バッファ <span className="tabular-nums">{brewBufferDays}</span> 日</>
                                     )}
                                     　→ 推奨仕込み日：<span className="tabular-nums font-medium text-foreground">{format(pBrew, 'M月d日')}</span>
-                                    {b.n === 1 && manualBrewDates[plan.name] && (
+                                    {!b.isFixed && plan.manualPinIndices.includes(genIndex) && (
                                       <span className="text-amber-600 text-[10px] ml-1">（手動調整済み）</span>
                                     )}
                                     {sBrew && (
