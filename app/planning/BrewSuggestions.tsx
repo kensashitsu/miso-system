@@ -556,7 +556,8 @@ function calcBatches(
     // 完成日が「前バッチの完成日＋カバー期間」より早い場合は仕込み日を後ろへずらす。
     // 1バッチの歩留まりを消費しきる前に次が完成すると、仕込み日が1〜数日差で密集する
     // （前バッチの翌日へ丸める昇順クランプだけでは団子状の提案になってしまう）。
-    if (completionDate < minNextCompletion) {
+    // ただし手動固定されている回は、現場の都合（水木連続仕込みなど）を優先しそのまま採用する。
+    if (completionDate < minNextCompletion && !manualBrewDateByIndex?.[i]) {
       const deficit = differenceInDays(minNextCompletion, completionDate)
       brewDate = snapBrewDate ? snapBrewDate(addDays(brewDate, deficit)) : addDays(brewDate, deficit)
       let r     = computeCompletion(brewDate)
@@ -603,8 +604,8 @@ function calcBatches(
       }
       rawBrewDate = rawProv
       let rr = getCompletionRaw(rawBrewDate)
-      // Q10補正ありと同様に、カバー期間で完成日の密集（仕込み日の団子化）を防ぐ
-      if (rr.completionDate < minNextRawCompletion) {
+      // Q10補正ありと同様に、カバー期間で完成日の密集（仕込み日の団子化）を防ぐ（手動固定回は除く）
+      if (rr.completionDate < minNextRawCompletion && !manualBrewDateByIndex?.[i]) {
         const deficit = differenceInDays(minNextRawCompletion, rr.completionDate)
         rawBrewDate = snapBrewDate ? snapBrewDate(addDays(rawBrewDate, deficit)) : addDays(rawBrewDate, deficit)
         rr          = getCompletionRaw(rawBrewDate)
