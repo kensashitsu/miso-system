@@ -20,6 +20,7 @@ interface Recipe {
   targetTempSum:   number
   totalWeightKg:   number
   defaultLocation: string
+  safetyStockKg:   number | null
 }
 
 interface FermentingInfo {
@@ -104,6 +105,7 @@ interface RecipePlan {
   stockKg:          number
   fermentingKg:     number
   fermentingCount:  number
+  safetyStockKg:    number | null
   dailyRate:        number
   dailyAccum:       number
   location:         string
@@ -989,6 +991,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
     const activeSupplyEvents = combinedEvents.length > 0 ? combinedEvents : undefined
 
+    // 安全在庫ライン（熟成済バラ在庫）が設定されている品種は、在庫切れ判定・仕込み提案の
+    // 起点をライン到達時点にシフトする（実在庫からラインを引いた「実質使える在庫」で計算し、
+    // 0を切ったタイミング＝ライン到達日として扱う）。表示用のeffectiveStockは実数のまま。
+    const safetyStockKg   = recipe.safetyStockKg ?? null
+    const depletableStock = safetyStockKg != null ? effectiveStock - safetyStockKg : effectiveStock
+
     const canCalc   = monthlyAvg !== null && monthlyAvg > 0 && fermentationDays > 0
     const daysInMonth = getDaysInMonth(today)
     const dailyRate   = canCalc ? (monthlyAvg! / daysInMonth) : 0
@@ -1036,7 +1044,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       supplyEvents: { date: Date; kg: number }[] | undefined,
     ): { stockOut: Date | null; ideal: Date | null } => {
       if (!canCalc) return { stockOut: null, ideal: null }
-      const so = findStockOutDate(effectiveStock, today, getDailyRateFn, supplyEvents)
+      const so = findStockOutDate(depletableStock, today, getDailyRateFn, supplyEvents)
       // calcBatches と同じ不動点反復で1回目推奨日を求める（単発補正だと前倒し過ぎてバナーが誤って超過表示になる）
       let ideal: Date
       if (getCompletion) {
@@ -1068,7 +1076,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     const generated = canCalc
-      ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
       : []
 
     // 仮登録の確定行（BatchPlan形）
@@ -1099,7 +1107,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(effectiveStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualFirstBrewDate, noOrderSupply)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualFirstBrewDate, noOrderSupply)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -1133,10 +1141,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     if (canCalc && stockOutDate0) {
       const factor   = 1 + wifPct / 100
       const scaledFn = (d: Date) => getDailyRateFn(d) * factor
-      const so       = findStockOutDate(effectiveStock, today, scaledFn, activeSupplyEvents)
+      const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(effectiveStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, effectiveFirstBrewDate, activeSupplyEvents)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate
@@ -1211,7 +1219,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     return {
       name: recipe.name,
       monthlyAvg, usingHW, usingSarimax, autoApplied, fermentationDays,
-      effectiveStock, stockKg, fermentingKg, fermentingCount,
+      effectiveStock, stockKg, fermentingKg, fermentingCount, safetyStockKg,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, manualPinActive: manualFirstBrewDate !== undefined,
@@ -1580,15 +1588,19 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               ? `（うち熟成中ロット ${fmtKg} kg を算入）` : ''
             const fermentLead = (plan.fermentingCount > 0 && !optimisticStock)
               ? `熟成中ロット ${fmtKg} kg（${plan.fermentingCount}件）が順次完成する分を見込んでも、` : ''
+            // 安全在庫ライン設定時は「在庫切れ」ではなく「ラインを割る」という言い回しにする
+            const outLabel   = plan.safetyStockKg != null ? '安全在庫ラインを下回る見込み' : '在庫切れの見込み'
+            const safetyTxt  = plan.safetyStockKg != null
+              ? `（安全在庫ライン ${plan.safetyStockKg.toLocaleString()} kg を割らないよう逆算）` : ''
 
             // 在庫切れ超過中：最優先で警告トーン
             if (plan.isBrewDatePast) {
               const outTxt = plan.stockOutInDays != null
-                ? (plan.stockOutInDays <= 0 ? '既に在庫切れの見込み' : `推定在庫切れまであと約 ${plan.stockOutInDays} 日`)
-                : '在庫切れ時期は算出不可'
+                ? (plan.stockOutInDays <= 0 ? `既に${outLabel}` : `${outLabel}まであと約 ${plan.stockOutInDays} 日`)
+                : '見込み時期は算出不可'
               return {
                 tone: 'urgent',
-                text: `${plan.name}は既に推奨仕込み日を ${plan.overdueDays} 日超過しています。`
+                text: `${plan.name}は既に推奨仕込み日を ${plan.overdueDays} 日超過しています${safetyTxt}。`
                   + `有効在庫 ${stockKgTxt} kg${stockClause}・消費ペース約 ${rateTxt} kg/日で、${fermentLead}${outTxt}。`
                   + `${plan.location}での熟成に約 ${ferment} 日かかるため、できるだけ早く仕込んでください。`,
               }
@@ -1603,8 +1615,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               (firstDaysUntilOrder <= 14 || daysToBrew <= 7) ? 'soon' : 'ok'
             return {
               tone,
-              text: `${plan.name}は有効在庫 ${stockKgTxt} kg${stockClause}、消費ペース約 ${rateTxt} kg/日です。`
-                + `${fermentLead || 'このままだと '}${format(firstNew.stockOutDate, 'M/d')}（あと約 ${Math.max(daysToStockOut, 0)} 日）に在庫切れの見込み。`
+              text: `${plan.name}は有効在庫 ${stockKgTxt} kg${stockClause}、消費ペース約 ${rateTxt} kg/日です${safetyTxt}。`
+                + `${fermentLead || 'このままだと '}${format(firstNew.stockOutDate, 'M/d')}（あと約 ${Math.max(daysToStockOut, 0)} 日）に${outLabel}。`
                 + `${plan.location}での熟成に約 ${ferment} 日かかるため、${format(primaryBrew, 'M/d')}（あと ${Math.max(daysToBrew, 0)} 日）までに仕込むのが目安です。`
                 + deadlineTxt,
             }
@@ -1837,9 +1849,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                       ⚠️ 在庫切れリスク：推奨仕込み日（{format(plan.idealBrewDate0, 'M/d')}）を {plan.overdueDays} 日超過しています。早急に仕込みを検討してください。
                     </p>
                     <p className="text-xs text-red-600/90">
-                      現在の有効在庫：{Math.round(plan.effectiveStock).toLocaleString()} kg ／
+                      現在の有効在庫：{Math.round(plan.effectiveStock).toLocaleString()} kg
+                      {plan.safetyStockKg != null && (
+                        <> （安全在庫ライン {plan.safetyStockKg.toLocaleString()} kg を除く実質 {Math.max(Math.round(plan.effectiveStock - plan.safetyStockKg), 0).toLocaleString()} kg）</>
+                      )} ／
                       消費ペース：約 {Math.round(plan.dailyRate).toLocaleString()} kg/日 ／
-                      推定在庫切れまで：{plan.stockOutInDays != null ? `あと ${plan.stockOutInDays} 日` : '—'}
+                      {plan.safetyStockKg != null ? '安全在庫ラインを割るまで' : '推定在庫切れまで'}：{plan.stockOutInDays != null ? `あと ${plan.stockOutInDays} 日` : '—'}
                     </p>
                   </div>
                 )}
@@ -2189,9 +2204,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   }))}
                                   todayStr={format(today, 'yyyy-MM-dd')}
                                   supplyMarkers={plan.supplyMarkers}
+                                  safetyStockKg={plan.safetyStockKg}
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
-                                  完成の補充を織り込んだ在庫見込み。赤の縦線は「その回の完成が間に合わない場合に在庫が尽きる日」。
+                                  完成の補充を織り込んだ在庫見込み。赤の縦線は「その回の完成が間に合わない場合に{plan.safetyStockKg != null ? '安全在庫ラインを割る' : '在庫が尽きる'}日」。
                                   {plan.location === '常温' && q10Value !== 1 && 'グラフはQ10補正あり基準。'}
                                 </p>
                               </div>

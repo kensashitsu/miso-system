@@ -272,6 +272,7 @@ export default async function PlanningPage() {
     targetTempSum:   r.targetTempSum,
     defaultLocation: r.defaultLocation,
     totalWeightKg:   r.totalWeightKg,
+    safetyStockKg:   r.safetyStockKg,
   }))
 
   // 品種別の自動方式選択：バックテストで最も的中する方式（精度しきい値以下のみ採用）

@@ -28,6 +28,8 @@ interface Props {
   todayStr: string
   // 補充ジャンプ地点の桶番号ラベル（熟成中ロット=緑 / 仮登録=紫で色分け）
   supplyMarkers?: { d: string; label: string; kind: 'fermenting' | 'registered' }[]
+  // 安全在庫ライン（設定されている品種のみ）。「在庫切れ」の縦線はゼロではなくこのラインへの到達日
+  safetyStockKg?: number | null
 }
 
 const COLOR = {
@@ -38,6 +40,7 @@ const COLOR = {
   regBucket: '#8b5cf6',  // violet-500（仮登録の桶番号）
   out:       '#e11d48',  // rose-600
   today:     '#9ca3af',  // gray-400
+  safety:    '#d97706',  // amber-600（安全在庫ライン）
 }
 
 function fmtMd(d: string): string {
@@ -45,7 +48,7 @@ function fmtMd(d: string): string {
   return `${Number(m)}/${Number(day)}`
 }
 
-export default function StockProjectionChart({ points, markers, todayStr, supplyMarkers }: Props) {
+export default function StockProjectionChart({ points, markers, todayStr, supplyMarkers, safetyStockKg }: Props) {
   if (points.length < 2) return null
   const dateSet = new Set(points.map(p => p.d))
   const has = (d: string | null): d is string => d !== null && dateSet.has(d)
@@ -109,6 +112,14 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
               strokeDasharray="4 3"
               label={{ value: '今日', position: 'insideTopLeft', fontSize: 10, fill: COLOR.today }}
             />
+            {safetyStockKg != null && (
+              <ReferenceLine
+                y={safetyStockKg}
+                stroke={COLOR.safety}
+                strokeDasharray="4 3"
+                label={{ value: `安全在庫ライン ${safetyStockKg.toLocaleString()}kg`, position: 'insideBottomRight', fontSize: 10, fill: COLOR.safety }}
+              />
+            )}
             {buckets.map(m => {
               const color = m.kind === 'registered' ? COLOR.regBucket : COLOR.comp
               const dy = m.kind === 'registered' && dupDays.has(m.d) ? -12 : 0

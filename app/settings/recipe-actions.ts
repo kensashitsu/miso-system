@@ -19,6 +19,7 @@ const schema = z.object({
   soybeanOrigin:   z.string().nullish(),
   sortOrder:       z.number().int().min(0).default(0),
   taneKojiG:       z.number().min(0).default(0),
+  safetyStockKg:   z.number().min(0).nullish(),
 })
 
 export type RecipeResult = {
@@ -37,7 +38,7 @@ export async function createRecipe(input: unknown): Promise<RecipeResult> {
     return { errors }
   }
   try {
-    await prisma.misoRecipe.create({ data: { ...parsed.data, soybeanOrigin: parsed.data.soybeanOrigin ?? null } })
+    await prisma.misoRecipe.create({ data: { ...parsed.data, soybeanOrigin: parsed.data.soybeanOrigin ?? null, safetyStockKg: parsed.data.safetyStockKg ?? null } })
     revalidatePath('/settings')
     revalidatePath('/lots/new')
     return { success: true }
@@ -60,7 +61,7 @@ export async function updateRecipe(id: string, input: unknown): Promise<RecipeRe
   try {
     await prisma.misoRecipe.update({
       where: { id },
-      data: { ...parsed.data, soybeanOrigin: parsed.data.soybeanOrigin ?? null },
+      data: { ...parsed.data, soybeanOrigin: parsed.data.soybeanOrigin ?? null, safetyStockKg: parsed.data.safetyStockKg ?? null },
     })
     revalidatePath('/settings')
     revalidatePath('/lots/new')

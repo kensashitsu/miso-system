@@ -159,6 +159,7 @@ model MisoRecipe {
   defaultLocation String   @default("温調室24℃") // 初期場所
   soybeanOrigin   String?                    // 大豆産地デフォルト
   taneKojiG       Float    @default(0)       // 種麹デフォルト量（g）
+  safetyStockKg   Float?                     // 安全在庫ライン（熟成済バラ在庫、kg）。未設定なら閾値なし
   isActive        Boolean  @default(true)
   sortOrder       Int      @default(0)
   createdAt       DateTime @default(now())

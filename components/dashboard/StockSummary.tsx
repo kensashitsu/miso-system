@@ -10,19 +10,21 @@ type StockSummaryProps = {
   fermentingKgByType: Record<string, number>
   hasApiData:         boolean
   hasApiError:        boolean
+  safetyStockMap?:    Record<string, number>  // 品種ごとの安全在庫ライン（熟成済バラ在庫、kg）
 }
 
-function KgCell({ value }: { value: number | null }) {
+function KgCell({ value, warn }: { value: number | null; warn?: boolean }) {
   if (value == null) return <span className="text-gray-300">—</span>
   return (
     <>
-      <span className="font-semibold text-gray-900">{value.toLocaleString()}</span>
-      <span className="text-gray-400 font-normal text-xs ml-0.5">kg</span>
+      <span className={`font-semibold ${warn ? 'text-orange-600' : 'text-gray-900'}`}>{value.toLocaleString()}</span>
+      <span className={`font-normal text-xs ml-0.5 ${warn ? 'text-orange-400' : 'text-gray-400'}`}>kg</span>
+      {warn && <span className="ml-1 text-orange-500" title="安全在庫ラインを下回っています">⚠</span>}
     </>
   )
 }
 
-export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiData, hasApiError }: StockSummaryProps) {
+export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiData, hasApiError, safetyStockMap }: StockSummaryProps) {
   const [isOpen, setIsOpen] = useState(true)
 
   const rows = MISO_TYPES.map(type => {
@@ -102,13 +104,15 @@ export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiD
                   const packaged   = stock?.packagedKg ?? null
                   const fermenting = Math.round(fermentingKgByType[type] ?? 0)
                   const total      = aged != null ? aged + (packaged ?? 0) + fermenting : null
+                  const safetyLine = safetyStockMap?.[type]
+                  const belowSafety = safetyLine != null && aged != null && aged < safetyLine
                   return (
                     <tr key={type} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
                       <td className="py-2.5 pr-2 px-4 text-sm font-medium text-gray-700 whitespace-nowrap">{type}</td>
                       <td className="py-2.5 px-2 text-right tabular-nums">
                         <KgCell value={fermenting > 0 ? fermenting : null} />
                       </td>
-                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={aged} /></td>
+                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={aged} warn={belowSafety} /></td>
                       <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={packaged} /></td>
                       <td className="py-2.5 pl-2 pr-4 text-right tabular-nums"><KgCell value={total} /></td>
                     </tr>

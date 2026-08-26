@@ -35,6 +35,9 @@ export default async function DashboardPage() {
   // レシピの現在の目標積算温度を品種名でルックアップ
   const recipeTargetMap: Record<string, number> = {}
   for (const r of recipes) recipeTargetMap[r.name] = r.targetTempSum
+  // 安全在庫ライン（熟成済バラ在庫、kg）。未設定の品種は含めない
+  const safetyStockMap: Record<string, number> = {}
+  for (const r of recipes) if (r.safetyStockKg != null) safetyStockMap[r.name] = r.safetyStockKg
   const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
 
   // API在庫を品種別Mapに変換
@@ -169,6 +172,10 @@ export default async function DashboardPage() {
     const days = differenceInDays(new Date(l.estimatedCompletionISO), today)
     return days >= 0 && days <= 7
   })
+  // 安全在庫ラインを下回っている品種（熟成済バラ在庫のみで判定。小分け製品は含めない）
+  const lowSafetyStockTypes = Object.entries(safetyStockMap)
+    .map(([type, line]) => ({ type, line, agedKg: agedStockMap[type]?.agedKg ?? null }))
+    .filter(t => t.agedKg != null && t.agedKg < t.line)
 
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-4 sm:space-y-6">
@@ -180,14 +187,26 @@ export default async function DashboardPage() {
         fermentingKgByType={fermentingKgByType}
         hasApiData={agedStockData != null}
         hasApiError={agedStockData == null && !!process.env.STOCK_API_URL}
+        safetyStockMap={safetyStockMap}
       />
 
       {/* 在庫推移グラフ */}
       <InventoryTrendChart snapshots={inventorySnapshots} />
 
       {/* アラートバナー */}
-      {(dangerLots.length > 0 || nearCompletionLots.length > 0) && (
+      {(dangerLots.length > 0 || nearCompletionLots.length > 0 || lowSafetyStockTypes.length > 0) && (
         <div className="space-y-2">
+          {lowSafetyStockTypes.length > 0 && (
+            <div className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-orange-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <span className="font-semibold">安全在庫ライン割れ（熟成済バラ在庫）：</span>
+                {lowSafetyStockTypes
+                  .map(t => `${t.type}（${Math.round(t.agedKg!).toLocaleString()}kg／ライン${t.line.toLocaleString()}kg）`)
+                  .join('、')}
+              </div>
+            </div>
+          )}
           {dangerLots.length > 0 && (
             <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-rose-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

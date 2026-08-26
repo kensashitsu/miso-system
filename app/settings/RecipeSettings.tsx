@@ -20,6 +20,7 @@ type FormState = {
   targetTempSum: string
   defaultLocation: string; soybeanOrigin: string; sortOrder: string
   taneKojiG: string
+  safetyStockKg: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -28,6 +29,7 @@ const EMPTY_FORM: FormState = {
   targetTempSum: '',
   defaultLocation: '暖房', soybeanOrigin: '', sortOrder: '0',
   taneKojiG: '0',
+  safetyStockKg: '',
 }
 
 function recipeToForm(r: MisoRecipe): FormState {
@@ -43,6 +45,7 @@ function recipeToForm(r: MisoRecipe): FormState {
     soybeanOrigin:   r.soybeanOrigin ?? '',
     sortOrder:       String(r.sortOrder),
     taneKojiG:       String(r.taneKojiG),
+    safetyStockKg:   r.safetyStockKg != null ? String(r.safetyStockKg) : '',
   }
 }
 
@@ -61,6 +64,7 @@ function formToData(f: FormState, totalWeightKg: number) {
     soybeanOrigin:   f.soybeanOrigin.trim() || null,
     sortOrder:       parseInt(f.sortOrder) || 0,
     taneKojiG:       n(f.taneKojiG),
+    safetyStockKg:   f.safetyStockKg.trim() === '' ? null : n(f.safetyStockKg),
   }
 }
 
@@ -290,6 +294,12 @@ function RecipeForm({
           <Input id="rf-tane" type="number" step="1" min="0" inputMode="numeric" {...input('taneKojiG')} />
         </div>
 
+        {/* 安全在庫ライン */}
+        <div className="space-y-1">
+          <Label htmlFor="rf-safety">安全在庫ライン・熟成済バラ (kg) <span className="text-muted-foreground text-xs">（空欄=設定しない）</span></Label>
+          <Input id="rf-safety" type="number" step="1" min="0" inputMode="decimal" {...input('safetyStockKg')} placeholder="例: 1600" />
+        </div>
+
       </div>
 
       <div className="flex gap-2 pt-2">
@@ -374,6 +384,7 @@ export default function RecipeSettings({ recipes, moisture }: { recipes: MisoRec
                 <th className="text-right px-3 py-2">水分</th>
                 <th className="text-right px-3 py-2">目標℃・日</th>
                 <th className="text-right px-3 py-2">種麹(g)</th>
+                <th className="text-right px-3 py-2">安全在庫(kg)</th>
                 <th className="text-center px-3 py-2">操作</th>
               </tr>
             </thead>
@@ -393,6 +404,7 @@ export default function RecipeSettings({ recipes, moisture }: { recipes: MisoRec
                     <td className="text-right px-3 py-2 tabular-nums">{mx.suibun !== null ? `${mx.suibun}%` : '—'}</td>
                     <td className="text-right px-3 py-2 tabular-nums">{r.targetTempSum}</td>
                     <td className="text-right px-3 py-2 tabular-nums">{r.taneKojiG > 0 ? r.taneKojiG : '—'}</td>
+                    <td className="text-right px-3 py-2 tabular-nums">{r.safetyStockKg != null ? r.safetyStockKg.toLocaleString() : '—'}</td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1 justify-center">
                         <Button
@@ -421,7 +433,7 @@ export default function RecipeSettings({ recipes, moisture }: { recipes: MisoRec
                   ); })()}
                   {editingId === r.id && (
                     <tr key={`${r.id}-edit`}>
-                      <td colSpan={12} className="px-3 py-3">
+                      <td colSpan={13} className="px-3 py-3">
                         <RecipeForm
                           initial={recipeToForm(r)}
                           editId={r.id}
@@ -435,7 +447,7 @@ export default function RecipeSettings({ recipes, moisture }: { recipes: MisoRec
               ))}
               {recipes.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="text-center py-8 text-muted-foreground text-sm">
+                  <td colSpan={13} className="text-center py-8 text-muted-foreground text-sm">
                     品種が登録されていません
                   </td>
                 </tr>
