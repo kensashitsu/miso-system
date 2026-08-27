@@ -1138,7 +1138,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     if (canCalc && recipe.name === '無添加麦みそ' && inakaBrewDays.length > 0) {
       const overrides: Record<number, Date> = {}
       generated.forEach((b, i) => {
-        if (manualBrewDateByIndex[i]) return  // ユーザーが手動固定した回は動かさない
+        // ユーザーが鉛筆アイコンで手動固定した回だけは動かさない。
+        // 在庫超過時の自動補正(autoCorrectDate)は手動固定ではないのでずらして良い
+        // （ここを manualBrewDateByIndex で判定すると自動補正済みの1回目が常にスキップされ、
+        //   田舎と重なったままの提案が残ってしまう）
+        if (manualBrewDateRaw[i]) return
         const brewDay  = startOfDay(b.brewDate)
         const conflict = inakaBrewDays.find(bd => isSameISOWeek(brewDay, bd) && brewDay <= bd)
         if (conflict) {
