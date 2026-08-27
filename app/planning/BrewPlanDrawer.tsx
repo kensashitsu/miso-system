@@ -78,9 +78,8 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       {/* 展開時のパネル */}
       {isOpen && (
         <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden max-h-[55vh] flex flex-col">
-          <div className="overflow-y-auto overflow-x-auto">
             {selectedIds.size > 0 && (
-              <div className="flex items-center justify-end px-3 py-2 border-b bg-white">
+              <div className="flex items-center justify-end px-3 py-2 border-b bg-white shrink-0">
                 <button
                   type="button"
                   disabled={isPending}
@@ -92,6 +91,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                 </button>
               </div>
             )}
+          <div className="overflow-y-auto overflow-x-auto flex-1 min-h-0">
             <table className="w-full min-w-[500px] text-xs">
               <thead className="sticky top-0 bg-muted/40 border-b">
                 <tr className="text-muted-foreground">
