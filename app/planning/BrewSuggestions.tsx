@@ -319,6 +319,37 @@ function findStockOutDate(
   return addDays(startDate, 3650)
 }
 
+// 在庫が尽きる日を返すが、notBefore より前の在庫切れは「今から仕込んでも間に合わない」ものとして
+// 在庫0のまま歩き続け、notBefore 以降で最初に尽きる日を返す。
+// これがないと、既に確定済みの仕込みで手当て済みなのに「もう手遅れの在庫切れ」を目標にしてしまい、
+// 間に合わない上に不要な仕込みを最短日で提案してしまう（＝過剰提案）。
+function findStockOutDateAfter(
+  stock:          number,
+  startDate:      Date,
+  getDailyRateFn: (date: Date) => number,
+  notBefore:      Date,
+  supplyEvents?:  { date: Date; kg: number }[],
+): Date {
+  const notBeforeStr = format(notBefore, 'yyyy-MM-dd')
+  let remaining = stock
+  let d = new Date(startDate)
+  for (let i = 0; i < 3650; i++) {
+    const dStr = format(d, 'yyyy-MM-dd')
+    if (supplyEvents) {
+      for (const ev of supplyEvents) {
+        if (format(ev.date, 'yyyy-MM-dd') === dStr) remaining += ev.kg
+      }
+    }
+    remaining -= getDailyRateFn(d)
+    if (remaining <= 0) {
+      if (dStr >= notBeforeStr) return addDays(d, 1)
+      remaining = 0   // 手遅れの在庫切れは0で底打ちさせ、以降の補充から再計算する
+    }
+    d = addDays(d, 1)
+  }
+  return addDays(startDate, 3650)
+}
+
 // 期間内に受け取る補充量合計（熟成中ロット完成分）
 function computeSupplyReceived(
   startDate:     Date,
@@ -528,9 +559,17 @@ function calcBatches(
   for (let i = 0; i < count; i++) {
     const startStockKg = stock
     const safeBuffer   = Number.isFinite(bufferDays) ? bufferDays : 0
-    const stockOutDate = findStockOutDate(stock, refDate, getDailyRateFn, supplyEvents)
+    // この回が狙うべき在庫切れ日。今から最短で仕込んでも完成が間に合わない在庫切れは
+    // 対象にしない（間に合わない分を狙うと、確定済みの仕込みで既に手当てされているのに
+    // 最短日で不要な仕込みを提案してしまうため）
+    const earliestCompletion = (getCompletion
+      ? getCompletion(minBrewDate).completionDate
+      : addDays(minBrewDate, fermentationDays))
+    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents)
     // Q10補正なし専用の在庫切れ予測日（独立チェーン）
-    const rawStockOutDate = getCompletionRaw ? findStockOutDate(rawStock, rawRefDate, getDailyRateFn, supplyEvents) : stockOutDate
+    const rawStockOutDate = getCompletionRaw
+      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents)
+      : stockOutDate
 
     // ── Q10補正あり（メイン） ──────────────────────────────
     let brewDate: Date
@@ -1190,13 +1229,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const noOrderSupply = baseSupplyEvents.length > 0 ? baseSupplyEvents : undefined
     const noOrders      = hasOrders ? computeIdeal(noOrderSupply) : null
 
-    // 1回目に手動調整がない場合のみ自動補正（当週はもう仕込めないため翌週で最も早い仕込み可能日）
-    const nextWeekStart       = nextWeekMonday(today)
-    const autoCorrectDate     = (isBrewDatePast && manualBrewDateRaw[0] === undefined)
-      ? (snapEnabled ? snapToBrewDay(nextWeekStart) : nextWeekStart)
-      : undefined
+    // 1回目を最短日へ強制する自動補正は廃止（2026-08-28）。
+    // calcBatches 側が「今から仕込んで間に合う最初の在庫切れ」を狙って日付を決め、
+    // 過去日になる場合は最短仕込み可能日にクランプするため、ここでの上書きは不要。
+    // 上書きしていた頃は、確定済みの仕込みで既に手当て済みでも1回目が常に最短日に
+    // 貼り付き、不要な仕込みを提案していた。
     const manualBrewDateByIndex: Record<number, Date> = { ...manualBrewDateRaw }
-    if (autoCorrectDate) manualBrewDateByIndex[0] = autoCorrectDate
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     let generated = canCalc
