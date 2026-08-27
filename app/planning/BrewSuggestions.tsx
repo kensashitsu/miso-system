@@ -339,6 +339,10 @@ function findStockOutDateAfter(
   let d = new Date(startDate)
   let firstStockOut: Date | null = null
   let recoveredAfterNotBefore = false
+  // 谷の入口の候補。SHORTFALL_TOLERANCE_DAYS 以内に在庫が回復した谷は
+  // 既存の仕込みで埋まるものとして見送り、続けて次の谷を探す
+  let candidate: Date | null = null
+  let candidateIdx = -1
   for (let i = 0; i < 3650; i++) {
     const dStr = format(d, 'yyyy-MM-dd')
     if (supplyEvents) {
@@ -349,13 +353,21 @@ function findStockOutDateAfter(
     remaining -= getDailyRateFn(d)
     if (remaining > 0) {
       if (dStr >= notBeforeStr) recoveredAfterNotBefore = true
+      candidate = null   // 猶予内に回復した＝手当て済みの谷なので見送る
     } else {
       if (firstStockOut === null) firstStockOut = addDays(d, 1)
-      if (dStr >= notBeforeStr && recoveredAfterNotBefore) return addDays(d, 1)
+      if (dStr >= notBeforeStr && recoveredAfterNotBefore) {
+        if (candidate === null) {
+          candidate    = addDays(d, 1)
+          candidateIdx = i
+        } else if (i - candidateIdx >= SHORTFALL_TOLERANCE_DAYS) {
+          return candidate   // 猶予を過ぎても回復しない＝本当に足りない谷
+        }
+      }
     }
     d = addDays(d, 1)
   }
-  return firstStockOut ?? addDays(startDate, 3650)
+  return candidate ?? firstStockOut ?? addDays(startDate, 3650)
 }
 
 // 期間内に受け取る補充量合計（熟成中ロット完成分）
@@ -411,6 +423,11 @@ const PEAK_COMPLETION_MONTHS = [10, 11, 12]
 // ピーク期に完成する回に上乗せするバッファ日数。冬は需要増＋熟成長期化で
 // 通常のバッファ（14日）だと完成待ちの間に安全在庫ラインを割り込みやすいため厚くする
 const PEAK_EXTRA_BUFFER_DAYS = 14
+
+// 既存の仕込みで埋まる短い谷は新規提案の対象にしない（この日数以内に在庫が回復するなら見送る）。
+// 安全在庫ライン自体が緩衝なので、数日の割り込みのために1回分（ピーク期は2本＝約3,200kg）を
+// 追加提案するのは過剰。仕込みの完成日も熟成のブレで数日動くため、そもそも狙い撃ちできない。
+const SHORTFALL_TOLERANCE_DAYS = 7
 
 // 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、
 // 物理的な下限は1日。2026-08-26にユーザー指摘で「週1本」想定から緩和）
