@@ -796,6 +796,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     () => new Set(existingBrewPlanKeys ?? [])
   )
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set())
+  // existingBrewPlanKeys はサーバーから毎回渡される最新の仮登録状況。
+  // savedKeysの初期値はマウント時の一度きりなので、削除等で内容が変わった後に
+  // ページ遷移せず再取得された場合は追従せず「登録済」表示が残ってしまう。
+  // propsが変わるたびにサーバー側の値へ同期し直す。
+  useEffect(() => {
+    setSavedKeys(new Set(existingBrewPlanKeys ?? []))
+  }, [existingBrewPlanKeys])
   const today        = new Date()
   const currentMonth = today.getMonth() + 1
   const currentYear  = today.getFullYear()
