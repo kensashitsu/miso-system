@@ -1127,9 +1127,30 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     if (autoCorrectDate) manualBrewDateByIndex[0] = autoCorrectDate
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
-    const generated = canCalc
+    let generated = canCalc
       ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
       : []
+
+    // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ
+    // 「ずらして」再計算する。除外（提案を消す）にすると、その回の仕込みが計画から丸ごと
+    // 抜け落ちて後々の在庫不足につながるため、必ず後ろへ動かす。
+    // ※日付は startOfDay で丸めてから比較する（提案側のbrewDateは現在時刻を引き継いでいるため）
+    if (canCalc && recipe.name === '無添加麦みそ' && inakaBrewDays.length > 0) {
+      const overrides: Record<number, Date> = {}
+      generated.forEach((b, i) => {
+        if (manualBrewDateByIndex[i]) return  // ユーザーが手動固定した回は動かさない
+        const brewDay  = startOfDay(b.brewDate)
+        const conflict = inakaBrewDays.find(bd => isSameISOWeek(brewDay, bd) && brewDay <= bd)
+        if (conflict) {
+          const next = addDays(conflict, 1)
+          overrides[i] = snapFn ? snapFn(next) : next
+        }
+      })
+      if (Object.keys(overrides).length > 0) {
+        Object.assign(manualBrewDateByIndex, overrides)
+        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
+      }
+    }
 
     // 仮登録の確定行（BatchPlan形）
     const fixedRows: BatchPlan[] = regPlans.map(p => ({
@@ -1153,17 +1174,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 表示回数は新規提案にのみ効かせる（確定行が枠を食って実提案が消えるのを防ぐ。
     // 例：表示1回で確定行があると、本当の次提案が打ち切られ最優先判定から漏れていた）。
     // 確定行と同じ日付の新規提案は重複なので除外（安全網）。
-    // 工程上の運用ルール：無添加は田舎と同じ週・同日以前の提案を出さない（田舎が先・無添加は後という現場の順序）。
-    const generatedDeduped = generated.filter(b => {
-      if (regDateSet.has(format(b.brewDate, 'yyyy-MM-dd'))) return false
-      if (recipe.name === '無添加麦みそ') {
-        // 日付単位で比較する（提案側のbrewDateは現在時刻を引き継いでいるため、
-        // 丸めずに比較すると「同日」が同日以前と判定されず除外に失敗する）
-        const brewDay = startOfDay(b.brewDate)
-        if (inakaBrewDays.some(bd => isSameISOWeek(brewDay, bd) && brewDay <= bd)) return false
-      }
-      return true
-    })
+    const generatedDeduped = generated.filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
     const shownGenerated   = generatedDeduped.slice(0, recipeBatches)
     const batches = canCalc
       ? [...fixedRows, ...shownGenerated]
