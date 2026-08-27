@@ -793,12 +793,10 @@ URLパラメータでサーバーサイドフィルタ:
 ロットカード。LotCardProps を受け取り、熟成度バー・現在地・桶残量（折りたたみ）を表示。
 熟成中 + `simConfig` があれば「熟成シミュレーション」ボタンを表示。
 
-### `app/planning/BrewPlanList.tsx`
-仮登録リストのテーブルコンポーネント。`BrewPlanItem` 型を export。現在は `BrewPlanDrawer` にインポートして使用。
-
 ### `app/planning/BrewPlanDrawer.tsx`
-画面下部に固定追従する仮登録リストドロワー（`'use client'`）。
+画面下部に固定追従する仮登録リストドロワー（`'use client'`）。`BrewPlanItem` 型を export（テーブル・チェックボックス・Googleカレンダー追加ボタンを自身で保持。以前あった別コンポーネント`BrewPlanList.tsx`は未使用のまま残っていたため2026-08-27に削除）。
 - 仮登録が1件以上あるときのみ表示（`fixed bottom-0`）
+- チェックボックスで複数選択→まとめて削除（`deleteBrewPlans`）
 - 折りたたみバー: 件数バッジ（仮登録/本登録済）を常時表示
 - 展開時: テーブルを上方向に表示（最大55vh・スクロール対応）
 - ロット登録リンク・削除ボタンを含む
