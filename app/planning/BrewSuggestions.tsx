@@ -319,10 +319,12 @@ function findStockOutDate(
   return addDays(startDate, 3650)
 }
 
-// 在庫が尽きる日を返すが、notBefore より前の在庫切れは「今から仕込んでも間に合わない」ものとして
-// 在庫0のまま歩き続け、notBefore 以降で最初に尽きる日を返す。
-// これがないと、既に確定済みの仕込みで手当て済みなのに「もう手遅れの在庫切れ」を目標にしてしまい、
-// 間に合わない上に不要な仕込みを最短日で提案してしまう（＝過剰提案）。
+// この回の仕込みで「防げる」在庫切れ日を返す。
+// notBefore（最短で仕込んだ場合の完成日）より前の在庫切れは今から仕込んでも間に合わないため、
+// 在庫0で底打ちさせて歩き続ける。さらに、notBefore 以降にいったん在庫がプラスへ回復してから
+// 次に尽きる日を返す（＝確定済みの仕込みが手当てする谷を、もう一度狙い直さないため）。
+// 最後まで回復しない場合は本当に手が足りていないので、最初の在庫切れ日をそのまま返す
+// （＝従来どおり最短日での仕込み提案になる）。
 function findStockOutDateAfter(
   stock:          number,
   startDate:      Date,
@@ -333,6 +335,8 @@ function findStockOutDateAfter(
   const notBeforeStr = format(notBefore, 'yyyy-MM-dd')
   let remaining = stock
   let d = new Date(startDate)
+  let firstStockOut: Date | null = null
+  let recoveredAfterNotBefore = false
   for (let i = 0; i < 3650; i++) {
     const dStr = format(d, 'yyyy-MM-dd')
     if (supplyEvents) {
@@ -341,13 +345,16 @@ function findStockOutDateAfter(
       }
     }
     remaining -= getDailyRateFn(d)
-    if (remaining <= 0) {
-      if (dStr >= notBeforeStr) return addDays(d, 1)
-      remaining = 0   // 手遅れの在庫切れは0で底打ちさせ、以降の補充から再計算する
+    if (remaining > 0) {
+      if (dStr >= notBeforeStr) recoveredAfterNotBefore = true
+    } else {
+      if (firstStockOut === null) firstStockOut = addDays(d, 1)
+      if (dStr >= notBeforeStr && recoveredAfterNotBefore) return addDays(d, 1)
+      remaining = 0
     }
     d = addDays(d, 1)
   }
-  return addDays(startDate, 3650)
+  return firstStockOut ?? addDays(startDate, 3650)
 }
 
 // 期間内に受け取る補充量合計（熟成中ロット完成分）
