@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { addDays, differenceInDays, format, getDaysInMonth, isSameISOWeek } from 'date-fns'
+import { addDays, differenceInDays, format, getDaysInMonth, isSameISOWeek, startOfDay } from 'date-fns'
 import { Printer, Download, ChevronDown, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -910,7 +910,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const recipesForCalc = [...recipes].sort((a, b) =>
     (CROSS_TYPE_CALC_ORDER[a.name] ?? 99) - (CROSS_TYPE_CALC_ORDER[b.name] ?? 99)
   )
-  let inakaBrewDates: Date[] = []  // 田舎みその確定＋新規提案の仕込み日（無添加の順序ルール判定に使う）
+  // 田舎みその確定＋新規提案の仕込み日（無添加の順序ルール判定に使う）。
+  // 提案側の日付は today（現在時刻）起点で作られ時刻を持つため、必ず startOfDay で日付単位に丸めて保持・比較する。
+  let inakaBrewDays: Date[] = []
 
   const plansForCalc: RecipePlan[] = recipesForCalc.map(recipe => {
     const apiStock    = apiStockByType?.[recipe.name] ?? null
@@ -1144,7 +1146,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 田舎みその仕込み日（確定＋新規提案）を記録し、後続の無添加の順序判定に使う
     if (recipe.name === '田舎みそ') {
-      inakaBrewDates = [...fixedRows.map(f => f.brewDate), ...generated.map(b => b.brewDate)]
+      inakaBrewDays = [...fixedRows, ...generated].map(b => startOfDay(b.brewDate))
     }
 
     // 表示は「確定行（常に表示）＋新規提案（表示回数で打ち切り）」を仕込み日順に並べる。
@@ -1154,7 +1156,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 工程上の運用ルール：無添加は田舎と同じ週・同日以前の提案を出さない（田舎が先・無添加は後という現場の順序）。
     const generatedDeduped = generated.filter(b => {
       if (regDateSet.has(format(b.brewDate, 'yyyy-MM-dd'))) return false
-      if (recipe.name === '無添加麦みそ' && inakaBrewDates.some(bd => isSameISOWeek(b.brewDate, bd) && b.brewDate <= bd)) return false
+      if (recipe.name === '無添加麦みそ') {
+        // 日付単位で比較する（提案側のbrewDateは現在時刻を引き継いでいるため、
+        // 丸めずに比較すると「同日」が同日以前と判定されず除外に失敗する）
+        const brewDay = startOfDay(b.brewDate)
+        if (inakaBrewDays.some(bd => isSameISOWeek(brewDay, bd) && brewDay <= bd)) return false
+      }
       return true
     })
     const shownGenerated   = generatedDeduped.slice(0, recipeBatches)
