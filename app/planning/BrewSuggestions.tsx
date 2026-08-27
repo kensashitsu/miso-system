@@ -1208,6 +1208,21 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 抜け落ちて後々の在庫不足につながるため、必ず後ろへ動かす。
     // ※日付は startOfDay で丸めてから比較する（提案側のbrewDateは現在時刻を引き継いでいるため）
     if (canCalc && recipe.name === '無添加麦みそ' && inakaBrewDays.length > 0) {
+      // ずらし先として使える最初の仕込み可能日を探す。
+      // 仮登録済み(確定)と同じ日には置かない：その日は表示上「重複」として消される一方、
+      // 在庫計算では1本分（ピーク期なら2本分）の歩留まりが加算されたままになり、
+      // 実在しない在庫を見込んで後続の仕込みが遅れ、結果として欠品する。
+      const nextFreeBrewDay = (from: Date): Date => {
+        let d = snapFn ? snapFn(from) : from
+        for (let guard = 0; guard < 60; guard++) {
+          const day = startOfDay(d)
+          const hitsRegistered = regDateSet.has(format(d, 'yyyy-MM-dd'))
+          const hitsInaka      = inakaBrewDays.some(bd => isSameISOWeek(day, bd) && day <= bd)
+          if (!hitsRegistered && !hitsInaka) return d
+          d = snapFn ? snapFn(addDays(d, 1)) : addDays(d, 1)
+        }
+        return d
+      }
       const overrides: Record<number, Date> = {}
       generated.forEach((b, i) => {
         // ユーザーが鉛筆アイコンで手動固定した回だけは動かさない。
@@ -1218,8 +1233,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         const brewDay  = startOfDay(b.brewDate)
         const conflict = inakaBrewDays.find(bd => isSameISOWeek(brewDay, bd) && brewDay <= bd)
         if (conflict) {
-          const next = addDays(conflict, 1)
-          overrides[i] = snapFn ? snapFn(next) : next
+          overrides[i] = nextFreeBrewDay(addDays(conflict, 1))
         }
       })
       if (Object.keys(overrides).length > 0) {
