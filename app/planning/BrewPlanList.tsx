@@ -1,13 +1,13 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { Trash2, ArrowRight, CheckCircle, CalendarPlus } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
-import { deleteBrewPlan } from './brew-plan-actions'
+import { deleteBrewPlan, deleteBrewPlans } from './brew-plan-actions'
 
 export interface BrewPlanItem {
   id:                    string
@@ -24,15 +24,55 @@ export interface BrewPlanItem {
 
 export default function BrewPlanList({ plans }: { plans: BrewPlanItem[] }) {
   const [isPending, startTransition] = useTransition()
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   if (plans.length === 0) return null
 
   const pending = plans.filter(p => p.status === '仮登録')
   const done    = plans.filter(p => p.status === '本登録済')
+  const rows    = [...pending, ...done]
+
+  const allSelected = rows.length > 0 && rows.every(p => selectedIds.has(p.id))
+
+  function toggleAll() {
+    setSelectedIds(allSelected ? new Set() : new Set(rows.map(p => p.id)))
+  }
+
+  function toggleOne(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    if (!confirm(`選択した${selectedIds.size}件を削除しますか？`)) return
+    const ids = [...selectedIds]
+    startTransition(async () => {
+      await deleteBrewPlans(ids)
+      setSelectedIds(new Set())
+    })
+  }
 
   return (
     <section>
-      <h2 className="text-base font-semibold mb-3">仮登録リスト</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-semibold">仮登録リスト</h2>
+        {selectedIds.size > 0 && (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={handleBulkDelete}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors disabled:opacity-40"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            選択した{selectedIds.size}件を削除
+          </button>
+        )}
+      </div>
       <Card>
         <CardHeader className="pb-2 pt-4">
           <p className="text-xs text-muted-foreground">
@@ -44,6 +84,15 @@ export default function BrewPlanList({ plans }: { plans: BrewPlanItem[] }) {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-muted/40 border-b text-muted-foreground">
+                  <th className="text-left px-3 py-2 font-medium w-8">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                      aria-label="すべて選択"
+                      className="h-3.5 w-3.5 align-middle"
+                    />
+                  </th>
                   <th className="text-left px-3 py-2 font-medium">品種</th>
                   <th className="text-left px-3 py-2 font-medium">仕込み予定日</th>
                   <th className="text-left px-3 py-2 font-medium">完成予定日</th>
@@ -53,10 +102,19 @@ export default function BrewPlanList({ plans }: { plans: BrewPlanItem[] }) {
                 </tr>
               </thead>
               <tbody>
-                {[...pending, ...done].map(plan => {
+                {rows.map(plan => {
                   const isRegistered = plan.status === '本登録済'
                   return (
                     <tr key={plan.id} className={`border-b last:border-0 ${isRegistered ? 'opacity-60' : ''}`}>
+                      <td className="px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(plan.id)}
+                          onChange={() => toggleOne(plan.id)}
+                          aria-label={`${plan.misoType}を選択`}
+                          className="h-3.5 w-3.5 align-middle"
+                        />
+                      </td>
                       <td className="px-3 py-2.5">
                         <span
                           className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"

@@ -93,6 +93,12 @@ export async function deleteBrewPlan(id: string): Promise<void> {
   revalidatePath('/', 'layout')
 }
 
+export async function deleteBrewPlans(ids: string[]): Promise<void> {
+  await prisma.brewPlan.deleteMany({ where: { id: { in: ids } } })
+  await resequencePendingPlans()
+  revalidatePath('/', 'layout')
+}
+
 export async function markBrewPlanRegistered(id: string, lotId: string): Promise<void> {
   await prisma.brewPlan.update({
     where: { id },
