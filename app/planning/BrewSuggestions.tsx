@@ -253,25 +253,6 @@ function nextWeekMonday(date: Date): Date {
   return addDays(date, 7 - isoDow)
 }
 
-// 工程上の運用ルール：田舎みそと無添加麦みそを同じ週に仕込む場合、田舎を先に仕込む。
-// 無添加のバッチが田舎のいずれかのバッチと同じ週で同日以前になっていたら、
-// その田舎の仕込み日の翌日以降（仕込み曜日制限があれば次の水or木）にずらす上書き指定を作る。
-function buildOrderingOverrides(
-  generated:      { brewDate: Date }[],
-  blockedDates:   Date[],
-  snapBrewDate?:  (date: Date) => Date,
-): Record<number, Date> {
-  const overrides: Record<number, Date> = {}
-  generated.forEach((b, i) => {
-    const conflict = blockedDates.find(bd => isSameISOWeek(b.brewDate, bd) && b.brewDate <= bd)
-    if (conflict) {
-      const next = addDays(conflict, 1)
-      overrides[i] = snapBrewDate ? snapBrewDate(next) : next
-    }
-  })
-  return overrides
-}
-
 // 手動調整の仕込み日をlocalStorageに保存する際のキー。1回目（idx=0）は後方互換のため
 // 従来どおり品種名のみ、2回目以降（idx>=1）は品種名にインデックスを付与する。
 function manualDateKey(name: string, idx: number): string {
@@ -1144,18 +1125,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     if (autoCorrectDate) manualBrewDateByIndex[0] = autoCorrectDate
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
-    let generated = canCalc
+    const generated = canCalc
       ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
       : []
-
-    // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ自動でずらして再計算
-    if (canCalc && recipe.name === '無添加麦みそ' && inakaBrewDates.length > 0) {
-      const orderingOverrides = buildOrderingOverrides(generated, inakaBrewDates, snapFn)
-      if (Object.keys(orderingOverrides).length > 0) {
-        Object.assign(manualBrewDateByIndex, orderingOverrides)
-        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
-      }
-    }
 
     // 仮登録の確定行（BatchPlan形）
     const fixedRows: BatchPlan[] = regPlans.map(p => ({
@@ -1179,7 +1151,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 表示回数は新規提案にのみ効かせる（確定行が枠を食って実提案が消えるのを防ぐ。
     // 例：表示1回で確定行があると、本当の次提案が打ち切られ最優先判定から漏れていた）。
     // 確定行と同じ日付の新規提案は重複なので除外（安全網）。
-    const generatedDeduped = generated.filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
+    // 工程上の運用ルール：無添加は田舎と同じ週・同日以前の提案を出さない（田舎が先・無添加は後という現場の順序）。
+    const generatedDeduped = generated.filter(b => {
+      if (regDateSet.has(format(b.brewDate, 'yyyy-MM-dd'))) return false
+      if (recipe.name === '無添加麦みそ' && inakaBrewDates.some(bd => isSameISOWeek(b.brewDate, bd) && b.brewDate <= bd)) return false
+      return true
+    })
     const shownGenerated   = generatedDeduped.slice(0, recipeBatches)
     const batches = canCalc
       ? [...fixedRows, ...shownGenerated]
