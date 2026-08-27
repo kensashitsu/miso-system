@@ -64,6 +64,14 @@ const CARD_BORDER: Record<ColoringRisk, string> = {
   danger:  'border-rose-300',
 }
 
+// 数字を丸数字（①〜㊿）に変換。範囲外はそのまま返す
+function toCircledNumber(n: number): string {
+  if (n >= 1  && n <= 20) return String.fromCodePoint(0x2460 + n - 1)       // ①〜⑳
+  if (n >= 21 && n <= 35) return String.fromCodePoint(0x3251 + n - 21)      // ㉑〜㉟
+  if (n >= 36 && n <= 50) return String.fromCodePoint(0x32b1 + n - 36)      // ㊱〜㊿
+  return String(n)
+}
+
 const MISO_ABBR: Record<string, string> = {
   '無添加麦みそ': '無添加',
   '田舎みそ':     '田舎',
@@ -123,7 +131,7 @@ export default function LotCard({
       .split('・')
       .map(n => {
         const num = parseInt(n, 10)
-        return num >= 1 && num <= 20 ? String.fromCodePoint(0x2460 + num - 1) : n
+        return Number.isNaN(num) ? n : toCircledNumber(num)
       })
       .join('')
     const agingDays = differenceInDays(targetDate, brewDate)
