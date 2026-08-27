@@ -764,7 +764,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     return Object.fromEntries(recipes.map(r => [r.name, seasonal]))
   })
   const [maxBatches,      setMaxBatches]     = useState<number>(1)
-  const [perRecipeBatches, setPerRecipeBatches] = useState<Record<string, number>>({})
+  // 無添加麦みそ・田舎みそはデフォルトで5回分表示（在庫切れリスクが高く先の見通しが必要なため）
+  const [perRecipeBatches, setPerRecipeBatches] = useState<Record<string, number>>({
+    '無添加麦みそ': 5,
+    '田舎みそ':     5,
+  })
   const [openBasis,       setOpenBasis]      = useState<Record<string, boolean>>({})
   const [forecastMethod,  setForecastMethod] = useState<'hw' | 'avg' | 'sarimax'>(
     () => sarimaxForecast && Object.keys(sarimaxForecast).length > 0 ? 'sarimax' : 'hw'
