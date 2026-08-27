@@ -92,6 +92,12 @@ interface BatchPlan {
   rawBrewDate?:              Date    // Q10補正なしの推奨仕込み日
   rawMaterialOrderDeadline?: Date    // Q10補正なしの手配締切
   isFixed?:                  boolean // 仮登録済み（確定）の行。提案ではなく既定の予定
+  // 出荷ピーク期（完成が10〜12月）の2回仕込み。1行で「連続2回（水→木）」を表す。
+  // 行と回インデックスの1対1対応を保つため、2行に分けず1行に相方の日付を持たせている。
+  pairBrewDate?:              Date
+  pairCompletionDate?:        Date
+  pairFermentationDays?:      number
+  pairMaterialOrderDeadline?: Date
 }
 
 interface RecipePlan {
@@ -359,6 +365,10 @@ function computeCoverageDays(
   return 730
 }
 
+// 出荷ピーク（11〜12月）に在庫を厚くするため、完成日がこの月に入る回は2本立て（連続2回仕込み）にする。
+// 冬は熟成が45日前後に伸びる一方、1本が賄えるのは20〜25日分しかなく1本ずつでは追いつかないため。
+const PEAK_COMPLETION_MONTHS = [10, 11, 12]
+
 // 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、
 // 物理的な下限は1日。2026-08-26にユーザー指摘で「週1本」想定から緩和）
 const MIN_COMPLETION_GAP_DAYS = 1
@@ -494,6 +504,7 @@ function calcBatches(
   fermentationDaysRaw?: number,   // Q10補正なしの初期推定値（常温のみ）
   manualBrewDateByIndex?: Record<number, Date>,  // 回ごと（0始まり）の仕込み日手動指定（スナップ無効）
   supplyEvents?:       { date: Date; kg: number }[],  // 熟成中ロットの補充スケジュール
+  isDoubleBatch?:      (completionDate: Date) => boolean,  // その完成日は2回仕込み（連続2回）にするか
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
   // 当週はもう原料手配等の都合で仕込めないため、仕込み日として提案できるのは最短で翌週から
@@ -570,10 +581,31 @@ function calcBatches(
       completionDate    = r.completionDate
       actualFermentDays = r.days
     }
+    // ── 出荷ピーク期の2回仕込み ──────────────────────────────
+    // 完成が対象期間に入る回は、翌仕込み可能日（水→木）にもう1本仕込んで2本立てにする。
+    // 冬は熟成が45日前後に伸びる一方、1本(≒1,600kg)が賄えるのは20〜25日分しかないため、
+    // 1本ずつでは出荷ピークの11〜12月に在庫が積み上がらないため。
+    let pairBrewDate:              Date | undefined
+    let pairCompletionDate:        Date | undefined
+    let pairFermentationDays:      number | undefined
+    let pairMaterialOrderDeadline: Date | undefined
+    if (isDoubleBatch?.(completionDate)) {
+      const pb = snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1)
+      const pr = computeCompletion(pb)
+      pairBrewDate              = pb
+      pairCompletionDate        = pr.completionDate
+      pairFermentationDays      = pr.days
+      pairMaterialOrderDeadline = addDays(pb, -orderLeadDays)
+    }
+    // 2本立ての場合は遅い方の完成日・2本分の歩留まりを基準に次回以降を連鎖させる
+    const chainCompletion = pairCompletionDate && pairCompletionDate > completionDate
+      ? pairCompletionDate : completionDate
+    const chainYieldKg    = pairBrewDate ? batchYieldKg * 2 : batchYieldKg
+
     currentEstimate   = actualFermentDays
-    minNextBrewDate   = addDays(brewDate, 1)
+    minNextBrewDate   = addDays(pairBrewDate ?? brewDate, 1)
     // バッファ不足時は間隔を詰められる下限（stock/refDateはこの時点ではまだ前バッチ基準）
-    minNextCompletion = calcMinNextCompletion(completionDate, stock, refDate, batchYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
+    minNextCompletion = calcMinNextCompletion(chainCompletion, stock, refDate, chainYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
 
     const materialOrderDeadline = addDays(brewDate, -orderLeadDays)
     const daysUntilOrder        = differenceInDays(materialOrderDeadline, today)
@@ -628,19 +660,21 @@ function calcBatches(
       n: i + 1, brewDate, completionDate, fermentationDays: actualFermentDays,
       stockOutDate, materialOrderDeadline, daysUntilOrder, startStockKg,
       rawFermentationDays, rawCompletionDate, rawBrewDate, rawMaterialOrderDeadline,
+      pairBrewDate, pairCompletionDate, pairFermentationDays, pairMaterialOrderDeadline,
     })
 
     // 在庫引き継ぎはQ10補正ありの完成日を基準にする（月別変動レートで積分 + 熟成中ロット補充分を加算）
-    const consumed       = computeConsumed(refDate, completionDate, getDailyRateFn)
-    const supplyReceived = computeSupplyReceived(refDate, completionDate, supplyEvents)
-    refDate = completionDate
-    stock   = Math.max(0, stock - consumed + supplyReceived) + batchYieldKg
-    // Q10補正なしチェーンも独立して在庫を前進させる
+    // 2本立ての回は遅い方の完成日まで進め、2本分の歩留まりを加算する
+    const consumed       = computeConsumed(refDate, chainCompletion, getDailyRateFn)
+    const supplyReceived = computeSupplyReceived(refDate, chainCompletion, supplyEvents)
+    refDate = chainCompletion
+    stock   = Math.max(0, stock - consumed + supplyReceived) + chainYieldKg
+    // Q10補正なしチェーンも独立して在庫を前進させる（2本立ての歩留まりは同じく2本分）
     if (rawCompletionDate) {
       const rawConsumed       = computeConsumed(rawRefDate, rawCompletionDate, getDailyRateFn)
       const rawSupplyReceived = computeSupplyReceived(rawRefDate, rawCompletionDate, supplyEvents)
       rawRefDate = rawCompletionDate
-      rawStock   = Math.max(0, rawStock - rawConsumed + rawSupplyReceived) + batchYieldKg
+      rawStock   = Math.max(0, rawStock - rawConsumed + rawSupplyReceived) + chainYieldKg
     }
   }
 
@@ -652,6 +686,39 @@ function calcBatches(
 
 function daysLabel(days: number): string {
   return days >= 0 ? `あと${days}日` : `${Math.abs(days)}日超過`
+}
+
+// 提案1行を仮登録する。2本立て（出荷ピーク期）の回は相方も同時に登録する。
+// JST午前0時はUTCで前日になるため、日付文字列からUTC midnightに正規化する
+async function registerBatch(
+  planName:     string,
+  location:     string,
+  b:            BatchPlan,
+  useRawAsBase: boolean,
+): Promise<void> {
+  const toUTCMidnight = (d: Date) => `${format(d, 'yyyy-MM-dd')}T00:00:00Z`
+  const pBrew = (useRawAsBase && b.rawBrewDate)              ? b.rawBrewDate              : b.brewDate
+  const pComp = (useRawAsBase && b.rawCompletionDate)        ? b.rawCompletionDate        : b.completionDate
+  const pDays = (useRawAsBase && b.rawFermentationDays !== undefined) ? b.rawFermentationDays : b.fermentationDays
+  const pDL   = (useRawAsBase && b.rawMaterialOrderDeadline) ? b.rawMaterialOrderDeadline : b.materialOrderDeadline
+  await createBrewPlan({
+    misoType:                 planName,
+    brewDateISO:              toUTCMidnight(pBrew),
+    completionDateISO:        toUTCMidnight(pComp),
+    fermentationDays:         pDays,
+    location,
+    materialOrderDeadlineISO: toUTCMidnight(pDL),
+  })
+  if (b.pairBrewDate && b.pairCompletionDate && b.pairFermentationDays !== undefined && b.pairMaterialOrderDeadline) {
+    await createBrewPlan({
+      misoType:                 planName,
+      brewDateISO:              toUTCMidnight(b.pairBrewDate),
+      completionDateISO:        toUTCMidnight(b.pairCompletionDate),
+      fermentationDays:         b.pairFermentationDays,
+      location,
+      materialOrderDeadlineISO: toUTCMidnight(b.pairMaterialOrderDeadline),
+    })
+  }
 }
 
 // CSV生成
@@ -1073,6 +1140,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     const bufferDays    = bufferEnabled ? brewBufferDays : 0
     const snapFn        = snapEnabled ? snapToBrewDay : undefined
+    // 出荷ピーク期（11〜12月）に在庫を厚くするため、完成が10〜12月に入る回は2本立てにする。
+    // 対象は無添加麦みそのみ（量が最も多く在庫切れリスクが高いため・2026-08-28ユーザー判断）
+    const isDoubleBatch = recipe.name === '無添加麦みそ'
+      ? (completionDate: Date) => PEAK_COMPLETION_MONTHS.includes(completionDate.getMonth() + 1)
+      : undefined
     const recipeBatches = perRecipeBatches[recipe.name] ?? maxBatches
     // 仮登録（確定）と同じ日付の集合。手動固定や新規提案がこれと重複しないようにする
     const regDateSet    = new Set(regPlans.map(p => format(p.brewDate, 'yyyy-MM-dd')))
@@ -1128,7 +1200,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     let generated = canCalc
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch)
       : []
 
     // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ
@@ -1152,7 +1224,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       })
       if (Object.keys(overrides).length > 0) {
         Object.assign(manualBrewDateByIndex, overrides)
-        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
+        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch)
       }
     }
 
@@ -1189,7 +1261,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -1226,7 +1298,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate
@@ -1278,6 +1350,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         if (b.isFixed) continue  // 確定行（仮登録）の完成分は activeSupplyEvents に算入済み
         const k = format(b.completionDate, 'yyyy-MM-dd')
         events.set(k, (events.get(k) ?? 0) + recipe.totalWeightKg)
+        // 2本立て（出荷ピーク期）の回は相方の完成分も補充として積む
+        if (b.pairCompletionDate) {
+          const pk = format(b.pairCompletionDate, 'yyyy-MM-dd')
+          events.set(pk, (events.get(pk) ?? 0) + recipe.totalWeightKg)
+        }
       }
       let stock = effectiveStock
       const daily: StockPoint[] = []
@@ -1972,19 +2049,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                           onClick={async () => {
                             setBulkSaving(true)
                             try {
-                              const toUTCMidnight = (d: Date) => `${format(d, 'yyyy-MM-dd')}T00:00:00Z`
                               for (const b of plan.batches) {
                                 if (b.isFixed) continue
                                 const planKey = planKeyOf(b)
                                 if (!selectedInPlan.includes(planKey)) continue
-                                await createBrewPlan({
-                                  misoType:                 plan.name,
-                                  brewDateISO:              toUTCMidnight(pBrewOf(b)),
-                                  completionDateISO:        toUTCMidnight(b.completionDate),
-                                  fermentationDays:         b.fermentationDays,
-                                  location:                 plan.location,
-                                  materialOrderDeadlineISO: toUTCMidnight(b.materialOrderDeadline),
-                                })
+                                await registerBatch(plan.name, plan.location, b, useRawAsBase)
                                 setSavedKeys(prev => new Set([...prev, planKey]))
                               }
                               setSelectedProposals(prev => {
@@ -2118,6 +2187,18 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       <div className="flex items-center gap-1 flex-wrap">
                                         {format(pBrew, 'M/d')}
                                         <span className="text-[10px] ml-0.5">（{WEEKDAY_JA[pBrew.getDay()]}）</span>
+                                        {b.pairBrewDate && (
+                                          <>
+                                            <span className="text-muted-foreground">＋{format(b.pairBrewDate, 'M/d')}</span>
+                                            <span className="text-[10px] ml-0.5">（{WEEKDAY_JA[b.pairBrewDate.getDay()]}）</span>
+                                            <span
+                                              className="text-[10px] text-sky-700 font-medium ml-0.5 rounded bg-sky-100 px-1"
+                                              title="出荷ピーク（11〜12月）に備えて連続2回仕込む回です"
+                                            >
+                                              2回
+                                            </span>
+                                          </>
+                                        )}
                                         {b.isFixed && (
                                           <span className="text-[10px] text-emerald-700 font-medium ml-0.5 rounded bg-emerald-100 px-1">確定</span>
                                         )}
@@ -2170,6 +2251,15 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   {format(pComp, 'M/d')}
                                   <span className="text-[10px] ml-0.5">（{WEEKDAY_JA[pComp.getDay()]}）</span>
                                   <span className="ml-1 text-[10px]">({pDays}日)</span>
+                                  {b.pairCompletionDate && (
+                                    <>
+                                      <span className="ml-0.5">＋{format(b.pairCompletionDate, 'M/d')}</span>
+                                      <span className="text-[10px] ml-0.5">（{WEEKDAY_JA[b.pairCompletionDate.getDay()]}）</span>
+                                      {b.pairFermentationDays !== undefined && (
+                                        <span className="ml-1 text-[10px]">({b.pairFermentationDays}日)</span>
+                                      )}
+                                    </>
+                                  )}
                                   {sComp && sDays !== undefined && (
                                     <div className="text-[10px] text-muted-foreground/50 mt-0.5 whitespace-nowrap">
                                       {sLabel} {format(sComp, 'M/d')}（{WEEKDAY_JA[sComp.getDay()]}）（{sDays}日）
@@ -2213,16 +2303,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         onClick={async () => {
                                           setSavingKeys(prev => new Set([...prev, planKey]))
                                           try {
-                                            // JST午前0時はUTCで前日になるため、日付文字列からUTC midnightに正規化
-                                            const toUTCMidnight = (d: Date) => `${format(d, 'yyyy-MM-dd')}T00:00:00Z`
-                                            await createBrewPlan({
-                                              misoType:                 plan.name,
-                                              brewDateISO:              toUTCMidnight(pBrew),
-                                              completionDateISO:        toUTCMidnight(pComp),
-                                              fermentationDays:         pDays,
-                                              location:                 plan.location,
-                                              materialOrderDeadlineISO: toUTCMidnight(pDL),
-                                            })
+                                            await registerBatch(plan.name, plan.location, b, useRawAsBase)
                                             setSavedKeys(prev => new Set([...prev, planKey]))
                                           } finally {
                                             setSavingKeys(prev => { const n = new Set(prev); n.delete(planKey); return n })
@@ -2496,6 +2577,15 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                     if (b.completionDate && !isNaN(b.completionDate.getTime())) {
                       const ck = format(b.completionDate, 'yyyy-MM-dd')
                       typeEvMap.set(ck, [...(typeEvMap.get(ck) ?? []), { type: 'comp', misoType: plan.name, n: b.n }])
+                    }
+                    // 2本立て（出荷ピーク期）の回はカレンダーにも相方の仕込み日・完成日を出す
+                    if (b.pairBrewDate && !isNaN(b.pairBrewDate.getTime())) {
+                      const pbk = format(b.pairBrewDate, 'yyyy-MM-dd')
+                      typeEvMap.set(pbk, [...(typeEvMap.get(pbk) ?? []), { type: 'brew', misoType: plan.name, n: b.n }])
+                    }
+                    if (b.pairCompletionDate && !isNaN(b.pairCompletionDate.getTime())) {
+                      const pck = format(b.pairCompletionDate, 'yyyy-MM-dd')
+                      typeEvMap.set(pck, [...(typeEvMap.get(pck) ?? []), { type: 'comp', misoType: plan.name, n: b.n }])
                     }
                   }
                   if (typeEvMap.size === 0) return null
