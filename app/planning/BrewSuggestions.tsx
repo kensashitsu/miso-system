@@ -320,11 +320,13 @@ function findStockOutDate(
 }
 
 // この回の仕込みで「防げる」在庫切れ日を返す。
-// notBefore（最短で仕込んだ場合の完成日）より前の在庫切れは今から仕込んでも間に合わないため、
-// 在庫0で底打ちさせて歩き続ける。さらに、notBefore 以降にいったん在庫がプラスへ回復してから
-// 次に尽きる日を返す（＝確定済みの仕込みが手当てする谷を、もう一度狙い直さないため）。
+// notBefore（最短で仕込んだ場合の完成日）より前の在庫切れは今から仕込んでも間に合わないので
+// そこでは止まらず、notBefore 以降にいったん在庫がプラスへ回復してから次に尽きる日を返す
+// （＝確定済みの仕込みが手当てする谷を、もう一度狙い直さないため）。
 // 最後まで回復しない場合は本当に手が足りていないので、最初の在庫切れ日をそのまま返す
 // （＝従来どおり最短日での仕込み提案になる）。
+// ※不足分（マイナス残）は0で底打ちさせないこと。底打ちすると割り込んだ分がなかったことになり、
+//   以降の在庫を実際より多く見積もって次の仕込みが遅れる（2026-08-28に12月の安全在庫割れで発覚）。
 function findStockOutDateAfter(
   stock:          number,
   startDate:      Date,
@@ -350,7 +352,6 @@ function findStockOutDateAfter(
     } else {
       if (firstStockOut === null) firstStockOut = addDays(d, 1)
       if (dStr >= notBeforeStr && recoveredAfterNotBefore) return addDays(d, 1)
-      remaining = 0
     }
     d = addDays(d, 1)
   }
@@ -406,6 +407,10 @@ function computeCoverageDays(
 // 出荷ピーク（11〜12月）に在庫を厚くするため、完成日がこの月に入る回は2本立て（連続2回仕込み）にする。
 // 冬は熟成が45日前後に伸びる一方、1本が賄えるのは20〜25日分しかなく1本ずつでは追いつかないため。
 const PEAK_COMPLETION_MONTHS = [10, 11, 12]
+
+// ピーク期に完成する回に上乗せするバッファ日数。冬は需要増＋熟成長期化で
+// 通常のバッファ（14日）だと完成待ちの間に安全在庫ラインを割り込みやすいため厚くする
+const PEAK_EXTRA_BUFFER_DAYS = 14
 
 // 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、
 // 物理的な下限は1日。2026-08-26にユーザー指摘で「週1本」想定から緩和）
@@ -578,6 +583,10 @@ function calcBatches(
       ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents)
       : stockOutDate
 
+    // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
+    const computeCompletion = (bd: Date): { completionDate: Date; days: number } =>
+      getCompletion ? getCompletion(bd) : { completionDate: addDays(bd, fermentationDays), days: fermentationDays }
+
     // ── Q10補正あり（メイン） ──────────────────────────────
     let brewDate: Date
     if (manualBrewDateByIndex?.[i]) {
@@ -589,11 +598,17 @@ function calcBatches(
     } else {
       // 常温は仕込み日の季節に合った実熟成日数へ不動点反復で収束させる（単発補正だと前倒し過ぎる）。
       // それ以外は固定熟成日数で逆算するだけ。
-      if (getCompletion) {
-        brewDate = refineBrewDateToStockOut(stockOutDate, currentEstimate, safeBuffer, getCompletion, snapBrewDate)
-      } else {
-        const preSnapDate = addDays(stockOutDate, -(currentEstimate + safeBuffer))
-        brewDate = snapBrewDate ? snapBrewDate(preSnapDate) : preSnapDate
+      const solveBrewDate = (buf: number): Date => {
+        if (getCompletion) return refineBrewDateToStockOut(stockOutDate, currentEstimate, buf, getCompletion, snapBrewDate)
+        const preSnapDate = addDays(stockOutDate, -(currentEstimate + buf))
+        return snapBrewDate ? snapBrewDate(preSnapDate) : preSnapDate
+      }
+      brewDate = solveBrewDate(safeBuffer)
+      // 出荷ピーク期に完成する回はバッファを厚くして前倒しする。
+      // 冬は需要が増える上に熟成も長引くため、通常のバッファ（14日）だと完成待ちの間に
+      // 安全在庫ラインを割り込みやすい
+      if (isDoubleBatch?.(computeCompletion(brewDate).completionDate)) {
+        brewDate = solveBrewDate(safeBuffer + PEAK_EXTRA_BUFFER_DAYS)
       }
       // 計算結果が当日以前になった場合は翌日以降に修正（当日はもう仕込めないため）
       if (brewDate < minBrewDate) {
@@ -604,10 +619,6 @@ function calcBatches(
     if (brewDate < minNextBrewDate) {
       brewDate = snapBrewDate ? snapBrewDate(minNextBrewDate) : minNextBrewDate
     }
-
-    // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
-    const computeCompletion = (bd: Date): { completionDate: Date; days: number } =>
-      getCompletion ? getCompletion(bd) : { completionDate: addDays(bd, fermentationDays), days: fermentationDays }
 
     let { completionDate, days: actualFermentDays } = computeCompletion(brewDate)
     // 完成日が「前バッチの完成日＋カバー期間」より早い場合は仕込み日を後ろへずらす。
