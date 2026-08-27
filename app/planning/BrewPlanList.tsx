@@ -3,9 +3,10 @@
 import { useTransition } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, CheckCircle } from 'lucide-react'
+import { Trash2, ArrowRight, CheckCircle, CalendarPlus } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
+import { buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
 import { deleteBrewPlan } from './brew-plan-actions'
 
 export interface BrewPlanItem {
@@ -71,8 +72,29 @@ export default function BrewPlanList({ plans }: { plans: BrewPlanItem[] }) {
                         })()}
                       </td>
                       <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
-                        {format(plan.completionDate, 'M/d')}
-                        <span className="ml-1 text-[10px]">({plan.fermentationDays}日)</span>
+                        <span className="inline-flex items-center gap-1">
+                          {format(plan.completionDate, 'M/d')}
+                          <span className="text-[10px]">({plan.fermentationDays}日)</span>
+                          {!isRegistered && (
+                            <a
+                              href={buildGoogleCalendarUrl({
+                                misoType:      plan.misoType,
+                                bucketNumbers: plan.bucketNumbers,
+                                brewDate:      plan.brewDate,
+                                targetDate:    plan.completionDate,
+                                isActual:      false,
+                              })}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={e => e.stopPropagation()}
+                              className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                              aria-label="Googleカレンダーに追加"
+                              title="Googleカレンダーに追加"
+                            >
+                              <CalendarPlus className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                        </span>
                       </td>
                       <td className="px-3 py-2.5 text-muted-foreground hidden sm:table-cell">
                         {plan.location}

@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
+import { buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
 import LotSimulationModal, { type LotSimConfig } from './LotSimulationModal'
 
 type ColoringRisk = 'normal' | 'warning' | 'danger'
@@ -64,21 +65,6 @@ const CARD_BORDER: Record<ColoringRisk, string> = {
   danger:  'border-rose-300',
 }
 
-// 数字を丸数字（①〜㊿）に変換。範囲外はそのまま返す
-function toCircledNumber(n: number): string {
-  if (n >= 1  && n <= 20) return String.fromCodePoint(0x2460 + n - 1)       // ①〜⑳
-  if (n >= 21 && n <= 35) return String.fromCodePoint(0x3251 + n - 21)      // ㉑〜㉟
-  if (n >= 36 && n <= 50) return String.fromCodePoint(0x32b1 + n - 36)      // ㊱〜㊿
-  return String(n)
-}
-
-const MISO_ABBR: Record<string, string> = {
-  '無添加麦みそ': '無添加',
-  '田舎みそ':     '田舎',
-  '山吹みそ':     '山吹',
-  '白みそ':       '白',
-}
-
 export default function LotCard({
   id,
   lotNumber,
@@ -121,34 +107,14 @@ export default function LotCard({
     ? Math.round((completionDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     : null
 
-  // Googleカレンダーへの予定追加リンクを作る（終日イベント。end は翌日を指定する仕様）
-  // isActual: true = 実際の完成日（completedAt）、false = 完成予定日（estimatedCompletion）
-  const buildGoogleCalendarUrl = (targetDate: Date, isActual: boolean) => {
-    const endDate = new Date(targetDate)
-    endDate.setDate(endDate.getDate() + 1)
-    const toYmd = (d: Date) => format(d, 'yyyyMMdd')
-    const circledBuckets = (bucketNumbers ?? '')
-      .split('・')
-      .map(n => {
-        const num = parseInt(n, 10)
-        return Number.isNaN(num) ? n : toCircledNumber(num)
-      })
-      .join('')
-    const agingDays = differenceInDays(targetDate, brewDate)
-    const params = new URLSearchParams({
-      action: 'TEMPLATE',
-      text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBuckets}（${format(brewDate, 'M/d')}仕込 熟成${agingDays}日）`,
-      dates: `${toYmd(targetDate)}/${toYmd(endDate)}`,
-      details: isActual
-        ? `完成日：${format(targetDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`
-        : `完成予定日：${format(targetDate, 'yyyy/MM/dd')}\n目標積算温度：${targetTempSum}℃・日`,
-      src: '1734b91d3702c0f7c7d08184672490495ec6ab8c74ffac171de070f577610d88@group.calendar.google.com',
-    })
-    return `https://calendar.google.com/calendar/render?${params.toString()}`
-  }
-
-  const googleCalendarUrl = completionDate ? buildGoogleCalendarUrl(completionDate, false) : null
-  const googleCalendarUrlActual = completedAt ? buildGoogleCalendarUrl(completedAt, true) : null
+  // Googleカレンダーへの予定追加リンク
+  const detailsExtra = `目標積算温度：${targetTempSum}℃・日`
+  const googleCalendarUrl = completionDate
+    ? buildGoogleCalendarUrl({ misoType, bucketNumbers, brewDate, targetDate: completionDate, detailsExtra, isActual: false })
+    : null
+  const googleCalendarUrlActual = completedAt
+    ? buildGoogleCalendarUrl({ misoType, bucketNumbers, brewDate, targetDate: completedAt, detailsExtra, isActual: true })
+    : null
 
   const cardCls = [
     'h-full rounded-xl shadow-sm',
