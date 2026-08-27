@@ -800,6 +800,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     () => new Set(existingBrewPlanKeys ?? [])
   )
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set())
+  // 提案テーブルのチェックボックス選択（まとめて仮登録用）。キーは仮登録と同じ `${品種名}::yyyy-MM-dd`
+  const [selectedProposals, setSelectedProposals] = useState<Set<string>>(new Set())
+  const [bulkSaving, setBulkSaving] = useState(false)
   // existingBrewPlanKeys はサーバーから毎回渡される最新の仮登録状況。
   // savedKeysの初期値はマウント時の一度きりなので、削除等で内容が変わった後に
   // ページ遷移せず再取得された場合は追従せず「登録済」表示が残ってしまう。
@@ -1629,6 +1632,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           const firstNew    = plan.batches.find(b => !b.isFixed) ?? null
           // 新規提案のみの並び（確定行を除く）。手動調整は回ごとにこのインデックスをキーにする
           const genBatches  = plan.batches.filter(b => !b.isFixed)
+          // 表示中の仕込み日（基準トグルにより補正なし/Q10補正ありが切り替わる）。仮登録キーの基準もこれに合わせる
+          const pBrewOf     = (b: BatchPlan) => (useRawAsBase && b.rawBrewDate !== undefined) ? b.rawBrewDate! : b.brewDate
+          const planKeyOf   = (b: BatchPlan) => `${plan.name}::${format(pBrewOf(b), 'yyyy-MM-dd')}`
+          const selectableKeys = plan.batches
+            .filter(b => !b.isFixed && !savedKeys.has(planKeyOf(b)))
+            .map(planKeyOf)
+          const selectedInPlan = selectableKeys.filter(k => selectedProposals.has(k))
 
           const firstPrimaryDeadline = firstNew
             ? ((useRawAsBase && firstNew.rawMaterialOrderDeadline) ? firstNew.rawMaterialOrderDeadline : firstNew.materialOrderDeadline)
@@ -1955,10 +1965,69 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                   </p>
                 ) : (
                   <>
+                    {selectedInPlan.length > 0 && (
+                      <div className="flex items-center justify-end mb-1.5">
+                        <button
+                          type="button"
+                          disabled={bulkSaving}
+                          onClick={async () => {
+                            setBulkSaving(true)
+                            try {
+                              const toUTCMidnight = (d: Date) => `${format(d, 'yyyy-MM-dd')}T00:00:00Z`
+                              for (const b of plan.batches) {
+                                if (b.isFixed) continue
+                                const planKey = planKeyOf(b)
+                                if (!selectedInPlan.includes(planKey)) continue
+                                await createBrewPlan({
+                                  misoType:                 plan.name,
+                                  brewDateISO:              toUTCMidnight(pBrewOf(b)),
+                                  completionDateISO:        toUTCMidnight(b.completionDate),
+                                  fermentationDays:         b.fermentationDays,
+                                  location:                 plan.location,
+                                  materialOrderDeadlineISO: toUTCMidnight(b.materialOrderDeadline),
+                                })
+                                setSavedKeys(prev => new Set([...prev, planKey]))
+                              }
+                              setSelectedProposals(prev => {
+                                const next = new Set(prev)
+                                selectedInPlan.forEach(k => next.delete(k))
+                                return next
+                              })
+                            } finally {
+                              setBulkSaving(false)
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {bulkSaving ? '保存中' : `選択した${selectedInPlan.length}件をまとめて仮登録`}
+                        </button>
+                      </div>
+                    )}
                     <div className="rounded-lg border overflow-hidden">
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="bg-muted/40 border-b text-muted-foreground">
+                            <th className="text-center px-2 py-1.5 font-medium w-6">
+                              {selectableKeys.length > 0 && (() => {
+                                const allSelected = selectableKeys.every(k => selectedProposals.has(k))
+                                return (
+                                  <input
+                                    type="checkbox"
+                                    checked={allSelected}
+                                    onChange={() => {
+                                      setSelectedProposals(prev => {
+                                        const next = new Set(prev)
+                                        if (allSelected) selectableKeys.forEach(k => next.delete(k))
+                                        else selectableKeys.forEach(k => next.add(k))
+                                        return next
+                                      })
+                                    }}
+                                    aria-label="すべて選択"
+                                    className="h-3.5 w-3.5 align-middle"
+                                  />
+                                )
+                              })()}
+                            </th>
                             <th className="text-center px-2 py-1.5 font-medium w-8">回</th>
                             <th className="text-left px-2 py-1.5 font-medium">仕込み日</th>
                             <th className="text-left px-2 py-1.5 font-medium">完成日</th>
@@ -1990,8 +2059,28 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                             const isManual   = isGen && plan.manualPinIndices.includes(genIndex)
                             const isEditing  = isGen && editingPlan?.name === plan.name && editingPlan.genIndex === genIndex
                             const dateKey    = manualDateKey(plan.name, genIndex)
+                            const planKey  = `${plan.name}::${format(pBrew, 'yyyy-MM-dd')}`
+                            const isSaved  = savedKeys.has(planKey)
                             return (
                               <tr key={b.n} className={`border-b last:border-0 ${b.isFixed ? 'bg-emerald-50/40' : ''}`}>
+                                <td className="text-center px-2 py-2">
+                                  {!b.isFixed && !isSaved && (
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedProposals.has(planKey)}
+                                      onChange={() => {
+                                        setSelectedProposals(prev => {
+                                          const next = new Set(prev)
+                                          if (next.has(planKey)) next.delete(planKey)
+                                          else next.add(planKey)
+                                          return next
+                                        })
+                                      }}
+                                      aria-label={`${plan.name} ${format(b.brewDate, 'M/d')}を選択`}
+                                      className="h-3.5 w-3.5 align-middle"
+                                    />
+                                  )}
+                                </td>
                                 <td className="text-center px-2 py-2 text-muted-foreground">{b.n}</td>
                                 <td className={`px-2 py-2 tabular-nums ${!isEditing && isPast ? 'text-red-600' : ''}`}>
                                   {isEditing ? (
