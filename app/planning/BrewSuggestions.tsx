@@ -580,15 +580,19 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   }
 
   // 全品種のプラン計算。
-  // 工程上の運用ルール（田舎→無添加の順で仕込む）を反映するため、田舎みそを先に計算する必要がある。
+  // 工程上の運用ルールを反映するため計算順を固定する。
+  //  ・田舎→無添加の順で仕込む（無添加は田舎と同じ週なら田舎の後）
+  //  ・山吹は無添加・田舎の翌日にしか仕込めない（＝両者の仕込み日が先に必要）
   // 表示順は元のrecipes順を保つので、計算だけこの並びで行い最後に元の順序へ戻す。
-  const CROSS_TYPE_CALC_ORDER: Record<string, number> = { '田舎みそ': 0, '無添加麦みそ': 1 }
+  const CROSS_TYPE_CALC_ORDER: Record<string, number> = { '田舎みそ': 0, '無添加麦みそ': 1, '山吹みそ': 2 }
   const recipesForCalc = [...recipes].sort((a, b) =>
     (CROSS_TYPE_CALC_ORDER[a.name] ?? 99) - (CROSS_TYPE_CALC_ORDER[b.name] ?? 99)
   )
   // 田舎みその確定＋新規提案の仕込み日（無添加の順序ルール判定に使う）。
   // 提案側の日付は today（現在時刻）起点で作られ時刻を持つため、必ず startOfDay で日付単位に丸めて保持・比較する。
   let inakaBrewDays: Date[] = []
+  // 無添加・田舎の仕込み日（'yyyy-MM-dd'）。山吹の「翌日しか仕込めない」制約に使う
+  const mugiInakaBrewDateStrs: string[] = []
 
   const plansForCalc: RecipePlan[] = recipesForCalc.map(recipe => {
     const apiStock    = apiStockByType?.[recipe.name] ?? null
@@ -772,6 +776,23 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const regDateSet    = new Set(regPlans.map(p => format(p.brewDate, 'yyyy-MM-dd')))
     // 提案を置いてはいけない日＝仮登録済みの日 ＋ 仕込めない週の全日
     const blockedForCalc = new Set<string>([...regDateSet, ...blockedDateSet])
+    // 工程上の制約：山吹みそは無添加麦みそ・田舎みその「翌日」にしか仕込めない
+    // （両者は水曜仕込みが基本なので、必然的に木曜仕込みになる）。
+    // ※無添加・田舎の提案は表示回数分しか先が無い一方、山吹は1回で数ヶ月もつため提案が先まで及ぶ。
+    //   両者の予定が尽きた先は「木曜であればよい」とみなす（実務上そうなるため）
+    const isAllowedBrewDay = (() => {
+      if (recipe.name !== '山吹みそ' || mugiInakaBrewDateStrs.length === 0) return undefined
+      const nextDayStrs = new Set(
+        mugiInakaBrewDateStrs.map(ds => format(addDays(new Date(ds + 'T00:00:00'), 1), 'yyyy-MM-dd'))
+      )
+      const lastKnown = mugiInakaBrewDateStrs.reduce((mx, ds) => (ds > mx ? ds : mx), '')
+      return (dt: Date) => {
+        const key = format(dt, 'yyyy-MM-dd')
+        if (nextDayStrs.has(key)) return true
+        // 無添加・田舎の予定が尽きた先は木曜(4)なら可とする
+        return key > lastKnown && dt.getDay() === 4
+      }
+    })()
     // 手動固定（回ごと・0始まり）。確定行と同じ日付なら無効化（確定供給で算入済み＝二重計上・行重複を防ぐ）
     const manualBrewDateRaw: Record<number, Date> = {}
     for (let idx = 0; idx < recipeBatches; idx++) {
@@ -823,7 +844,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     let generated = canCalc
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta, isAllowedBrewDay)
       : []
 
     // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ
@@ -861,7 +882,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       })
       if (Object.keys(overrides).length > 0) {
         Object.assign(manualBrewDateByIndex, overrides)
-        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta)
+        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta, isAllowedBrewDay)
       }
     }
 
@@ -882,6 +903,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     if (recipe.name === '田舎みそ') {
       inakaBrewDays = [...fixedRows, ...generated].map(b => startOfDay(b.brewDate))
     }
+    // 無添加・田舎の仕込み日を蓄積（山吹はこれらの翌日にしか仕込めない）
+    if (recipe.name === '田舎みそ' || recipe.name === '無添加麦みそ') {
+      for (const b of [...fixedRows, ...generated]) {
+        mugiInakaBrewDateStrs.push(format(b.brewDate, 'yyyy-MM-dd'))
+        if (b.pairBrewDate) mugiInakaBrewDateStrs.push(format(b.pairBrewDate, 'yyyy-MM-dd'))
+      }
+    }
 
     // 表示は「確定行（常に表示）＋新規提案（表示回数で打ち切り）」を仕込み日順に並べる。
     // 表示回数は新規提案にのみ効かせる（確定行が枠を食って実提案が消えるのを防ぐ。
@@ -898,7 +926,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, blockedForCalc, getSafetyDelta)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, blockedForCalc, getSafetyDelta, isAllowedBrewDay)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -935,7 +963,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents, getSafetyDelta)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta, isAllowedBrewDay)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate

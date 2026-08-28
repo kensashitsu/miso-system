@@ -116,6 +116,20 @@ const summerSafety = process.argv[7] != null ? Number(process.argv[7]) : recipe.
 const getSafetyDelta = makeSafetyDeltaFn(safety, winterSafety, summerSafety)
 const safetyLineAt   = makeSafetyLineFn(safety, winterSafety, summerSafety)
 
+// 山吹の工程制約（無添加・田舎の翌日）。確定分の仕込み日から近似的に作る
+const yamabukiNextDays = MISO === '山吹みそ'
+  ? new Set(plans.filter(p => p.misoType === '無添加麦みそ' || p.misoType === '田舎みそ')
+      .map(p => d(addDays(p.brewDate, 1))))
+  : null
+const yamabukiLastKnown = MISO === '山吹みそ'
+  ? plans.filter(p => p.misoType === '無添加麦みそ' || p.misoType === '田舎みそ')
+      .reduce((mx, p) => (d(p.brewDate) > mx ? d(p.brewDate) : mx), '')
+  : ''
+const isAllowedBrewDayForYamabuki = yamabukiNextDays
+  ? (dt: Date) => yamabukiNextDays.has(d(dt)) || (d(dt) > yamabukiLastKnown && dt.getDay() === 4)
+  : undefined
+if (yamabukiNextDays) console.log('山吹の仕込み可能日(確定分の翌日):', [...yamabukiNextDays].sort().join(' '), '／以降は木曜のみ')
+
 const getCompletion = (brewDate: Date) =>
   simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg, weatherFallback,
     q10Value, heatingDefaultTemp, Math.max(heatingDefaultTemp - 10, 0))
@@ -143,7 +157,10 @@ const batches = calcBatches(
   depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, recipe.totalWeightKg,
   Number(process.argv[4] ?? 5), today, ORDER_LEAD_DAYS[MISO] ?? DEFAULT_ORDER_LEAD_DAYS, brewBufferDays,
   getCompletion, snapToBrewDay, undefined, undefined, {}, supplyEvents, isDoubleBatch,
-  new Set([...regPlans.map(p => d(p.brewDate)), ...expandBlockedWeeks(blockedWeeks)]), getSafetyDelta)
+  new Set([...regPlans.map(p => d(p.brewDate)), ...expandBlockedWeeks(blockedWeeks)]), getSafetyDelta,
+  // 工程制約: 山吹は無添加・田舎の翌日にしか仕込めない。
+  // 本番と同じ集合を作るには両品種の提案計算が要るため、ここでは確定分（仮登録）の翌日で近似する
+  isAllowedBrewDayForYamabuki)
 
 console.log('\n=== 生成された提案 ===')
 for (const b of batches) {

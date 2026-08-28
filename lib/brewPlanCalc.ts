@@ -245,9 +245,9 @@ export const PEAK_COMPLETION_MONTHS = [10, 11, 12]
 // 通常のバッファ（14日）だと完成待ちの間に安全在庫ラインを割り込みやすいため厚くする
 export const PEAK_EXTRA_BUFFER_DAYS = 14
 
-// 2本立ての相方をこの日数以内に置けないときは2本立てにしない。
-// 仮登録済みや仕込めない週を避けた結果、相方が数週間先になると「連続2回」の趣旨から外れるため
-export const MAX_PAIR_GAP_DAYS = 8
+// 2本立ては必ず連日（水→木）にする。仮登録済み・仕込めない週・工程制約を避けた結果
+// 翌日に置けない場合は2本立てにしない（その分は次の回として別途提案される）
+export const MAX_PAIR_GAP_DAYS = 1
 
 // 既存の仕込みで埋まる短い谷は新規提案の対象にしない（この日数以内に在庫が回復するなら見送る）。
 // 安全在庫ライン自体が緩衝なので、数日の割り込みのために1回分（ピーク期は2本＝約3,200kg）を
@@ -374,6 +374,7 @@ export function calcBatches(
   isDoubleBatch?:      (completionDate: Date) => boolean,  // その完成日は2回仕込み（連続2回）にするか
   blockedBrewDates?:   Set<string>,  // 'yyyy-MM-dd'。既に仮登録済みなど、提案を置いてはいけない日
   getSafetyDelta?:     (date: Date) => number,  // 季節で安全在庫ラインが変わる分の補正
+  isAllowedBrewDay?:   (date: Date) => boolean,  // 指定時、真を返す日にしか提案しない（工程上の制約）
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
   // 当週はもう原料手配等の都合で仕込めないため、仕込み日として提案できるのは最短で翌週から
@@ -381,9 +382,16 @@ export function calcBatches(
   // 仮登録済みの日には新規提案を置かない。置いてしまうと表示では重複として除外される一方、
   // 在庫連鎖には歩留まりが加算されたままになり、実在しない在庫を見込んで
   // 以降の仕込みが遅れる（2026-08-28に1月以降の安全在庫割れの原因として実データで確認）
+  // 提案に使える日かどうか。isAllowedBrewDay 指定時はそれが真を返す日だけが使える
+  // （例: 山吹みそは無添加・田舎の翌日＝木曜にしか仕込めない）
+  const isUsableBrewDay = (dt: Date): boolean => {
+    if (blockedBrewDates?.has(format(dt, 'yyyy-MM-dd'))) return false
+    if (isAllowedBrewDay && !isAllowedBrewDay(dt)) return false
+    return true
+  }
   const nextAllowedBrewDay = (dt: Date): Date => {
     let x = dt
-    for (let g = 0; g < 60 && blockedBrewDates?.has(format(x, 'yyyy-MM-dd')); g++) {
+    for (let g = 0; g < 120 && !isUsableBrewDay(x); g++) {
       x = snapBrewDate ? snapBrewDate(addDays(x, 1)) : addDays(x, 1)
     }
     return x
@@ -501,8 +509,8 @@ export function calcBatches(
     if (isDoubleBatch?.(completionDate)) {
       // 相方も仮登録済み・仕込めない週を避ける（避けないと確定分と同じ仕込みを二重に数えてしまう）
       const pb = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1))
-      // 「連続2回（水→木）」が趣旨なので、避けた結果あまりに離れる場合は2本立てにしない。
-      // 離れた相方は次の回として独立に提案されるべきで、1行にまとめると実態と食い違う
+      // 2本立ては必ず連日。翌日に置けない場合（相方が仮登録済み・仕込めない週・
+      // 木曜始まりで翌日が金曜など）は2本立てにせず、その分は次の回として別途提案させる
       if (differenceInDays(pb, brewDate) <= MAX_PAIR_GAP_DAYS) {
         const pr = computeCompletion(pb)
         pairBrewDate              = pb
