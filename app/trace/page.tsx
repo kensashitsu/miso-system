@@ -146,7 +146,6 @@ export default async function TracePage({
       const today = startOfDay(new Date())
       lots = lotRows.map(lot => {
         const targetTempSum = recipeTargetMap[lot.misoType] ?? lot.targetTempSum
-        const accumulated   = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps)
         // 熟成中: 今日まで / それ以外: completedAt → locationHistory最終endDate → bucketUsage最終usedAt → null
         const lastLocEndDate = lot.locationHistory.at(-1)?.endDate ?? null
         const lastUsageDate  = lot.buckets
@@ -158,6 +157,11 @@ export default async function TracePage({
           : lastLocEndDate      ? startOfDay(lastLocEndDate)
           : lastUsageDate       ? startOfDay(lastUsageDate)
           : null
+        // 熟成終了日で積算を打ち切る（打ち切らないと完成後も熟成度%が伸び続ける）
+        const accumulated   = calcAccumulatedTemp(
+          lot.brewedAt, lot.locationHistory, weatherMap, roomTemps,
+          lot.status === '熟成中' ? null : endDate,
+        )
         return {
           id:              lot.id,
           lotNumber:       lot.lotNumber,

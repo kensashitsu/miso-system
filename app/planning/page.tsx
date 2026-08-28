@@ -4,6 +4,7 @@ import { getMoistureSettings } from '@/lib/settings'
 import { getMisoRecipes } from '@/lib/recipes'
 import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
+import { calcAccumulatedTemp, getCurrentLocation } from '@/lib/tempCalc'
 import { computeBacktest, pickAutoMethods } from '@/lib/backtest'
 import BrewSuggestions from './BrewSuggestions'
 import DemandChart from './DemandChart'
@@ -102,7 +103,8 @@ export default async function PlanningPage() {
         lotNumber:     true,
         bucketNumbers: true,
         buckets:         { select: { status: true, remainingWeightKg: true, initialWeightKg: true } },
-        locationHistory: { select: { location: true, endDate: true }, orderBy: { startDate: 'desc' }, take: 1 },
+        // 積算温度の再現に全期間の場所履歴が要る（完成予定日を実績積算で較正するため）
+        locationHistory: { orderBy: { startDate: 'asc' } },
       },
     }),
     fetchMonthlySales(),
@@ -155,6 +157,18 @@ export default async function PlanningPage() {
     weatherAvg[key] = Math.round((sum / count) * 100) / 100
   }
 
+  // 日付文字列 → 有効積算温度（ロットの実績積算を再現するため。ダッシュボードと同じ）
+  const weatherMap = new Map<string, number>(
+    weatherData.map(w => [format(w.date, 'yyyy-MM-dd'), w.effectiveTemp])
+  )
+  const roomTemps = {
+    room1Temp:       moisture.room1Temp,
+    room2Temp:       moisture.room2Temp,
+    fridgeTemp:      moisture.fridgeTemp,
+    heatingBaseTemp: moisture.heatingDefaultTemp,
+    q10Value:        moisture.q10Value,
+  }
+
   // 熟成中ロットの完成予定日スケジュール（品種別・仕込み計画の在庫補充タイミング用）
   const recipeTargetMap = Object.fromEntries(recipes.map(r => [r.name, r.targetTempSum]))
   const dailyRoomAccum  = moisture.heatingDefaultTemp - 10
@@ -166,8 +180,10 @@ export default async function PlanningPage() {
       : lot.totalWeightKg
     if (yieldKg <= 0) continue
 
-    const currentLocation = lot.locationHistory[0]?.location ?? '常温'
+    const currentLocation = lot.locationHistory.length > 0 ? getCurrentLocation(lot.locationHistory) : '常温'
     const targetTempSum   = recipeTargetMap[lot.misoType] ?? lot.targetTempSum
+    // 今日時点の実績積算を渡して較正する（ダッシュボードの完成予定日と一致させるため）
+    const accumulatedTemp = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps)
 
     const completionDate = calcCompletionFromBrew(
       lot.brewedAt,
@@ -178,6 +194,7 @@ export default async function PlanningPage() {
       moisture.q10Value,
       moisture.heatingDefaultTemp,
       moisture.fridgeTemp,
+      accumulatedTemp,
     )
     if (!completionDate) continue
 

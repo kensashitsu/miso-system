@@ -173,9 +173,12 @@ export default function LotSimulationModal({
       futureFixedRate = Math.max(fridgeTemp - 10, 0)
     }
 
+    // accumulatedTemp（今日時点の実績積算）を渡して今日の点を実績に合わせる。
+    // これでカードの熟成度%・完成予定日とグラフが一致する
     const fullData = simulateLotForModal(
       brewDate, targetTempSum, weatherAvg, dailyRoomAccum,
       q10Value, heatingBaseTemp, futureFixedRate, locType === '暖房',
+      accumulatedTemp,
     )
 
     const matCompleteIdx  = fullData.findIndex(d => d.maturityPct >= 100)
@@ -208,7 +211,7 @@ export default function LotSimulationModal({
       hasQ10Effect:           fullData.some(d => d.simplePct !== d.maturityPct),
       yAxisMax:               yMax,
     }
-  }, [locType, locTemp, brewedAtISO, targetTempSum, room1Temp, fridgeTemp,
+  }, [locType, locTemp, brewedAtISO, targetTempSum, room1Temp, fridgeTemp, accumulatedTemp,
       dailyRoomAccum, weatherAvg, q10Value, heatingBaseTemp, locationTransitions])
 
   const today           = startOfDay(new Date())

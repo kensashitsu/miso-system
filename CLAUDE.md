@@ -502,8 +502,8 @@ model IngredientAlert {
 | `lib/prisma.ts` | `prisma` | PrismaClientシングルトン |
 | `lib/settings.ts` | `getMoistureSettings()`, `saveMoistureSettings()`, `MoistureSettings`, `DEFAULT_MOISTURE` | SystemSettingの読み書き |
 | `lib/recipes.ts` | `getMisoRecipes()` | MisoRecipe一覧取得 |
-| `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcEstimatedCompletion()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む） |
-| `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcSimulatedCompletionDate()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース） |
+| `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcEstimatedCompletion()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む）。`calcAccumulatedTemp(..., untilDate?)` の第5引数で積算の終端日を指定できる（熟成中はnull＝今日まで／完成・要対応ロットは`completedAt`まで） |
+| `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcCompletionFromBrew()`, `calcSimulatedCompletionDate()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース）。最後の引数 `actualAccumToday` に今日時点の実績積算温度を渡すと、今日の点が実績と一致するよう較正される（後述） |
 | `lib/brewPlanCalc.ts` | `calcBatches()`, `findStockOutDate()`, `findStockOutDateAfter()`, `simulateFermentationDays()`, `refineBrewDateToStockOut()`, `BatchPlan` | AI仕込み提案の純粋な計算ロジック（UIから分離・テスト可能）。**日付ロジックを直すときは必ず `npx tsx scripts/debug-brew-plan.mts` で実データ再現してから出すこと** |
 | `lib/forecast.ts` | `holtWinters()`, `getTimeSeries()` | ホルト・ウィンタース法 |
 | `lib/backtest.ts` | `computeBacktest()`, `pickAutoMethods()`, `ForecastMethodKey`, `TypeBacktest` | 予測vs実績バックテスト（偏り・MAPE・最良方式）。④パネル表示と品種別自動方式選択で共有 |
@@ -615,6 +615,15 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 ## 各画面の詳細
 
 ### ダッシュボード（`/`）
+
+#### 熟成度%と完成予定日の整合（2026-08-28修正）
+
+- **完成予定日は今日時点の実績積算温度で較正する**: `calcCompletionFromBrew()` は仕込み日まで遡ってモデル（月日平均気温＋屋内想定）で引き直すため、実際の場所履歴・実際の日別気温で積んだ熟成度%とは別の曲線になっていた（実データで熟成度98.5%のロットの完成予定日が、シミュ上は91.5%の点から計算されて3〜4日遅く出ていた）。`simulateLotForModal()` に `actualAccumToday` を渡すと、今日の点が実績と一致するよう過去の線を比例で伸縮させ、今日以降はそこからモデルの日次増分を積む。ダッシュボード・ロット詳細・熟成シミュレーションモーダル・仕込み計画（熟成中ロットの供給日）の4箇所すべてで実績積算を渡しており、カードの熟成度%・グラフ・完成予定日が同じ点を通る。**仕込み計画のAI提案日は変わらない**ことを `scripts/debug-brew-plan.mts` の前後比較で確認済み（供給日が2日早まるだけ）
+- **完成後は積算を止める**: 完成・要対応ロットは `calcAccumulatedTemp(..., completedAt)` で `completedAt` までで打ち切る。打ち切らないと完成後も熟成度%が伸び続け、完成済みロットが「着色リスク高（150%超）」の赤枠になっていた（実データで164%）。トレース検索も同じ扱い（`completedAt` → 場所履歴の最終endDate → 桶使用記録の最終日 の順にフォールバック）
+- **`dailyRoomAccum` は `heatingDefaultTemp - 10`** に統一（ダッシュボード・ロット詳細だけ `room1Temp - 10` を渡しており、モーダル・仕込み計画と1℃/日ずれていた）
+- **残り日数は日付単位で数える**: ロットカードはブラウザ側で `differenceInDays(startOfDay(a), startOfDay(b))`。時刻込みの引き算だと夜間に1日短く出て、サーバー側で計算しているアラートバナー（完成間近7日以内）と食い違う
+- **サーバーのタイムゾーンは `instrumentation.ts` で JST に固定**: Vercelの既定はUTCで、そのままだとJST 0:00〜9:00の間はサーバーが前日を「今日」として扱い、経過日数・完成間近判定・積算の終端日・安全在庫ラインの季節判定が1日ずれる。`process.env.TZ = 'Asia/Tokyo'`（`APP_TZ` で上書き可）
+
 - 品種別在庫サマリー（熟成中ロット / 熟成済在庫 / 小分け製品在庫 / 工場内合計）
 - ロットをステータス別グループ表示（`DashboardLotGroups`コンポーネント）
   - 熟成中: 完成予定日昇順→仕込み日降順
@@ -885,7 +894,7 @@ const nextConfig: NextConfig = {
 - shadcn Select の `onValueChange: (value: string | null) => void`
 - Prisma クライアント出力先: `lib/generated/prisma`
 - コメント・エラーメッセージは全て**日本語**
-- 日付はJST基準（WeatherCacheのみUTC midnight）
+- 日付はJST基準（WeatherCacheのみUTC midnight）。サーバー実行時のTZは `instrumentation.ts` で `Asia/Tokyo` に固定している（Vercel既定のUTCのままだと日付が1日ずれる）
 - 品種名は必ず正規化: 「無添加麦みそ」「田舎みそ」「山吹みそ」「白みそ」
 
 ---

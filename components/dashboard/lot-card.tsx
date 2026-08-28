@@ -59,6 +59,12 @@ const PROGRESS_COLOR: Record<ColoringRisk, string> = {
   danger:  'bg-rose-500',
 }
 
+// 「あと3日」「本日」「5日前」の表記（日付単位。時刻の差で1日ズレないよう startOfDay 基準で数える）
+function relativeDayLabel(days: number): string {
+  if (days === 0) return '本日'
+  return days > 0 ? `あと${days}日` : `${Math.abs(days)}日前`
+}
+
 const CARD_BORDER: Record<ColoringRisk, string> = {
   normal:  'border-gray-100',
   warning: 'border-amber-200',
@@ -103,8 +109,10 @@ export default function LotCard({
   const completedAt     = completedAtISO ? new Date(completedAtISO) : null
   const today           = new Date()
 
+  // 時刻込みの引き算だと夜間に1日短く出てダッシュボードのバナー（サーバー側は日付単位）と
+  // 食い違うため、日付単位で数える
   const daysUntilCompletion = completionDate
-    ? Math.round((completionDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    ? differenceInDays(startOfDay(completionDate), startOfDay(today))
     : null
 
   // Googleカレンダーへの予定追加リンク
@@ -268,14 +276,16 @@ export default function LotCard({
                   </div>
                   {completionDate && (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">完成予定</span>
+                      <span className="text-muted-foreground">
+                        {daysUntilCompletion !== null && daysUntilCompletion < 0 ? '完成予定（超過）' : '完成予定'}
+                      </span>
                       <span className="flex items-center gap-1.5">
                         <span className={`font-medium ${
                           daysUntilCompletion !== null && daysUntilCompletion <= 7 ? 'text-orange-600' : ''
                         }`}>
                           {format(completionDate, 'M月d日')}
                           <span className="text-muted-foreground ml-1 text-xs">
-                            （あと{daysUntilCompletion}日）
+                            （{relativeDayLabel(daysUntilCompletion!)}）
                           </span>
                         </span>
                         <a
@@ -303,7 +313,7 @@ export default function LotCard({
                     <span className="text-blue-600 font-medium">完成・待機中</span>
                   </div>
                 )
-                const diffDays  = Math.round((today.getTime() - completedAt.getTime()) / (1000 * 60 * 60 * 24))
+                const diffDays  = differenceInDays(startOfDay(today), startOfDay(completedAt))
                 const agingDays = differenceInDays(startOfDay(completedAt), startOfDay(brewDate))
                 return (
                   <div className="space-y-1">
@@ -320,11 +330,7 @@ export default function LotCard({
                       <span className="font-medium">
                         {format(completedAt, 'M月d日')}
                         <span className="text-muted-foreground ml-1 text-xs">
-                          {diffDays < 0
-                            ? `（あと${Math.abs(diffDays)}日）`
-                            : diffDays === 0
-                              ? '（本日）'
-                              : `（${diffDays}日前）`}
+                          （{relativeDayLabel(-diffDays)}）
                         </span>
                       </span>
                       <a

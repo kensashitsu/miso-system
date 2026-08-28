@@ -124,16 +124,20 @@ export function simulateLotForModal(
   brewDate:       Date,
   targetTempSum:  number,
   weatherAvg:     Record<string, number>,
-  dailyRoomAccum: number,      // = room1Temp - 10
+  dailyRoomAccum: number,      // = heatingDefaultTemp - 10
   q10Value:       number,
   heatingBaseTemp: number,
   futureFixedRate?: number,    // 今日以降の固定レート（undefined = 常温ロジック継続）
   futureIsHeating?: boolean,   // futureFixedRateが暖房のときtrue（月別補正係数の対象）
+  actualAccumToday?: number,   // 今日時点の実績積算温度（℃・日）。渡すと今日で実績に合わせて較正する
 ): ModalSimDay[] {
   const today = startOfDay(new Date())
-  let curr         = new Date(brewDate.getTime())
+  // brewedAt はUTC midnight（= JST 9:00）で渡ってくることがあり、そのままだと
+  // 「今日」との一致判定・過去/未来の境界が半日ずれる。必ず日付の頭に丸める
+  let curr         = startOfDay(new Date(brewDate.getTime()))
   let totalSimple  = 0
   let totalMaturity = 0
+  let calibrated   = false
   const result: ModalSimDay[] = []
 
   for (let i = 0; i < 730; i++) {
@@ -171,6 +175,24 @@ export function simulateLotForModal(
       simplePct:   Math.round(totalSimple   / targetTempSum * 1000) / 10,
     })
 
+    // 今日の時点で実績積算に合わせて較正する（2026-08-28追加）。
+    // 過去はモデル（月日平均気温＋屋内想定）なので実際の場所履歴・実際の日別気温で
+    // 積んだ値とズレる。今日が実績と一致するよう過去の線を比例で伸縮させ、
+    // 今日以降はそこからモデルの日次増分を積む。これでカードの熟成度%と
+    // 完成予定日が同じ点を通るようになる（ズレは実測で3〜4日あった）。
+    if (!calibrated && actualAccumToday != null && curr.getTime() === today.getTime()) {
+      calibrated = true
+      if (totalMaturity > 0) {
+        const k = actualAccumToday / totalMaturity
+        totalMaturity = actualAccumToday
+        totalSimple   = Math.round(totalSimple * k * 10) / 10
+        for (const r of result) {
+          r.maturityPct = Math.round(r.maturityPct * k * 10) / 10
+          r.simplePct   = Math.round(r.simplePct   * k * 10) / 10
+        }
+      }
+    }
+
     // 両線とも200%に達したら終了（100%超の経過を可視化するため200%まで継続）
     if (totalSimple >= targetTempSum * 2 && totalMaturity >= targetTempSum * 2) break
     curr = addDays(curr, 1)
@@ -192,6 +214,7 @@ export function calcCompletionFromBrew(
   q10Value:        number,
   heatingBaseTemp: number,
   fridgeTemp:      number,
+  actualAccumToday?: number,   // 今日時点の実績積算温度。渡すと実績に合わせて較正した完成予定日になる
 ): Date | null {
   if (targetTempSum <= 0) return null
 
@@ -203,6 +226,7 @@ export function calcCompletionFromBrew(
 
   const simDays = simulateLotForModal(
     brewDate, targetTempSum, weatherAvg, dailyRoomAccum, q10Value, heatingBaseTemp, futureFixedRate, futureIsHeating,
+    actualAccumToday,
   )
 
   const day = simDays.find(d => d.maturityPct >= 100)

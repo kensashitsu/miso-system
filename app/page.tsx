@@ -100,15 +100,20 @@ export default async function DashboardPage() {
   // 各ロットの積算温度・リスク・完成予定日を計算
   const lotData: LotCardProps[] = lots.map(lot => {
     const targetTempSum   = recipeTargetMap[lot.misoType] ?? lot.targetTempSum
-    const accumulated     = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps)
+    // 熟成中は今日まで、それ以外は完成日（completedAt）で積算を打ち切る。
+    // 打ち切らないと完成後も熟成度%が伸び続け、完成ロットが「着色リスク高」になる
+    const accumUntil      = lot.status === '熟成中' ? null : lot.completedAt
+    const accumulated     = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps, accumUntil)
     const currentLocation = getCurrentLocation(lot.locationHistory)
     const coloringRisk    = calcColoringRisk(accumulated, targetTempSum)
-    // 仕込み日起点シミュレーション（simulateLotForModal準拠）→ ロット詳細モーダルと完成予定日を統一
+    // 仕込み日起点シミュレーション（simulateLotForModal準拠）→ ロット詳細モーダルと完成予定日を統一。
+    // 今日時点の実績積算（accumulated）を渡して較正するため、カードの熟成度%と同じ点を通る
     const estimatedCompletion =
       lot.status === '熟成中'
         ? calcCompletionFromBrew(
             lot.brewedAt, targetTempSum, currentLocation,
-            weatherAvg, moisture.room1Temp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
+            weatherAvg, moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
+            accumulated,
           )
         : null
     const elapsedDays = differenceInDays(today, startOfDay(lot.brewedAt))

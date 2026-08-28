@@ -65,14 +65,18 @@ export default async function LotDetailPage({ params }: Props) {
   }
 
   const today = startOfDay(new Date())
-  const accumulatedTemp = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps)
+  // 熟成中は今日まで、それ以外は完成日（completedAt）で積算を打ち切る（ダッシュボードと同じ扱い）
+  const accumUntil = lot.status === '熟成中' ? null : lot.completedAt
+  const accumulatedTemp = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps, accumUntil)
   const currentLocation = getCurrentLocation(lot.locationHistory)
   const coloringRisk = calcColoringRisk(accumulatedTemp, targetTempSum)
+  // 今日時点の実績積算を渡して較正（熟成度%と完成予定日が同じ点を通るようにする）
   const estimatedCompletion =
     lot.status === '熟成中'
       ? calcCompletionFromBrew(
           lot.brewedAt, targetTempSum, currentLocation,
-          weatherAvg, moisture.room1Temp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
+          weatherAvg, moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
+          accumulatedTemp,
         )
       : null
   const elapsedDays = differenceInDays(today, startOfDay(lot.brewedAt))

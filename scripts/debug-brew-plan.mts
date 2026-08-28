@@ -8,6 +8,7 @@
 import { addDays, differenceInDays, format, getDaysInMonth, startOfDay } from 'date-fns'
 import { PrismaClient } from '../lib/generated/prisma'
 import * as brewSimNs from '../lib/brewSimulation'
+import * as tempCalcNs from '../lib/tempCalc'
 import * as calcNs from '../lib/brewPlanCalc'
 
 // tsxはlib配下の.tsをCJSとして読むため、名前付きexportがnamespace直下に出ないことがある。
@@ -16,7 +17,8 @@ const merge = (ns: unknown): Record<string, any> => {
   const n = ns as Record<string, any>
   return { ...n, ...(typeof n.default === 'object' ? n.default : {}) }
 }
-const brewSim = merge(brewSimNs)
+const brewSim  = merge(brewSimNs)
+const tempCalc = merge(tempCalcNs)
 const calc    = merge(calcNs)
 
 const {
@@ -48,6 +50,11 @@ const q10Value           = setting('q10Value', 2)
 const heatingDefaultTemp = setting('heatingDefaultTemp', 25)
 const brewBufferDays     = setting('brewBufferDays', 14)
 
+// 日付別の有効積算温度（実績積算の再現用・画面と同じ）
+const weatherMap = new Map<string, number>(
+  weatherData.map(w => [format(w.date, 'yyyy-MM-dd'), w.effectiveTemp])
+)
+
 // MM-dd別の有効積算温度平均（画面と同じ）
 const wm = new Map<string, { sum: number; count: number }>()
 for (const w of weatherData) {
@@ -75,9 +82,15 @@ for (const lot of lots.filter(l => l.misoType === MISO)) {
     ? nonEmpty.reduce((s, b) => s + (b.remainingWeightKg ?? b.initialWeightKg), 0)
     : lot.totalWeightKg
   if (yieldKg <= 0) continue
+  // 画面と同じく、今日時点の実績積算温度で較正した完成予定日を使う
+  const accumulatedTemp = tempCalc.calcAccumulatedTemp(
+    lot.brewedAt, lot.locationHistory, weatherMap,
+    { room1Temp: setting('room1Temp', 24), room2Temp: setting('room2Temp', 20),
+      fridgeTemp: setting('fridgeTemp', 6), heatingBaseTemp: heatingDefaultTemp, q10Value })
   const comp = brewSim.calcCompletionFromBrew(
-    lot.brewedAt, recipe.targetTempSum, lot.locationHistory[0]?.location ?? '常温',
-    weatherAvg, heatingDefaultTemp - 10, q10Value, heatingDefaultTemp, setting('fridgeTemp', 6))
+    lot.brewedAt, recipe.targetTempSum, tempCalc.getCurrentLocation(lot.locationHistory),
+    weatherAvg, heatingDefaultTemp - 10, q10Value, heatingDefaultTemp, setting('fridgeTemp', 6),
+    accumulatedTemp)
   if (comp) supplyEvents.push({ date: startOfDay(comp), kg: yieldKg, note: `熟成中 ${lot.lotNumber}` })
 }
 const regPlans = plans.filter(p => p.misoType === MISO && p.completionDate > today)

@@ -79,14 +79,25 @@ function getLocationAtDate(history: LocationHistory[], date: Date): string {
   return entry?.location ?? '常温'
 }
 
-// 積算温度を計算（仕込み日〜今日）
+// 積算の終端日（today と untilDate の早いほう）
+function accumulationEndDate(untilDate?: Date | null): Date {
+  const today = startOfDay(new Date())
+  if (!untilDate) return today
+  const until = startOfDay(new Date(untilDate))
+  return until < today ? until : today
+}
+
+// 積算温度を計算（仕込み日〜今日、または熟成終了日まで）
+// untilDate を渡すと、その日で積算を打ち切る（完成ロットの熟成度が完成後も
+// 伸び続けて「着色リスク高」になってしまうのを防ぐため。2026-08-28修正）
 export function calcAccumulatedTemp(
   brewedAt: Date,
   locationHistory: LocationHistory[],
   weatherMap: Map<string, number>,
-  roomTemps: RoomTemps = DEFAULT_ROOM_TEMPS
+  roomTemps: RoomTemps = DEFAULT_ROOM_TEMPS,
+  untilDate?: Date | null,
 ): number {
-  const today = startOfDay(new Date())
+  const today = accumulationEndDate(untilDate)
   let current = startOfDay(new Date(brewedAt))
   let total = 0
 
