@@ -155,7 +155,7 @@ const minBrewDate = snapToBrewDay(nextWeekMonday(today))
 const earliest    = getCompletion(minBrewDate).completionDate
 console.log(`\n最短仕込み日 ${d(minBrewDate)} → その完成日 ${d(earliest)}（熟成${getCompletion(minBrewDate).days}日）`)
 console.log(`本当の在庫切れ日          : ${d(findStockOutDate(depletableStock, today, getDailyRateFn, supplyEvents, getSafetyDelta))}`)
-console.log(`この回が狙う在庫切れ日    : ${d(findStockOutDateAfter(depletableStock, today, getDailyRateFn, earliest, supplyEvents, getSafetyDelta))}`)
+console.log(`この回が狙う在庫切れ日    : ${d(findStockOutDateAfter(depletableStock, today, getDailyRateFn, earliest, supplyEvents, getSafetyDelta).date)}`)
 
 const batches = calcBatches(
   depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, batchKg,
@@ -165,7 +165,8 @@ const batches = calcBatches(
     ...(process.env.BLOCK_DATES ?? '').split(',').filter(Boolean)]), getSafetyDelta, safetyLineAt,
   // 工程制約: 山吹は無添加・田舎の翌日にしか仕込めない。
   // 本番と同じ集合を作るには両品種の提案計算が要るため、ここでは確定分（仮登録）の翌日で近似する
-  isAllowedBrewDayForYamabuki)
+  isAllowedBrewDayForYamabuki,
+  regPlans.map(p => new Date(format(p.completionDate, 'yyyy-MM-dd') + 'T00:00:00')))
 
 console.log('\n=== 生成された提案 ===')
 for (const b of batches) {

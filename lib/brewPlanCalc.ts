@@ -146,7 +146,7 @@ export function findStockOutDateAfter(
   supplyEvents?:  { date: Date; kg: number }[],
   getSafetyDelta?: (date: Date) => number,   // 季節で安全在庫ラインが変わる分の補正
   getSafetyLine?:  (date: Date) => number,   // その日の安全在庫ライン（谷の深さ判定に使う）
-): Date {
+): { date: Date; criticalDate: Date } {
   const notBeforeStr = format(notBefore, 'yyyy-MM-dd')
   let remaining = stock
   let d = new Date(startDate)
@@ -157,6 +157,7 @@ export function findStockOutDateAfter(
   let candidate: Date | null = null
   let candidateIdx = -1
   let candidateDeep = false   // その谷で在庫が MIN_COVER_DAYS 分を下回ったか
+  let criticalDate: Date | null = null   // 実際に薄くなった日
   for (let i = 0; i < 3650; i++) {
     const dStr = format(d, 'yyyy-MM-dd')
     if (supplyEvents) {
@@ -167,25 +168,34 @@ export function findStockOutDateAfter(
     remaining -= getDailyRateFn(d)
     if (remaining - (getSafetyDelta?.(d) ?? 0) > 0) {
       if (dStr >= notBeforeStr) recoveredAfterNotBefore = true
-      candidate = null; candidateDeep = false   // 回復した＝手当て済みの谷なので見送る
+      candidate = null; candidateDeep = false; criticalDate = null   // 回復した＝手当て済みの谷なので見送る
     } else {
       if (firstStockOut === null) firstStockOut = addDays(d, 1)
       if (dStr >= notBeforeStr && recoveredAfterNotBefore) {
         if (candidate === null) { candidate = addDays(d, 1); candidateIdx = i }
-        // 谷の深さ：実在庫（＝ライン控除前）が MIN_COVER_DAYS 分を下回ったら「本当に足りない」
+        // 谷の深さ：実在庫（＝ライン控除前）が MIN_COVER_DAYS 分を下回った日を返す。
+        // ラインを割り始めた日ではなく「本当に薄くなる日」を狙わないと、
+        // まだ30日分以上あるのに1ヶ月早い仕込みを提案してしまう
+        // （2026-08-28：11/17に35日分あるのに10/1仕込みを提案しユーザー指摘）。
         // ラインが未設定（0）の品種は remaining がそのまま実在庫になる
         const line      = getSafetyLine?.(d) ?? 0
         const actualKg  = remaining + line
         const rate      = Math.max(getDailyRateFn(d), 1e-9)
-        if (actualKg < MIN_COVER_DAYS * rate) candidateDeep = true
+        if (actualKg < MIN_COVER_DAYS * rate && !candidateDeep) {
+          candidateDeep = true
+          criticalDate  = addDays(d, 1)
+        }
         if (candidateDeep && i - candidateIdx >= SHORTFALL_TOLERANCE_DAYS) {
-          return candidate   // 猶予を過ぎても回復せず、かつ在庫が薄い＝本当に足りない谷
+          // date         = 谷の入口（ここを狙って逆算する）
+          // criticalDate = 実際に薄くなる日（団子防止のずらしはここを越えてはいけない）
+          return { date: candidate, criticalDate: criticalDate ?? addDays(d, 1) }
         }
       }
     }
     d = addDays(d, 1)
   }
-  return candidate ?? firstStockOut ?? addDays(startDate, 3650)
+  const fallback = candidate ?? firstStockOut ?? addDays(startDate, 3650)
+  return { date: fallback, criticalDate: criticalDate ?? fallback }
 }
 
 // 期間内 [startDate, endDate) に受け取る補充量合計（熟成中ロット・仮登録の完成分）
@@ -390,6 +400,7 @@ export function calcBatches(
   getSafetyDelta?:     (date: Date) => number,  // 季節で安全在庫ラインが変わる分の補正
   getSafetyLine?:      (date: Date) => number,  // その日の安全在庫ライン（谷の深さ判定用）
   isAllowedBrewDay?:   (date: Date) => boolean,  // 指定時、真を返す日にしか提案しない（工程上の制約）
+  fixedCompletionDates?: Date[],  // 確定済み（仮登録）の完成日。団子防止の間隔基準に含める
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
   // 当週はもう原料手配等の都合で仕込めないため、仕込み日として提案できるのは最短で翌週から
@@ -436,10 +447,12 @@ export function calcBatches(
     const earliestCompletion = (getCompletion
       ? getCompletion(minBrewDate).completionDate
       : addDays(minBrewDate, fermentationDays))
-    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents, getSafetyDelta, getSafetyLine)
+    const shortfall    = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents, getSafetyDelta, getSafetyLine)
+    const stockOutDate = shortfall.date          // 逆算の基準（谷の入口）
+    const criticalDate = shortfall.criticalDate  // ずらしの上限（実際に薄くなる日）
     // Q10補正なし専用の在庫切れ予測日（独立チェーン）
     const rawStockOutDate = getCompletionRaw
-      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents, getSafetyDelta, getSafetyLine)
+      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents, getSafetyDelta, getSafetyLine).date
       : stockOutDate
 
     // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
@@ -485,33 +498,32 @@ export function calcBatches(
     // 完成日が「前バッチの完成日＋カバー期間」より早い場合は仕込み日を後ろへずらす。
     // 1バッチの歩留まりを消費しきる前に次が完成すると、仕込み日が1〜数日差で密集する
     // （前バッチの翌日へ丸める昇順クランプだけでは団子状の提案になってしまう）。
+    // ※確定済み（仮登録）の完成日も間隔の基準に含める。含めないと「確定の翌日に仕込む」
+    //   ような提案が出る（2026-08-28：9/30確定の翌日10/1が提案されユーザー指摘）。
+    for (const fc of fixedCompletionDates ?? []) {
+      if (fc > completionDate) continue          // この回より後の確定分は基準にしない
+      const bound = addDays(fc, computeCoverageDays(batchYieldKg, fc, getDailyRateFn))
+      if (bound > minNextCompletion) minNextCompletion = bound
+    }
     // ただし手動固定されている回は、現場の都合（水木連続仕込みなど）を優先しそのまま採用する。
     if (completionDate < minNextCompletion && !manualBrewDateByIndex?.[i]) {
-      const origBrewDate       = brewDate
-      const origCompletionDate = completionDate
-      const origFermentDays    = actualFermentDays
-      const deficit = differenceInDays(minNextCompletion, completionDate)
-      brewDate = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(brewDate, deficit)) : addDays(brewDate, deficit))
-      let r     = computeCompletion(brewDate)
-      let guard = 0
-      while (r.completionDate < minNextCompletion && guard < 60) {
-        brewDate = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1))
-        r        = computeCompletion(brewDate)
-        guard++
+      // 元の日から1回ずつ後ろへ動かし、「criticalDate（実際に在庫が薄くなる日）に間に合う範囲で
+      // 最も遅い日」を採用する。間隔（minNextCompletion）に届いた時点で打ち切る。
+      // ※以前は「ずらした結果が criticalDate を超えたらずらし自体を取り消す」実装だったため、
+      //   1日超えただけで元の（早すぎる）日に戻り、確定分の翌日に仕込む提案が出ていた。
+      let bestBrew = brewDate, bestComp = completionDate, bestDays = actualFermentDays
+      let cur = brewDate
+      for (let guard = 0; guard < 120; guard++) {
+        const next = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(cur, 1)) : addDays(cur, 1))
+        const rr   = computeCompletion(next)
+        if (rr.completionDate > criticalDate) break   // これ以上は在庫が薄くなる日に間に合わない
+        bestBrew = next; bestComp = rr.completionDate; bestDays = rr.days
+        cur = next
+        if (rr.completionDate >= minNextCompletion) break   // 目標の間隔に達した
       }
-      // ずらした結果、その回が狙う在庫切れ日に間に合わなくなるならずらさない。
-      // 団子防止（見た目の間隔）より、在庫を切らさないことを優先する。
-      // ※安全在庫ラインが季節で上がる品種（例: 山吹みそ 11月に0→300kg）では、
-      //   カバー日数ベースの間隔強制が在庫切れ日を追い越し、完成が1ヶ月遅れて
-      //   実際に欠品する提案になっていた（2026-08-28に実データで確認）
-      if (r.completionDate > stockOutDate) {
-        brewDate          = origBrewDate
-        completionDate    = origCompletionDate
-        actualFermentDays = origFermentDays
-      } else {
-        completionDate    = r.completionDate
-        actualFermentDays = r.days
-      }
+      brewDate          = bestBrew
+      completionDate    = bestComp
+      actualFermentDays = bestDays
     }
     // ── 出荷ピーク期の2回仕込み ──────────────────────────────
     // 完成が対象期間に入る回は、翌仕込み可能日（水→木）にもう1本仕込んで2本立てにする。
