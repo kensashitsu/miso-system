@@ -504,6 +504,7 @@ model IngredientAlert {
 | `lib/recipes.ts` | `getMisoRecipes()` | MisoRecipe一覧取得 |
 | `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcEstimatedCompletion()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む） |
 | `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcSimulatedCompletionDate()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース） |
+| `lib/brewPlanCalc.ts` | `calcBatches()`, `findStockOutDate()`, `findStockOutDateAfter()`, `simulateFermentationDays()`, `refineBrewDateToStockOut()`, `BatchPlan` | AI仕込み提案の純粋な計算ロジック（UIから分離・テスト可能）。**日付ロジックを直すときは必ず `npx tsx scripts/debug-brew-plan.mts` で実データ再現してから出すこと** |
 | `lib/forecast.ts` | `holtWinters()`, `getTimeSeries()` | ホルト・ウィンタース法 |
 | `lib/backtest.ts` | `computeBacktest()`, `pickAutoMethods()`, `ForecastMethodKey`, `TypeBacktest` | 予測vs実績バックテスト（偏り・MAPE・最良方式）。④パネル表示と品種別自動方式選択で共有 |
 | `lib/weatherFetch.ts` | `fetchMonthlyWeather()` | 気象庁HTMLスクレイピング |
@@ -676,6 +677,21 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 - 保存文字列: `暖房25℃`・`冷房20℃`・`常温`・`冷蔵庫`
 
 ### 仕込み計画（`/planning`）
+
+#### ⚠️ AI仕込み提案を直すときの鉄則（2026-08-28追加）
+
+画面を見た推測で直すと、在庫見積もりのわずかなズレが提案日を大きく動かすため堂々巡りになる。**必ず実データで再現してから直すこと**。
+
+```
+npx tsx scripts/debug-brew-plan.mts [品種名] [現在庫kg] [提案回数]
+```
+
+本番DBの実データ（レシピ・仮登録・熟成中ロット・SARIMAX予測・気象）を読み、`lib/brewPlanCalc.ts` の同じ関数で提案を再現し、**「提案どおり仕込んだ場合に安全在庫ラインを割る期間」**まで出力する。修正の前後でこれを比較する。
+
+これまでの不具合はすべて「在庫の二重計上」か「日付比較のズレ」だった：
+- 提案日を表示から除外しても在庫連鎖には歩留まりが残る → **除外ではなく空いている日へずらす**（`blockedBrewDates`）
+- 2本立ての相方も仮登録済みの日を避ける必要がある（避けないと確定分と二重計上）
+- 日付は時刻成分を持つため `startOfDay` で丸めるか `yyyy-MM-dd` 文字列で比較する
 
 #### ① AI仕込み提案（BrewSuggestions）
 テンプレート方式（Claude API不使用）:
