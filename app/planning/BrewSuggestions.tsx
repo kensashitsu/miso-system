@@ -2192,7 +2192,14 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   safetyStockKg={plan.safetyStockKg}
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
-                                  完成の補充を織り込んだ在庫見込み。赤の縦線は「その回の完成が間に合わない場合に{plan.safetyStockKg != null ? '安全在庫ラインを割る' : '在庫が尽きる'}日」。
+                                  在庫見込み＝<span className="font-medium">熟成済バラ＋小分け製品</span>の合計（完成の補充を織り込み）。
+                                  {plan.safetyStockKg != null ? (
+                                    <>
+                                      安全在庫ラインは<span className="font-medium">熟成済バラの取り置き量</span>なので、
+                                      合計がラインに触れる時点＝<span className="font-medium">小分けを使い切って熟成済がラインちょうどになる</span>タイミングです
+                                      （それまでに使える量＝合計−ライン）。赤の縦線はその日。
+                                    </>
+                                  ) : '赤の縦線は在庫が尽きる日。'}
                                   {plan.location === '常温' && q10Value !== 1 && 'グラフはQ10補正あり基準。'}
                                 </p>
                               </div>
