@@ -18,6 +18,7 @@ export interface BatchPlan {
   rawBrewDate?:              Date    // Q10補正なしの推奨仕込み日
   rawMaterialOrderDeadline?: Date    // Q10補正なしの手配締切
   isFixed?:                  boolean // 仮登録済み（確定）の行。提案ではなく既定の予定
+  bucketNumbers?:            string | null  // 確定行のみ。仮登録時に採番された桶番号（例: 11・12）
   // この仕込み日を最終的に決めた条件（画面の「計算の根拠」で理由を出すため）。
   // 在庫切れからの逆算値は、最短仕込み日・前の回との間隔・仕込める曜日・仮登録済みの日などで
   // その後ずらされることが多く、「在庫切れ − 熟成 − バッファ」の式では結果を説明できない。

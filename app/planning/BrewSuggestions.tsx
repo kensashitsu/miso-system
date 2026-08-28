@@ -913,6 +913,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       daysUntilOrder:        differenceInDays(p.materialOrderDeadline, today),
       startStockKg:          0,
       isFixed:               true,
+      bucketNumbers:         p.bucketNumbers,
     }))
 
     // 田舎みその仕込み日（確定＋新規提案）を記録し、後続の無添加の順序判定に使う
@@ -1953,7 +1954,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                           </>
                                         )}
                                         {b.isFixed && (
-                                          <span className="text-[10px] text-emerald-700 font-medium ml-0.5 rounded bg-emerald-100 px-1">確定</span>
+                                          <span
+                                            className="text-[10px] text-emerald-700 font-medium ml-0.5 rounded bg-emerald-100 px-1"
+                                            title={b.bucketNumbers ? `仮登録時に採番された桶番号：${b.bucketNumbers}` : undefined}
+                                          >
+                                            確定{b.bucketNumbers ? ` 桶${b.bucketNumbers}` : ''}
+                                          </span>
                                         )}
                                         {isPast && <span className="ml-1 text-[10px]">超過</span>}
                                         {isManual && (
@@ -2334,7 +2340,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         </span>
                                       )}
                                       <span className={`whitespace-normal ${b.isFixed ? 'text-emerald-700' : isManual ? 'text-amber-600' : 'text-foreground/60'}`}>
-                                        {b.isFixed ? '仮登録で確定済み（計算ではなく実際の予定）' : decidedTxt}
+                                        {b.isFixed
+                                          ? <>仮登録で確定済み{b.bucketNumbers ? `（桶${b.bucketNumbers}）` : '（計算ではなく実際の予定）'}</>
+                                          : decidedTxt}
                                       </span>
                                     </Fragment>
                                   )
