@@ -5,7 +5,7 @@
 // 同じ入力・同じ関数（lib/brewPlanCalc.ts）で計算を再現できるようにしている。
 //
 // 実行: npx tsx scripts/debug-brew-plan.mts [品種名]
-import { addDays, format, getDaysInMonth, startOfDay } from 'date-fns'
+import { addDays, differenceInDays, format, getDaysInMonth, startOfDay } from 'date-fns'
 import { PrismaClient } from '../lib/generated/prisma'
 import * as brewSimNs from '../lib/brewSimulation'
 import * as calcNs from '../lib/brewPlanCalc'
@@ -139,11 +139,19 @@ for (const b of batches) {
   events.set(d(b.completionDate), (events.get(d(b.completionDate)) ?? 0) + recipe.totalWeightKg)
   if (b.pairCompletionDate) events.set(d(b.pairCompletionDate), (events.get(d(b.pairCompletionDate)) ?? 0) + recipe.totalWeightKg)
 }
+// 検証期間は最終提案の完成日まで伸ばす（400日固定だと山吹・白みそのように
+// 提案が数年先に及ぶ品種で、割れている期間を見逃す）
+const lastDate = batches.reduce((mx: Date, b: any) => {
+  const c = b.pairCompletionDate ?? b.completionDate
+  return c > mx ? c : mx
+}, today)
+const horizonDays = Math.max(400, differenceInDays(lastDate, today) + 90)
+
 let stock = effectiveStock
 let cur = today
 const below: string[] = []
 let runStart: string | null = null
-for (let i = 0; i < 400; i++) {
+for (let i = 0; i < horizonDays; i++) {
   stock += events.get(d(cur)) ?? 0
   stock -= getDailyRateFn(cur)
   if (stock < safetyLineAt(cur)) { if (!runStart) runStart = d(cur) }
@@ -156,7 +164,7 @@ const monthly = new Map<string, { min: number; max: number; line: number }>()
 {
   let st = effectiveStock
   let c = today
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < horizonDays; i++) {
     st += events.get(d(c)) ?? 0
     st -= getDailyRateFn(c)
     const ln = safetyLineAt(c)

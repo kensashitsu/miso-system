@@ -164,15 +164,24 @@ export function findStockOutDateAfter(
   return candidate ?? firstStockOut ?? addDays(startDate, 3650)
 }
 
-// 期間内に受け取る補充量合計（熟成中ロット完成分）
+// 期間内 [startDate, endDate) に受け取る補充量合計（熟成中ロット・仮登録の完成分）
+// ※必ず日付単位（yyyy-MM-dd）で比較する。補充イベントの日付は0時ちょうど、
+//   startDate/endDate は today 由来で時刻を持つため、Dateのまま比較すると
+//   「endDateと同じ日の補充」が期間内と判定される。その補充は次の回の
+//   findStockOutDate（refDate=endDateから開始）でも加算されるため二重計上になる。
 export function computeSupplyReceived(
   startDate:     Date,
   endDate:       Date,
   supplyEvents?: { date: Date; kg: number }[],
 ): number {
   if (!supplyEvents) return 0
+  const startStr = format(startDate, 'yyyy-MM-dd')
+  const endStr   = format(endDate,   'yyyy-MM-dd')
   return supplyEvents
-    .filter(ev => ev.date >= startDate && ev.date < endDate)
+    .filter(ev => {
+      const evStr = format(ev.date, 'yyyy-MM-dd')
+      return evStr >= startStr && evStr < endStr
+    })
     .reduce((sum, ev) => sum + ev.kg, 0)
 }
 
@@ -433,6 +442,9 @@ export function calcBatches(
     // （前バッチの翌日へ丸める昇順クランプだけでは団子状の提案になってしまう）。
     // ただし手動固定されている回は、現場の都合（水木連続仕込みなど）を優先しそのまま採用する。
     if (completionDate < minNextCompletion && !manualBrewDateByIndex?.[i]) {
+      const origBrewDate       = brewDate
+      const origCompletionDate = completionDate
+      const origFermentDays    = actualFermentDays
       const deficit = differenceInDays(minNextCompletion, completionDate)
       brewDate = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(brewDate, deficit)) : addDays(brewDate, deficit))
       let r     = computeCompletion(brewDate)
@@ -442,8 +454,19 @@ export function calcBatches(
         r        = computeCompletion(brewDate)
         guard++
       }
-      completionDate    = r.completionDate
-      actualFermentDays = r.days
+      // ずらした結果、その回が狙う在庫切れ日に間に合わなくなるならずらさない。
+      // 団子防止（見た目の間隔）より、在庫を切らさないことを優先する。
+      // ※安全在庫ラインが季節で上がる品種（例: 山吹みそ 11月に0→300kg）では、
+      //   カバー日数ベースの間隔強制が在庫切れ日を追い越し、完成が1ヶ月遅れて
+      //   実際に欠品する提案になっていた（2026-08-28に実データで確認）
+      if (r.completionDate > stockOutDate) {
+        brewDate          = origBrewDate
+        completionDate    = origCompletionDate
+        actualFermentDays = origFermentDays
+      } else {
+        completionDate    = r.completionDate
+        actualFermentDays = r.days
+      }
     }
     // ── 出荷ピーク期の2回仕込み ──────────────────────────────
     // 完成が対象期間に入る回は、翌仕込み可能日（水→木）にもう1本仕込んで2本立てにする。
