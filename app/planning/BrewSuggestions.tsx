@@ -87,8 +87,6 @@ interface Props {
   registeredDoneDatesByType?: Record<string, string[]>
   // 仕込めない週（月曜日の 'yyyy-MM-dd' 配列・全品種共通）
   initialBlockedWeeks?: string[]
-  // 小分け製品在庫の現在値（品種別）。グラフに水準として重ねる
-  packagedStockByType?: Record<string, number>
 }
 
 
@@ -408,7 +406,7 @@ function WhatIfStepper({ value, onChange, step, min, max, signed, suffix }: {
   )
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks, packagedStockByType }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -719,7 +717,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
     const activeSupplyEvents = combinedEvents.length > 0 ? combinedEvents : undefined
 
-    // 安全在庫ライン（熟成済バラの下限）が設定されている品種は、在庫切れ判定・仕込み提案の
+    // 安全在庫ライン（熟成済バラ＋小分け製品の合算の下限）が設定されている品種は、在庫切れ判定・仕込み提案の
     // 起点をライン到達時点にシフトする（実在庫からラインを引いた「実質使える在庫」で計算し、
     // 0を切ったタイミング＝ライン到達日として扱う）。表示用のeffectiveStockは実数のまま。
     // 季節ラインだけ設定されている品種（例: 山吹みそ＝通年なし・冬季300kg）もあるため、
@@ -1035,8 +1033,6 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           d: k, kg: Math.round(stock),
           // 冬季（11〜2月）は安全在庫ラインが厚くなるため、その日のラインを持たせる
           safety: safetyLineAt ? safetyLineAt(d) : undefined,
-          // 小分け製品は一定に保つ運用のため、現在値を水平に表示する（将来予測はしない）
-          packaged: packagedStockByType?.[recipe.name],
         })
         d = addDays(d, 1)
       }
@@ -2196,9 +2192,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   safetyStockKg={plan.safetyStockKg}
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
-                                  在庫見込み＝<span className="font-medium">熟成済バラ</span>（完成の補充を織り込み）。
-                                  小分け製品は一定量に保つよう熟成済から日々充填する運用のため、在庫の余裕には数えていません
-                                  （水準の参考として現在値を点線で重ねています。将来の増減は予測していません）。
+                                  在庫見込み＝<span className="font-medium">熟成済バラ＋小分け製品</span>（完成の補充を織り込み）。
+                                  安全在庫ラインも同じ合算基準です。
                                   {plan.safetyStockKg != null
                                     ? '赤の縦線は安全在庫ラインを割る日。'
                                     : '赤の縦線は在庫が尽きる日。'}

@@ -304,11 +304,11 @@ function RecipeForm({
 
         {/* 安全在庫ライン */}
         <div className="space-y-1">
-          <Label htmlFor="rf-safety">安全在庫ライン・熟成済バラ (kg) <span className="text-muted-foreground text-xs">（空欄=設定しない）</span></Label>
+          <Label htmlFor="rf-safety">安全在庫ライン・熟成済＋小分け (kg) <span className="text-muted-foreground text-xs">（空欄=設定しない）</span></Label>
           <Input id="rf-safety" type="number" step="1" min="0" inputMode="decimal" {...input('safetyStockKg')} placeholder="例: 1600" />
           <p className="text-[11px] text-muted-foreground">
-            小分け製品とは別に確保しておきたい熟成済バラの量です。ダッシュボードは熟成済バラがこれを
-            下回ると警告し、仕込み計画はこの分を取り置いた残り（熟成済＋小分け − ライン）で在庫切れを計算します。
+            判定対象は「熟成済バラ＋小分け製品」の合算です（熟成中ロットは含みません）。
+            ダッシュボードの警告も仕込み計画の在庫切れ判定も、この合算で統一しています。
           </p>
         </div>
 
