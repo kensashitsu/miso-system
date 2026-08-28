@@ -891,7 +891,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     '無添加麦みそ': 5,
     '田舎みそ':     5,
   })
-  const [openBasis,       setOpenBasis]      = useState<Record<string, boolean>>({})
+  // 「計算の根拠」（在庫推移グラフを含む）は最初から開いた状態にする
+  const [openBasis,       setOpenBasis]      = useState<Record<string, boolean>>(
+    () => Object.fromEntries(recipes.map(r => [r.name, true]))
+  )
   const [forecastMethod,  setForecastMethod] = useState<'hw' | 'avg' | 'sarimax'>(
     () => sarimaxForecast && Object.keys(sarimaxForecast).length > 0 ? 'sarimax' : 'hw'
   )
