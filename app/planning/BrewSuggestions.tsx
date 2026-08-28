@@ -22,6 +22,17 @@ import { createBrewPlan } from './brew-plan-actions'
 import { addBlockedWeek, removeBlockedWeek } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
+// 仕込み日を最終的に決めた条件の表示名（BatchPlan.decidedBy と対応）
+const DECIDED_BY_LABEL: Record<NonNullable<BatchPlan['decidedBy']>, string> = {
+  stockout: '在庫切れからの逆算どおり',
+  peak:     '出荷ピーク期のため前倒し',
+  earliest: '最短で仕込める日（来週）',
+  order:    '前の回の翌日以降',
+  spacing:  '前の回を使い切る頃に完成するよう後ろへ',
+  blocked:  '仮登録済み・仕込めない週を回避',
+  manual:   '✎ 手動で指定',
+}
+
 interface Recipe {
   name:            string
   targetTempSum:   number
@@ -1525,6 +1536,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
             }
           })()
 
+          // 安全在庫ラインを設定している品種は「在庫切れ」ではなく「ラインを割る」と言い換える
+          const outWord = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る' : '尽きる'
+
           const summaryStyle = {
             urgent: 'border-red-200 bg-red-50/70 text-red-800',
             soon:   'border-amber-200 bg-amber-50/70 text-amber-800',
@@ -2251,52 +2265,63 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                             <div className="pt-2">
                               <p className="font-medium text-foreground/70">仕込み日の決め方（各回）</p>
                               <p className="text-foreground/50 mb-1.5">
-                                在庫が
-                                {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る日' : '尽きる日'}
-                                から、熟成にかかる日数とバッファを引いて仕込み日を決めています。
+                                まず在庫が{outWord}日から「熟成日数＋バッファ」を引いて仕込み日を置き、そのうえで
+                                <span className="text-foreground/70">最短で仕込める日・前の回との間隔・仕込める曜日・仮登録済みの日</span>
+                                といった制約で前後に動かしています。実際にその日を決めた条件を右端に出しています。
                               </p>
-                              {/* 全回で1つのgrid＝列（仕込み日・逆算式・手配日）が縦に揃う */}
-                              <div className="grid grid-cols-[3.5rem_4rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1">
+                              {/* 全回で1つのgrid＝列が縦に揃う */}
+                              <div className="grid grid-cols-[3.2rem_6.5rem_6.5rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1 whitespace-nowrap">
                                 <span className="text-foreground/40 text-[10px]">回</span>
                                 <span className="text-foreground/40 text-[10px]">仕込み日</span>
-                                <span className="text-foreground/40 text-[10px]">その日になった理由（逆算）</span>
-                                <span className="text-foreground/40 text-[10px]">原料の発注期限</span>
+                                <span className="text-foreground/40 text-[10px]">完成予定</span>
+                                <span className="text-foreground/40 text-[10px]">在庫が{outWord}日に間に合うか</span>
+                                <span className="text-foreground/40 text-[10px]">この日になった決め手</span>
                                 {plan.batches.map(b => {
                                   const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
                                   const hasRaw   = b.rawBrewDate !== undefined
                                   const pBrew    = (useRawAsBase && hasRaw) ? b.rawBrewDate! : b.brewDate
+                                  const pComp    = (useRawAsBase && b.rawCompletionDate) ? b.rawCompletionDate : b.completionDate
                                   const pDays    = (useRawAsBase && b.rawFermentationDays !== undefined) ? b.rawFermentationDays : b.fermentationDays
-                                  const pDL      = (useRawAsBase && b.rawMaterialOrderDeadline) ? b.rawMaterialOrderDeadline : b.materialOrderDeadline
+                                  // 2本立ての回は遅い方の完成日で間に合うかを見る
+                                  const lastComp = (b.pairCompletionDate && b.pairCompletionDate > pComp) ? b.pairCompletionDate : pComp
+                                  const marginDays = differenceInDays(b.stockOutDate, lastComp)
+                                  const isManual   = !b.isFixed && plan.manualPinIndices.includes(genIndex)
+                                  const decidedTxt = isManual
+                                    ? '✎ 手動で指定'
+                                    : DECIDED_BY_LABEL[b.decidedBy ?? 'stockout']
                                   return (
                                     <Fragment key={b.n}>
                                       <span className="text-foreground/60">{b.n}回目</span>
-                                      <span className="tabular-nums font-medium text-foreground">{format(pBrew, 'M/d')}</span>
+                                      <span className="tabular-nums font-medium text-foreground">
+                                        {format(pBrew, 'M/d')}
+                                        {b.pairBrewDate && <span className="text-foreground/60">＋{format(b.pairBrewDate, 'M/d')}</span>}
+                                      </span>
+                                      <span className="tabular-nums">
+                                        {format(lastComp, 'M/d')}
+                                        <span className="text-foreground/40">（{pDays}日）</span>
+                                      </span>
                                       {b.isFixed ? (
-                                        <span className="text-emerald-700">仮登録で確定済み（計算ではなく実際の予定）</span>
+                                        <span className="text-foreground/40">—</span>
                                       ) : (
                                         <span>
-                                          <span className="tabular-nums font-medium text-foreground">{format(b.stockOutDate, 'M/d')}</span>
-                                          {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? ' に在庫がラインを割る' : ' に在庫が尽きる'}
-                                          <span className="text-foreground/50">
-                                            {' − '}熟成 <span className="tabular-nums">{pDays}</span> 日
-                                            {bufferEnabled && brewBufferDays > 0 && (
-                                              <>{' − '}バッファ <span className="tabular-nums">{brewBufferDays}</span> 日</>
-                                            )}
-                                          </span>
-                                          {plan.manualPinIndices.includes(genIndex) && (
-                                            <span className="text-amber-600 ml-1">✎手動で調整済み</span>
-                                          )}
+                                          <span className="tabular-nums">{format(b.stockOutDate, 'M/d')}</span>
+                                          {marginDays >= 0
+                                            ? <span className="text-emerald-700">{' の '}{marginDays} 日前に完成</span>
+                                            : <span className="text-amber-600">{' に '}{-marginDays} 日 遅れて完成</span>}
                                         </span>
                                       )}
-                                      <span className="whitespace-nowrap">
-                                        {b.isFixed
-                                          ? <span className="text-foreground/40">手配済</span>
-                                          : <span className="tabular-nums text-foreground">{format(pDL, 'M/d')}</span>}
+                                      <span className={b.isFixed ? 'text-emerald-700' : isManual ? 'text-amber-600' : 'text-foreground/60'}>
+                                        {b.isFixed ? '仮登録で確定済み' : decidedTxt}
                                       </span>
                                     </Fragment>
                                   )
                                 })}
                               </div>
+                              {plan.batches.some(b => !b.isFixed && differenceInDays(b.stockOutDate, (b.pairCompletionDate && b.pairCompletionDate > b.completionDate) ? b.pairCompletionDate : b.completionDate) < 0) && (
+                                <p className="text-foreground/50 mt-1.5">
+                                  ※「遅れて完成」の回は、熱源を充てて熟成を早めればリカバリできます（実績で最短21日）。
+                                </p>
+                              )}
                             </div>
                           </div>
                         )}

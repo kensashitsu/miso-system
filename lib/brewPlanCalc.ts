@@ -18,6 +18,11 @@ export interface BatchPlan {
   rawBrewDate?:              Date    // Q10補正なしの推奨仕込み日
   rawMaterialOrderDeadline?: Date    // Q10補正なしの手配締切
   isFixed?:                  boolean // 仮登録済み（確定）の行。提案ではなく既定の予定
+  // この仕込み日を最終的に決めた条件（画面の「計算の根拠」で理由を出すため）。
+  // 在庫切れからの逆算値は、最短仕込み日・前の回との間隔・仕込める曜日・仮登録済みの日などで
+  // その後ずらされることが多く、「在庫切れ − 熟成 − バッファ」の式では結果を説明できない。
+  // 最後にこの日を動かした条件を記録する。
+  decidedBy?: 'stockout' | 'peak' | 'earliest' | 'order' | 'spacing' | 'blocked' | 'manual'
   // 出荷ピーク期（完成が10〜12月）の2回仕込み。1行で「連続2回（水→木）」を表す。
   // 行と回インデックスの1対1対応を保つため、2行に分けず1行に相方の日付を持たせている。
   pairBrewDate?:              Date
@@ -461,7 +466,10 @@ export function calcBatches(
 
     // ── Q10補正あり（メイン） ──────────────────────────────
     let brewDate: Date
+    // 仕込み日を動かした条件を順に上書きしていく（最後に動かしたものが決め手）
+    let decidedBy: BatchPlan['decidedBy'] = 'stockout'
     if (manualBrewDateByIndex?.[i]) {
+      decidedBy = 'manual'
       brewDate = manualBrewDateByIndex[i]
       // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
       if (brewDate < minBrewDate) {
@@ -481,18 +489,25 @@ export function calcBatches(
       // 安全在庫ラインを割り込みやすい
       if (isDoubleBatch?.(computeCompletion(brewDate).completionDate)) {
         brewDate = solveBrewDate(safeBuffer + PEAK_EXTRA_BUFFER_DAYS)
+        decidedBy = 'peak'
       }
       // 計算結果が当日以前になった場合は翌日以降に修正（当日はもう仕込めないため）
       if (brewDate < minBrewDate) {
         brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
+        decidedBy = 'earliest'
       }
     }
     // 前バッチ以前にならないよう修正（昇順を保証し、sort後のn=1・n=2が同日になるのを防ぐ）
     if (brewDate < minNextBrewDate) {
       brewDate = snapBrewDate ? snapBrewDate(minNextBrewDate) : minNextBrewDate
+      decidedBy = 'order'
     }
     // 仮登録済みの日と重ならないようずらす（手動固定はユーザーの意思なのでそのまま）
-    if (!manualBrewDateByIndex?.[i]) brewDate = nextAllowedBrewDay(brewDate)
+    if (!manualBrewDateByIndex?.[i]) {
+      const beforeBlocked = brewDate
+      brewDate = nextAllowedBrewDay(brewDate)
+      if (brewDate.getTime() !== beforeBlocked.getTime()) decidedBy = 'blocked'
+    }
 
     let { completionDate, days: actualFermentDays } = computeCompletion(brewDate)
     // 完成日が「前バッチの完成日＋カバー期間」より早い場合は仕込み日を後ろへずらす。
@@ -521,6 +536,7 @@ export function calcBatches(
         cur = next
         if (rr.completionDate >= minNextCompletion) break   // 目標の間隔に達した
       }
+      if (bestBrew.getTime() !== brewDate.getTime()) decidedBy = 'spacing'
       brewDate          = bestBrew
       completionDate    = bestComp
       actualFermentDays = bestDays
@@ -610,6 +626,7 @@ export function calcBatches(
       stockOutDate, materialOrderDeadline, daysUntilOrder, startStockKg,
       rawFermentationDays, rawCompletionDate, rawBrewDate, rawMaterialOrderDeadline,
       pairBrewDate, pairCompletionDate, pairFermentationDays, pairMaterialOrderDeadline,
+      decidedBy,
     })
 
     // 在庫引き継ぎはQ10補正ありの完成日を基準にする（月別変動レートで積分 + 熟成中ロット補充分を加算）

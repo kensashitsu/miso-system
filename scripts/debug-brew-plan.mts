@@ -170,7 +170,7 @@ const batches = calcBatches(
 
 console.log('\n=== 生成された提案 ===')
 for (const b of batches) {
-  console.log(` ${b.n}回目 仕込${d(b.brewDate)}${b.pairBrewDate ? `＋${d(b.pairBrewDate)}(2回)` : '      '} → 完成${d(b.completionDate)}${b.pairCompletionDate ? `＋${d(b.pairCompletionDate)}` : ''} (熟成${b.fermentationDays}日) 狙った在庫切れ${d(b.stockOutDate)}`)
+  console.log(` ${b.n}回目 仕込${d(b.brewDate)}${b.pairBrewDate ? `＋${d(b.pairBrewDate)}(2回)` : '      '} → 完成${d(b.completionDate)}${b.pairCompletionDate ? `＋${d(b.pairCompletionDate)}` : ''} (熟成${b.fermentationDays}日) 狙った在庫切れ${d(b.stockOutDate)} 決め手=${b.decidedBy}`)
 }
 
 // 提案どおり仕込んだ場合の在庫推移（安全在庫ラインを割る期間を検出）
