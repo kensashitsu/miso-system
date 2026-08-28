@@ -76,6 +76,9 @@ for (const f of forecastRows) rateMap[f.yearMonth] = f.forecastKg / getDaysInMon
 const lastRate = rateMap[forecastRows[forecastRows.length - 1]?.yearMonth] ?? 0
 const getDailyRateFn = (date: Date) => rateMap[format(date, 'yyyy-MM')] ?? lastRate
 
+// 第8引数で1回の生産量を上書きできる（仕込み単位を変えた場合の試算用）
+const batchKg = process.env.BATCH_KG ? Number(process.env.BATCH_KG) : recipe.totalWeightKg
+
 // 供給イベント（熟成中ロットの完成 ＋ 仮登録の完成）
 const supplyEvents: { date: Date; kg: number; note: string }[] = []
 for (const lot of lots.filter(l => l.misoType === MISO)) {
@@ -94,14 +97,15 @@ for (const lot of lots.filter(l => l.misoType === MISO)) {
 }
 const regPlans = plans.filter(p => p.misoType === MISO && p.completionDate > today)
 for (const p of regPlans) {
-  supplyEvents.push({ date: new Date(format(p.completionDate, 'yyyy-MM-dd') + 'T00:00:00'), kg: recipe.totalWeightKg, note: `仮登録 仕込${d(p.brewDate)}` })
+  supplyEvents.push({ date: new Date(format(p.completionDate, 'yyyy-MM-dd') + 'T00:00:00'), kg: batchKg, note: `仮登録 仕込${d(p.brewDate)}` })
 }
 supplyEvents.sort((a, b) => a.date.getTime() - b.date.getTime())
 
 // 在庫（外部APIが取れないのでコマンドライン第3引数、既定は画面表示値）
-const stockKg = Number(process.argv[3] ?? 2667)
+const numArg = (i: number) => (process.argv[i] != null && process.argv[i] !== '' ? Number(process.argv[i]) : undefined)
+const stockKg = numArg(3) ?? 2667
 // 第5引数で安全在庫ラインを上書きできる（設定変更の影響を試算するため）
-const safety  = Number(process.argv[5] ?? recipe.safetyStockKg ?? 0)
+const safety  = numArg(5) ?? recipe.safetyStockKg ?? 0
 const immediateKg = supplyEvents.filter(e => e.date <= today).reduce((s, e) => s + e.kg, 0)
 const effectiveStock = stockKg + immediateKg
 const depletableStock = effectiveStock - safety
@@ -111,8 +115,8 @@ const blockedRow = await prisma.systemSetting.findUnique({ where: { key: 'planni
 let blockedWeeks: string[] = []
 try { const p = JSON.parse(blockedRow?.value ?? '[]'); if (Array.isArray(p)) blockedWeeks = p } catch {}
 
-const winterSafety = process.argv[6] != null ? Number(process.argv[6]) : recipe.winterSafetyStockKg
-const summerSafety = process.argv[7] != null ? Number(process.argv[7]) : recipe.summerSafetyStockKg
+const winterSafety = numArg(6) ?? recipe.winterSafetyStockKg
+const summerSafety = numArg(7) ?? recipe.summerSafetyStockKg
 const getSafetyDelta = makeSafetyDeltaFn(safety, winterSafety, summerSafety)
 const safetyLineAt   = makeSafetyLineFn(safety, winterSafety, summerSafety)
 
@@ -138,12 +142,12 @@ const isDoubleBatch = MISO === '無添加麦みそ'
   : undefined
 
 console.log(`=== ${MISO} ===`)
-console.log(`今日 ${d(today)} / 1回の生産量 ${recipe.totalWeightKg}kg / 安全在庫 ${safety}kg`)
+console.log(`今日 ${d(today)} / 1回の生産量 ${batchKg}kg${batchKg !== recipe.totalWeightKg ? `（実際は${recipe.totalWeightKg}kg・試算で上書き）` : ''} / 安全在庫 ${safety}kg`)
 console.log(`現在庫 ${stockKg}kg → 実質使える在庫 ${Math.round(depletableStock)}kg / 冬季ライン ${winterSafety ?? '未設定'} / 夏季ライン ${summerSafety ?? '未設定'}`)
 console.log('消費ペース(kg/日):', ['2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03']
   .map(m => `${m}:${Math.round(rateMap[m] ?? lastRate)}`).join(' '))
-console.log(`→ 1回(${recipe.totalWeightKg}kg)で賄える日数: ` + ['2026-10','2026-12','2027-02']
-  .map(m => `${m}=${(recipe.totalWeightKg / (rateMap[m] ?? lastRate)).toFixed(1)}日`).join(' / '))
+console.log(`→ 1回(${batchKg}kg)で賄える日数: ` + ['2026-10','2026-12','2027-02']
+  .map(m => `${m}=${(batchKg / (rateMap[m] ?? lastRate)).toFixed(1)}日`).join(' / '))
 console.log('仕込めない週:', blockedWeeks.length ? blockedWeeks.join(' ') : 'なし')
 console.log('供給予定:', supplyEvents.map(e => `${d(e.date)} +${Math.round(e.kg)}(${e.note})`).join('  '))
 
@@ -154,8 +158,8 @@ console.log(`本当の在庫切れ日          : ${d(findStockOutDate(depletable
 console.log(`この回が狙う在庫切れ日    : ${d(findStockOutDateAfter(depletableStock, today, getDailyRateFn, earliest, supplyEvents))}`)
 
 const batches = calcBatches(
-  depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, recipe.totalWeightKg,
-  Number(process.argv[4] ?? 5), today, ORDER_LEAD_DAYS[MISO] ?? DEFAULT_ORDER_LEAD_DAYS, brewBufferDays,
+  depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, batchKg,
+  numArg(4) ?? 5, today, ORDER_LEAD_DAYS[MISO] ?? DEFAULT_ORDER_LEAD_DAYS, brewBufferDays,
   getCompletion, snapToBrewDay, undefined, undefined, {}, supplyEvents, isDoubleBatch,
   new Set([...regPlans.map(p => d(p.brewDate)), ...expandBlockedWeeks(blockedWeeks)]), getSafetyDelta,
   // 工程制約: 山吹は無添加・田舎の翌日にしか仕込めない。
@@ -171,8 +175,8 @@ for (const b of batches) {
 const events = new Map<string, number>()
 for (const e of supplyEvents) events.set(d(e.date), (events.get(d(e.date)) ?? 0) + e.kg)
 for (const b of batches) {
-  events.set(d(b.completionDate), (events.get(d(b.completionDate)) ?? 0) + recipe.totalWeightKg)
-  if (b.pairCompletionDate) events.set(d(b.pairCompletionDate), (events.get(d(b.pairCompletionDate)) ?? 0) + recipe.totalWeightKg)
+  events.set(d(b.completionDate), (events.get(d(b.completionDate)) ?? 0) + batchKg)
+  if (b.pairCompletionDate) events.set(d(b.pairCompletionDate), (events.get(d(b.pairCompletionDate)) ?? 0) + batchKg)
 }
 // 検証期間は最終提案の完成日まで伸ばす（400日固定だと山吹・白みそのように
 // 提案が数年先に及ぶ品種で、割れている期間を見逃す）

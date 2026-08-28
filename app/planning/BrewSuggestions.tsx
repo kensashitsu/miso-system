@@ -87,6 +87,8 @@ interface Props {
   registeredDoneDatesByType?: Record<string, string[]>
   // 仕込めない週（月曜日の 'yyyy-MM-dd' 配列・全品種共通）
   initialBlockedWeeks?: string[]
+  // 小分け製品在庫の現在値（品種別）。グラフに水準として重ねる
+  packagedStockByType?: Record<string, number>
 }
 
 
@@ -406,7 +408,7 @@ function WhatIfStepper({ value, onChange, step, min, max, signed, suffix }: {
   )
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks, packagedStockByType }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -1033,6 +1035,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           d: k, kg: Math.round(stock),
           // 冬季（11〜2月）は安全在庫ラインが厚くなるため、その日のラインを持たせる
           safety: safetyLineAt ? safetyLineAt(d) : undefined,
+          // 小分け製品は一定に保つ運用のため、現在値を水平に表示する（将来予測はしない）
+          packaged: packagedStockByType?.[recipe.name],
         })
         d = addDays(d, 1)
       }
@@ -2193,7 +2197,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
                                   在庫見込み＝<span className="font-medium">熟成済バラ</span>（完成の補充を織り込み）。
-                                  小分け製品は一定量に保つよう熟成済から日々充填する運用のため、在庫の余裕には数えていません。
+                                  小分け製品は一定量に保つよう熟成済から日々充填する運用のため、在庫の余裕には数えていません
+                                  （水準の参考として現在値を点線で重ねています。将来の増減は予測していません）。
                                   {plan.safetyStockKg != null
                                     ? '赤の縦線は安全在庫ラインを割る日。'
                                     : '赤の縦線は在庫が尽きる日。'}

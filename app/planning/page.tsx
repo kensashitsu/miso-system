@@ -243,8 +243,12 @@ export default async function PlanningPage() {
   // 在庫の余裕にはならないので、仕込み計画は熟成済バラだけで在庫切れを判定する。
   // これにより在庫見込み・安全在庫ライン・ダッシュボードの警告がすべて熟成済バラ基準で揃う。
   const apiStockByType: Record<string, number> = {}
+  // 小分け製品在庫（現在値）。一定に保つ運用なので将来予測はできないが、
+  // グラフ上に水準として重ねて表示するために渡す
+  const packagedStockByType: Record<string, number> = {}
   for (const item of apiStock ?? []) {
     apiStockByType[item.misoType] = item.stockKg
+    if (item.packagedStockKg != null) packagedStockByType[item.misoType] = item.packagedStockKg
   }
 
   // ForecastCacheを未来予測（sarimaxMap）と過去LOO予測（sarimaxPastForecast）に分離
@@ -396,6 +400,7 @@ export default async function PlanningPage() {
         registeredPlansByType={Object.keys(registeredPlansByType).length > 0 ? registeredPlansByType : undefined}
         registeredDoneDatesByType={Object.keys(registeredDoneDatesByType).length > 0 ? registeredDoneDatesByType : undefined}
         initialBlockedWeeks={blockedWeeks}
+        packagedStockByType={Object.keys(packagedStockByType).length > 0 ? packagedStockByType : undefined}
       />
 
     </div>

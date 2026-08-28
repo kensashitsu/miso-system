@@ -13,6 +13,8 @@ export interface StockPoint {
   kg: number
   // その日に適用される安全在庫ライン(kg)。冬季（11〜2月）は厚くなるため日ごとに持つ
   safety?: number
+  // 小分け製品在庫（現在値）。一定に保つ運用なので水平線として重ねる
+  packaged?: number
 }
 
 export interface BatchMarker {
@@ -40,6 +42,7 @@ const COLOR = {
   brew:      '#2563eb',  // blue-600
   comp:      '#059669',  // emerald-600
   regBucket: '#8b5cf6',  // violet-500（仮登録の桶番号）
+  packaged:  '#0d9488',  // teal-600（小分け製品在庫の水準）
   out:       '#e11d48',  // rose-600
   today:     '#9ca3af',  // gray-400
   safety:    '#d97706',  // amber-600（安全在庫ライン）
@@ -65,6 +68,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
   const hasRegistered = buckets.some(m => m.kind === 'registered')
   // 季節でラインが変わるか（変わるなら階段線で描く）
   const hasSeasonalSafety = points.some(p => p.safety != null && p.safety !== points[0].safety)
+  const packagedKg = points[0]?.packaged
   // ※通年ライン未設定でも季節ラインだけ設定されている品種（例: 山吹みそ）があるため、
   //   safetyStockKg が null でも階段線は描く
   const multi = markers.length > 1
@@ -124,6 +128,15 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
               strokeDasharray="4 3"
               label={{ value: '今日', position: 'insideTopLeft', fontSize: 10, fill: COLOR.today }}
             />
+            {packagedKg != null && packagedKg > 0 && (
+              <ReferenceLine
+                y={packagedKg}
+                stroke={COLOR.packaged}
+                strokeDasharray="2 3"
+                strokeOpacity={0.8}
+                label={{ value: `小分け製品 ${Math.round(packagedKg).toLocaleString()}kg（現在値）`, position: 'insideTopRight', fontSize: 10, fill: COLOR.packaged }}
+              />
+            )}
             {(safetyStockKg != null || hasSeasonalSafety) && (
               hasSeasonalSafety ? (
                 // 冬季（11〜2月）はラインが変わるので、水平線ではなく日ごとの階段で描く
@@ -203,6 +216,9 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
         <span><span className="inline-block w-2.5 h-2.5 rounded-sm align-[-1px] mr-1" style={{ background: COLOR.stock, opacity: 0.5 }} />在庫見込み（熟成済バラ）</span>
         <span style={{ color: COLOR.brew }}>│ 仕込み日</span>
         <span style={{ color: COLOR.comp }}>● 完成（補充）</span>
+        {packagedKg != null && packagedKg > 0 && (
+          <span style={{ color: COLOR.packaged }}>┈ 小分け製品（現在値・一定として表示）</span>
+        )}
         {hasFermenting && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶）</span>}
         {hasRegistered && <span style={{ color: COLOR.regBucket }}>● 仮登録の完成（桶）</span>}
         <span style={{ color: COLOR.out }}>┆ 直近の在庫切れ</span>
