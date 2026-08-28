@@ -144,6 +144,9 @@ interface RecipePlan {
     temp:           { n: number; newDays: number; dayDelta: number; newCompletion: Date }[]  // 常温のみ・他は空
   } | null
   stockPoints:      StockPoint[] | null  // 在庫推移グラフ用の日次系列（計算の根拠の可視化）
+  // 日次の在庫見込み（間引き前・'yyyy-MM-dd' → 在庫kgとその日の安全在庫ライン）。
+  // 各回の「完成前日の在庫見込み」に使う。ラインは季節で変わるためその日の値を持たせる
+  dailyStockByDate: Map<string, { kg: number; safety?: number }>
   supplyMarkers:    { d: string; label: string; kind: 'fermenting' | 'registered' }[]  // 補充ジャンプの桶番号ラベル（熟成中=緑/仮登録=紫）
 }
 
@@ -1014,6 +1017,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // findStockOutDate と同じ歩き方（供給を加えてから消費を引く）で、
     // 新規提案バッチの完成補充も供給に加えて最終バッチの在庫切れ日過ぎまで在庫残量を出す。
     // 縦線マーカーと整合するようQ10補正あり（メイン）チェーンの完成日を使う。
+    // 間引き前の日次在庫。完成前日の在庫見込み（＝補充が入る直前の底）を引くのに使う
+    const dailyStockByDate = new Map<string, { kg: number; safety?: number }>()
     const stockPoints: StockPoint[] | null = (() => {
       if (!canCalc || batches.length === 0) return null
       const endTime = Math.max(...batches.map(b => (b.isFixed ? b.completionDate : b.stockOutDate).getTime()))
@@ -1049,6 +1054,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         })
         d = addDays(d, 1)
       }
+      for (const p of daily) dailyStockByDate.set(p.d, { kg: p.kg, safety: p.safety })
       // 描画点を間引く（補充ジャンプの前後の点は形が崩れないよう必ず残す）
       const step = Math.max(1, Math.ceil(daily.length / 180))
       if (step === 1) return daily
@@ -1065,7 +1071,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, manualPinIndices: Object.keys(manualBrewDateRaw).map(Number),
-      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, supplyMarkers,
+      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, dailyStockByDate, supplyMarkers,
     }
   })
 
@@ -2271,10 +2277,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 といった制約で前後に動かしています。実際にその日を決めた条件を右端に出しています。
                               </p>
                               {/* 全回で1つのgrid＝列が縦に揃う */}
-                              <div className="grid grid-cols-[3.2rem_6.5rem_6.5rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1 whitespace-nowrap">
+                              <div className="grid grid-cols-[3.2rem_6.5rem_6.5rem_6.5rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1 whitespace-nowrap">
                                 <span className="text-foreground/40 text-[10px]">回</span>
                                 <span className="text-foreground/40 text-[10px]">仕込み日</span>
                                 <span className="text-foreground/40 text-[10px]">完成予定</span>
+                                <span className="text-foreground/40 text-[10px]">完成前日の在庫</span>
                                 <span className="text-foreground/40 text-[10px]">在庫が{outWord}日に間に合うか</span>
                                 <span className="text-foreground/40 text-[10px] whitespace-normal">この日になった理由</span>
                                 {plan.batches.map(b => {
@@ -2301,6 +2308,21 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         {format(lastComp, 'M/d')}
                                         <span className="text-foreground/40">（{pDays}日）</span>
                                       </span>
+                                      {/* 完成の補充が入る直前＝在庫の底。ここが薄いほどギリギリの仕込み */}
+                                      {(() => {
+                                        const eveKey = format(addDays(pComp, -1), 'yyyy-MM-dd')
+                                        const eve = plan.dailyStockByDate.get(eveKey)
+                                        if (!eve) return <span className="text-foreground/40">—</span>
+                                        const line = eve.safety
+                                        return (
+                                          <span
+                                            className={`tabular-nums ${line != null && line > 0 && eve.kg < line ? 'text-amber-600' : ''}`}
+                                            title={line != null && line > 0 ? `この日の安全在庫ライン ${line.toLocaleString()} kg` : undefined}
+                                          >
+                                            {eve.kg.toLocaleString()} kg
+                                          </span>
+                                        )
+                                      })()}
                                       {b.isFixed ? (
                                         <span className="text-foreground/40">—</span>
                                       ) : (
