@@ -161,7 +161,8 @@ const batches = calcBatches(
   depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, batchKg,
   numArg(4) ?? 5, today, ORDER_LEAD_DAYS[MISO] ?? DEFAULT_ORDER_LEAD_DAYS, brewBufferDays,
   getCompletion, snapToBrewDay, undefined, undefined, {}, supplyEvents, isDoubleBatch,
-  new Set([...regPlans.map(p => d(p.brewDate)), ...expandBlockedWeeks(blockedWeeks)]), getSafetyDelta,
+  new Set([...regPlans.map(p => d(p.brewDate)), ...expandBlockedWeeks(blockedWeeks),
+    ...(process.env.BLOCK_DATES ?? '').split(',').filter(Boolean)]), getSafetyDelta, safetyLineAt,
   // 工程制約: 山吹は無添加・田舎の翌日にしか仕込めない。
   // 本番と同じ集合を作るには両品種の提案計算が要るため、ここでは確定分（仮登録）の翌日で近似する
   isAllowedBrewDayForYamabuki)

@@ -145,6 +145,7 @@ export function findStockOutDateAfter(
   notBefore:      Date,
   supplyEvents?:  { date: Date; kg: number }[],
   getSafetyDelta?: (date: Date) => number,   // 季節で安全在庫ラインが変わる分の補正
+  getSafetyLine?:  (date: Date) => number,   // その日の安全在庫ライン（谷の深さ判定に使う）
 ): Date {
   const notBeforeStr = format(notBefore, 'yyyy-MM-dd')
   let remaining = stock
@@ -155,6 +156,7 @@ export function findStockOutDateAfter(
   // 既存の仕込みで埋まるものとして見送り、続けて次の谷を探す
   let candidate: Date | null = null
   let candidateIdx = -1
+  let candidateDeep = false   // その谷で在庫が MIN_COVER_DAYS 分を下回ったか
   for (let i = 0; i < 3650; i++) {
     const dStr = format(d, 'yyyy-MM-dd')
     if (supplyEvents) {
@@ -165,15 +167,19 @@ export function findStockOutDateAfter(
     remaining -= getDailyRateFn(d)
     if (remaining - (getSafetyDelta?.(d) ?? 0) > 0) {
       if (dStr >= notBeforeStr) recoveredAfterNotBefore = true
-      candidate = null   // 猶予内に回復した＝手当て済みの谷なので見送る
+      candidate = null; candidateDeep = false   // 回復した＝手当て済みの谷なので見送る
     } else {
       if (firstStockOut === null) firstStockOut = addDays(d, 1)
       if (dStr >= notBeforeStr && recoveredAfterNotBefore) {
-        if (candidate === null) {
-          candidate    = addDays(d, 1)
-          candidateIdx = i
-        } else if (i - candidateIdx >= SHORTFALL_TOLERANCE_DAYS) {
-          return candidate   // 猶予を過ぎても回復しない＝本当に足りない谷
+        if (candidate === null) { candidate = addDays(d, 1); candidateIdx = i }
+        // 谷の深さ：実在庫（＝ライン控除前）が MIN_COVER_DAYS 分を下回ったら「本当に足りない」
+        // ラインが未設定（0）の品種は remaining がそのまま実在庫になる
+        const line      = getSafetyLine?.(d) ?? 0
+        const actualKg  = remaining + line
+        const rate      = Math.max(getDailyRateFn(d), 1e-9)
+        if (actualKg < MIN_COVER_DAYS * rate) candidateDeep = true
+        if (candidateDeep && i - candidateIdx >= SHORTFALL_TOLERANCE_DAYS) {
+          return candidate   // 猶予を過ぎても回復せず、かつ在庫が薄い＝本当に足りない谷
         }
       }
     }
@@ -253,6 +259,12 @@ export const MAX_PAIR_GAP_DAYS = 1
 // 安全在庫ライン自体が緩衝なので、数日の割り込みのために1回分（ピーク期は2本＝約3,200kg）を
 // 追加提案するのは過剰。仕込みの完成日も熟成のブレで数日動くため、そもそも狙い撃ちできない。
 export const SHORTFALL_TOLERANCE_DAYS = 7
+
+// 安全在庫ラインを割っても、在庫がこの日数分を保っていれば新規提案の対象にしない。
+// 安全在庫ライン自体が緩衝なので「ラインを割った＝即補充が必要」ではなく、
+// 現場は「まだ◯日分ある」で判断している。深さを見ずに期間だけで判定すると、
+// 実務では問題にならない浅い谷にも1回分の仕込みを提案してしまう。
+export const MIN_COVER_DAYS = 10
 
 // 冬季（この月）は外気が低く、完成後に常温へ出せば着色が実質進まないため、
 // 出荷ピークに備えて安全在庫ラインを厚くできる
@@ -376,6 +388,7 @@ export function calcBatches(
   isDoubleBatch?:      (completionDate: Date) => boolean,  // その完成日は2回仕込み（連続2回）にするか
   blockedBrewDates?:   Set<string>,  // 'yyyy-MM-dd'。既に仮登録済みなど、提案を置いてはいけない日
   getSafetyDelta?:     (date: Date) => number,  // 季節で安全在庫ラインが変わる分の補正
+  getSafetyLine?:      (date: Date) => number,  // その日の安全在庫ライン（谷の深さ判定用）
   isAllowedBrewDay?:   (date: Date) => boolean,  // 指定時、真を返す日にしか提案しない（工程上の制約）
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
@@ -423,10 +436,10 @@ export function calcBatches(
     const earliestCompletion = (getCompletion
       ? getCompletion(minBrewDate).completionDate
       : addDays(minBrewDate, fermentationDays))
-    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents, getSafetyDelta)
+    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents, getSafetyDelta, getSafetyLine)
     // Q10補正なし専用の在庫切れ予測日（独立チェーン）
     const rawStockOutDate = getCompletionRaw
-      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents, getSafetyDelta)
+      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents, getSafetyDelta, getSafetyLine)
       : stockOutDate
 
     // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
