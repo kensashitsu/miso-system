@@ -12,6 +12,11 @@ import {
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { holtWinters, getTimeSeries } from '@/lib/forecast'
 import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
+import {
+  type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
+  snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
+  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut,
+} from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
@@ -78,27 +83,6 @@ interface Props {
   registeredDoneDatesByType?: Record<string, string[]>
 }
 
-interface BatchPlan {
-  n:                     number
-  brewDate:              Date
-  completionDate:        Date
-  fermentationDays:      number  // Q10補正ありの熟成日数（常温）/ 固定値（暖房・冷房）
-  stockOutDate:          Date
-  materialOrderDeadline: Date
-  daysUntilOrder:        number
-  startStockKg:          number  // この回の計画開始時点の有効在庫
-  rawFermentationDays?:      number  // Q10補正なしの熟成日数（常温かつq10≠1のときのみ）
-  rawCompletionDate?:        Date    // Q10補正なしの完成日
-  rawBrewDate?:              Date    // Q10補正なしの推奨仕込み日
-  rawMaterialOrderDeadline?: Date    // Q10補正なしの手配締切
-  isFixed?:                  boolean // 仮登録済み（確定）の行。提案ではなく既定の予定
-  // 出荷ピーク期（完成が10〜12月）の2回仕込み。1行で「連続2回（水→木）」を表す。
-  // 行と回インデックスの1対1対応を保つため、2行に分けず1行に相方の日付を持たせている。
-  pairBrewDate?:              Date
-  pairCompletionDate?:        Date
-  pairFermentationDays?:      number
-  pairMaterialOrderDeadline?: Date
-}
 
 interface RecipePlan {
   name:             string
@@ -173,55 +157,6 @@ function getDailyAccum(
     .reduce((a, b) => a + b, 0) / weatherAvgValues.length
 }
 
-// 常温：仕込み日から気象データを日ごとに積み上げて完成日を推計（Q10補正あり）
-// lib/tempCalc.ts の applyQ10 と同ロジック（effectiveTemp > 0 のとき avgTempC = eff + 10 で逆算）
-function simulateFermentationDays(
-  brewDate:         Date,
-  targetTempSum:    number,
-  weatherAvg:       Record<string, number>,
-  fallbackDaily:    number,
-  q10Value:         number,
-  heatingBaseTemp:  number,
-  indoorDailyRate?: number,  // 10〜5月の暖房レート（常温→暖房の季節切り替え用）
-): { days: number; completionDate: Date } {
-  if (!brewDate || isNaN(brewDate.getTime())) return { days: 0, completionDate: new Date() }
-  let accumulated = 0
-  let current = new Date(brewDate)
-  for (let i = 0; i < 730; i++) {
-    const month = current.getMonth() + 1
-    const isOutdoorMonth = month >= 6 && month <= 9
-    let daily: number
-    if (indoorDailyRate !== undefined && !isOutdoorMonth) {
-      // 10〜5月: 暖房レートに実データ較正済みの月別補正係数を適用（Q10補正は対象外）
-      daily = indoorDailyRate * (HEATING_MONTHLY_FACTOR[month] ?? 1)
-    } else {
-      const key = format(current, 'MM-dd')
-      const eff = weatherAvg[key] ?? fallbackDaily
-      if (eff > 0 && q10Value !== 1) {
-        const avgTempC = eff + 10
-        daily = eff * Math.pow(q10Value, (avgTempC - heatingBaseTemp) / 10)
-      } else {
-        daily = eff
-      }
-    }
-    accumulated += daily
-    current = addDays(current, 1)
-    if (accumulated >= targetTempSum) {
-      return { days: i + 1, completionDate: new Date(current) }
-    }
-  }
-  return { days: 730, completionDate: addDays(brewDate, 730) }
-}
-
-// 品種別の原料手配リードタイム（仕込み日の何日前までに手配が必要か）
-const ORDER_LEAD_DAYS: Record<string, number> = {
-  '白みそ': 7,
-}
-const DEFAULT_ORDER_LEAD_DAYS = 21
-
-// 指定日以降で最も近い水曜（3）または木曜（4）を返す
-// 各曜日からの加算日数: [日,月,火,水,木,金,土] = [3,2,1,0,0,5,4]
-const SNAP_DAYS_OFFSET = [3, 2, 1, 0, 0, 5, 4]
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
 
@@ -247,16 +182,6 @@ function getBrewBadgeStyle(misoType: string) {
 function getCompBadgeStyle(misoType: string) {
   const c = MISO_DARK_COLOR[misoType] ?? '#555555'
   return { backgroundColor: 'white', color: c, border: `1.5px solid ${c}` }
-}
-
-function snapToBrewDay(date: Date): Date {
-  return addDays(date, SNAP_DAYS_OFFSET[date.getDay()])
-}
-
-// 翌週の月曜日を返す（当週は原料手配等の都合で提案対象外にするための起点）
-function nextWeekMonday(date: Date): Date {
-  const isoDow = (date.getDay() + 6) % 7  // 月=0, 火=1, ... 日=6
-  return addDays(date, 7 - isoDow)
 }
 
 // 手動調整の仕込み日をlocalStorageに保存する際のキー。1回目（idx=0）は後方互換のため
@@ -293,178 +218,6 @@ function get3YearConservative(data: Record<string, number>, month: number, year:
 function avg3(data: Record<string, number>, month: number, year: number, conservative: boolean): number | null {
   return conservative ? get3YearConservative(data, month, year) : get3YearAvg(data, month, year)
 }
-
-// 月別変動レートを使って在庫が尽きる日をシミュレーション（熟成中ロットの補充スケジュール考慮）
-function findStockOutDate(
-  stock:          number,
-  startDate:      Date,
-  getDailyRateFn: (date: Date) => number,
-  supplyEvents?:  { date: Date; kg: number }[],
-): Date {
-  if (stock <= 0 && (!supplyEvents || supplyEvents.length === 0)) return new Date(startDate)
-  let remaining = stock
-  let d = new Date(startDate)
-  for (let i = 0; i < 3650; i++) {
-    // 完成予定日に熟成中ロットの歩留まりを補充
-    if (supplyEvents) {
-      const dStr = format(d, 'yyyy-MM-dd')
-      for (const ev of supplyEvents) {
-        if (format(ev.date, 'yyyy-MM-dd') === dStr) remaining += ev.kg
-      }
-    }
-    remaining -= getDailyRateFn(d)
-    if (remaining <= 0) return addDays(d, 1)
-    d = addDays(d, 1)
-  }
-  return addDays(startDate, 3650)
-}
-
-// この回の仕込みで「防げる」在庫切れ日を返す。
-// notBefore（最短で仕込んだ場合の完成日）より前の在庫切れは今から仕込んでも間に合わないので
-// そこでは止まらず、notBefore 以降にいったん在庫がプラスへ回復してから次に尽きる日を返す
-// （＝確定済みの仕込みが手当てする谷を、もう一度狙い直さないため）。
-// 最後まで回復しない場合は本当に手が足りていないので、最初の在庫切れ日をそのまま返す
-// （＝従来どおり最短日での仕込み提案になる）。
-// ※不足分（マイナス残）は0で底打ちさせないこと。底打ちすると割り込んだ分がなかったことになり、
-//   以降の在庫を実際より多く見積もって次の仕込みが遅れる（2026-08-28に12月の安全在庫割れで発覚）。
-function findStockOutDateAfter(
-  stock:          number,
-  startDate:      Date,
-  getDailyRateFn: (date: Date) => number,
-  notBefore:      Date,
-  supplyEvents?:  { date: Date; kg: number }[],
-): Date {
-  const notBeforeStr = format(notBefore, 'yyyy-MM-dd')
-  let remaining = stock
-  let d = new Date(startDate)
-  let firstStockOut: Date | null = null
-  let recoveredAfterNotBefore = false
-  // 谷の入口の候補。SHORTFALL_TOLERANCE_DAYS 以内に在庫が回復した谷は
-  // 既存の仕込みで埋まるものとして見送り、続けて次の谷を探す
-  let candidate: Date | null = null
-  let candidateIdx = -1
-  for (let i = 0; i < 3650; i++) {
-    const dStr = format(d, 'yyyy-MM-dd')
-    if (supplyEvents) {
-      for (const ev of supplyEvents) {
-        if (format(ev.date, 'yyyy-MM-dd') === dStr) remaining += ev.kg
-      }
-    }
-    remaining -= getDailyRateFn(d)
-    if (remaining > 0) {
-      if (dStr >= notBeforeStr) recoveredAfterNotBefore = true
-      candidate = null   // 猶予内に回復した＝手当て済みの谷なので見送る
-    } else {
-      if (firstStockOut === null) firstStockOut = addDays(d, 1)
-      if (dStr >= notBeforeStr && recoveredAfterNotBefore) {
-        if (candidate === null) {
-          candidate    = addDays(d, 1)
-          candidateIdx = i
-        } else if (i - candidateIdx >= SHORTFALL_TOLERANCE_DAYS) {
-          return candidate   // 猶予を過ぎても回復しない＝本当に足りない谷
-        }
-      }
-    }
-    d = addDays(d, 1)
-  }
-  return candidate ?? firstStockOut ?? addDays(startDate, 3650)
-}
-
-// 期間内に受け取る補充量合計（熟成中ロット完成分）
-function computeSupplyReceived(
-  startDate:     Date,
-  endDate:       Date,
-  supplyEvents?: { date: Date; kg: number }[],
-): number {
-  if (!supplyEvents) return 0
-  return supplyEvents
-    .filter(ev => ev.date >= startDate && ev.date < endDate)
-    .reduce((sum, ev) => sum + ev.kg, 0)
-}
-
-// startDate〜endDate間の月別変動レートによる消費量合計
-function computeConsumed(
-  startDate:      Date,
-  endDate:        Date,
-  getDailyRateFn: (date: Date) => number,
-): number {
-  let total = 0
-  let d = new Date(startDate)
-  while (d < endDate) {
-    total += getDailyRateFn(d)
-    d = addDays(d, 1)
-  }
-  return total
-}
-
-// 1バッチの歩留まり(kg)を消費しきるまでの日数（月別変動レートで積分）
-// = このバッチが「何日分の需要を賄えるか」。連続バッチの完成日がこの間隔より
-// 密集すると仕込み日が1〜数日差で団子になるため、最小完成間隔の基準として使う。
-function computeCoverageDays(
-  batchKg:        number,
-  startDate:      Date,
-  getDailyRateFn: (date: Date) => number,
-): number {
-  if (batchKg <= 0) return 0
-  let remaining = batchKg
-  let d = new Date(startDate)
-  for (let i = 0; i < 730; i++) {
-    remaining -= getDailyRateFn(d)
-    if (remaining <= 0) return i + 1
-    d = addDays(d, 1)
-  }
-  return 730
-}
-
-// 出荷ピーク（11〜12月）に在庫を厚くするため、完成日がこの月に入る回は2本立て（連続2回仕込み）にする。
-// 冬は熟成が45日前後に伸びる一方、1本が賄えるのは20〜25日分しかなく1本ずつでは追いつかないため。
-const PEAK_COMPLETION_MONTHS = [10, 11, 12]
-
-// ピーク期に完成する回に上乗せするバッファ日数。冬は需要増＋熟成長期化で
-// 通常のバッファ（14日）だと完成待ちの間に安全在庫ラインを割り込みやすいため厚くする
-const PEAK_EXTRA_BUFFER_DAYS = 14
-
-// 既存の仕込みで埋まる短い谷は新規提案の対象にしない（この日数以内に在庫が回復するなら見送る）。
-// 安全在庫ライン自体が緩衝なので、数日の割り込みのために1回分（ピーク期は2本＝約3,200kg）を
-// 追加提案するのは過剰。仕込みの完成日も熟成のブレで数日動くため、そもそも狙い撃ちできない。
-const SHORTFALL_TOLERANCE_DAYS = 7
-
-// 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、
-// 物理的な下限は1日。2026-08-26にユーザー指摘で「週1本」想定から緩和）
-const MIN_COMPLETION_GAP_DAYS = 1
-
-// 次バッチの完成日下限を計算する。
-// 基本は「前バッチ完成日＋カバー日数」（団子防止）だが、完成時点の在庫の底が
-// バッファ日数分を下回る見込みのときは、不足日数分だけ間隔を詰めることを許し、
-// 数バッチかけてバッファを回復できるようにする。
-// ※従来はカバー日数固定の下限だったため間隔が常に消費とトントン以上となり、
-//   一度食い込んだバッファ（例: 秋冬の需要増×熟成長期化）を回復する手段がなく
-//   在庫ゼロ張り付きの提案が連鎖する「ラチェット」になっていた。
-function calcMinNextCompletion(
-  completionDate: Date,
-  stockAtRef:     number,   // refDate時点の在庫（前バッチの歩留まり加算済み）
-  refDate:        Date,     // 前バッチの完成日（初回は今日）
-  batchYieldKg:   number,
-  bufferDays:     number,
-  getDailyRateFn: (date: Date) => number,
-  supplyEvents?:  { date: Date; kg: number }[],
-): Date {
-  const coverage = computeCoverageDays(batchYieldKg, completionDate, getDailyRateFn)
-  // このバッチ完成時点の在庫の底（歩留まり加算前）
-  const floorKg = Math.max(
-    0,
-    stockAtRef
-      - computeConsumed(refDate, completionDate, getDailyRateFn)
-      + computeSupplyReceived(refDate, completionDate, supplyEvents),
-  )
-  const rate        = Math.max(getDailyRateFn(completionDate), 1e-9)
-  const deficitDays = Math.max(0, bufferDays - floorKg / rate)
-  const minGap      = Math.min(MIN_COMPLETION_GAP_DAYS, coverage)
-  const gapDays     = Math.max(minGap, Math.ceil(coverage - deficitDays))
-  return addDays(completionDate, gapDays)
-}
-
-// 予測方式・データから「日付→1日消費量(kg)」関数を生成
 // conservative=true で需要多めシナリオ：SARIMAX→upper90 / HW→上限(平均+σ) / 3年平均→平均+標準偏差
 function buildDailyRateFn(
   method:       'sarimax' | 'hw' | 'avg',
@@ -525,238 +278,6 @@ function buildDailyRateFn(
 // 在庫切れ日からの逆算で「仕込み日 ＝ 在庫切れ日 −（その日に仕込んだ場合の実熟成日数＋バッファ）」を
 // 不動点反復で収束させる（常温のQ10シミュレーション専用）。
 // 静的な年間平均ベースの初期推定だと最初の仮仕込み日が別の季節（例：春）に落ち、
-// そこで得た遅い熟成日数（45日前後）のまま1回だけ補正すると、夏仕込みなのに仕込み日が
-// 2〜3週間も前倒しになる。実際の仕込み日の季節に合った熟成日数へ収束するまで繰り返す。
-function refineBrewDateToStockOut(
-  stockOut:      Date,
-  initialEst:    number,
-  buffer:        number,
-  getCompletion: (d: Date) => { days: number; completionDate: Date },
-  snapBrewDate?: (d: Date) => Date,
-): Date {
-  const snap = (d: Date) => (snapBrewDate ? snapBrewDate(d) : d)
-  let brew = snap(addDays(stockOut, -(initialEst + buffer)))
-  const seen = new Set<string>()
-  for (let k = 0; k < 6; k++) {
-    const r    = getCompletion(brew)
-    const next = snap(addDays(stockOut, -(r.days + buffer)))
-    if (format(next, 'yyyy-MM-dd') === format(brew, 'yyyy-MM-dd')) return next  // 収束
-    // スナップ起因で隣接日を行き来する2サイクルは、遅い方（完成が在庫切れに近い＝過剰仕込みが少ない安全側）を採用
-    if (seen.has(format(next, 'yyyy-MM-dd'))) return next > brew ? next : brew
-    seen.add(format(brew, 'yyyy-MM-dd'))
-    brew = next
-  }
-  return brew
-}
-
-function calcBatches(
-  effectiveStock:      number,
-  getDailyRateFn:      (date: Date) => number,  // 月別消費量関数
-  fermentationDays:    number,    // Q10補正ありの初期推定値
-  batchYieldKg:        number,
-  count:               number,
-  today:               Date,
-  orderLeadDays:       number,
-  bufferDays:          number,
-  getCompletion?:      (brewDate: Date) => { days: number; completionDate: Date },
-  snapBrewDate?:       (date: Date) => Date,
-  getCompletionRaw?:   (brewDate: Date) => { days: number; completionDate: Date },
-  fermentationDaysRaw?: number,   // Q10補正なしの初期推定値（常温のみ）
-  manualBrewDateByIndex?: Record<number, Date>,  // 回ごと（0始まり）の仕込み日手動指定（スナップ無効）
-  supplyEvents?:       { date: Date; kg: number }[],  // 熟成中ロットの補充スケジュール
-  isDoubleBatch?:      (completionDate: Date) => boolean,  // その完成日は2回仕込み（連続2回）にするか
-): BatchPlan[] {
-  const batches: BatchPlan[] = []
-  // 当週はもう原料手配等の都合で仕込めないため、仕込み日として提案できるのは最短で翌週から
-  const minBrewDate   = snapBrewDate ? snapBrewDate(nextWeekMonday(today)) : nextWeekMonday(today)
-  let stock           = effectiveStock
-  let refDate         = today
-  // Q10補正あり・なしそれぞれの推定値を独立して追跡する
-  let currentEstimate    = fermentationDays
-  let rawCurrentEstimate = fermentationDaysRaw ?? fermentationDays
-  // バッチ間の昇順を保証するための下限日（前バッチの翌日以降）
-  let minNextBrewDate:    Date = minBrewDate
-  let minNextRawBrewDate: Date = minBrewDate
-  // 連続バッチの完成日が密集しないための下限（前バッチの完成日＋カバー期間）。
-  // これにより「1バッチを消費しきる前に次が完成」する団子状の仕込み提案を防ぐ。
-  let minNextCompletion:    Date = today
-  let minNextRawCompletion: Date = today
-  // Q10補正なしチェーン専用の在庫追跡（Q10補正ありとは独立して連鎖する）
-  let rawRefDate = today
-  let rawStock   = effectiveStock
-
-  for (let i = 0; i < count; i++) {
-    const startStockKg = stock
-    const safeBuffer   = Number.isFinite(bufferDays) ? bufferDays : 0
-    // この回が狙うべき在庫切れ日。今から最短で仕込んでも完成が間に合わない在庫切れは
-    // 対象にしない（間に合わない分を狙うと、確定済みの仕込みで既に手当てされているのに
-    // 最短日で不要な仕込みを提案してしまうため）
-    const earliestCompletion = (getCompletion
-      ? getCompletion(minBrewDate).completionDate
-      : addDays(minBrewDate, fermentationDays))
-    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents)
-    // Q10補正なし専用の在庫切れ予測日（独立チェーン）
-    const rawStockOutDate = getCompletionRaw
-      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents)
-      : stockOutDate
-
-    // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
-    const computeCompletion = (bd: Date): { completionDate: Date; days: number } =>
-      getCompletion ? getCompletion(bd) : { completionDate: addDays(bd, fermentationDays), days: fermentationDays }
-
-    // ── Q10補正あり（メイン） ──────────────────────────────
-    let brewDate: Date
-    if (manualBrewDateByIndex?.[i]) {
-      brewDate = manualBrewDateByIndex[i]
-      // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
-      if (brewDate < minBrewDate) {
-        brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
-      }
-    } else {
-      // 常温は仕込み日の季節に合った実熟成日数へ不動点反復で収束させる（単発補正だと前倒し過ぎる）。
-      // それ以外は固定熟成日数で逆算するだけ。
-      const solveBrewDate = (buf: number): Date => {
-        if (getCompletion) return refineBrewDateToStockOut(stockOutDate, currentEstimate, buf, getCompletion, snapBrewDate)
-        const preSnapDate = addDays(stockOutDate, -(currentEstimate + buf))
-        return snapBrewDate ? snapBrewDate(preSnapDate) : preSnapDate
-      }
-      brewDate = solveBrewDate(safeBuffer)
-      // 出荷ピーク期に完成する回はバッファを厚くして前倒しする。
-      // 冬は需要が増える上に熟成も長引くため、通常のバッファ（14日）だと完成待ちの間に
-      // 安全在庫ラインを割り込みやすい
-      if (isDoubleBatch?.(computeCompletion(brewDate).completionDate)) {
-        brewDate = solveBrewDate(safeBuffer + PEAK_EXTRA_BUFFER_DAYS)
-      }
-      // 計算結果が当日以前になった場合は翌日以降に修正（当日はもう仕込めないため）
-      if (brewDate < minBrewDate) {
-        brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
-      }
-    }
-    // 前バッチ以前にならないよう修正（昇順を保証し、sort後のn=1・n=2が同日になるのを防ぐ）
-    if (brewDate < minNextBrewDate) {
-      brewDate = snapBrewDate ? snapBrewDate(minNextBrewDate) : minNextBrewDate
-    }
-
-    let { completionDate, days: actualFermentDays } = computeCompletion(brewDate)
-    // 完成日が「前バッチの完成日＋カバー期間」より早い場合は仕込み日を後ろへずらす。
-    // 1バッチの歩留まりを消費しきる前に次が完成すると、仕込み日が1〜数日差で密集する
-    // （前バッチの翌日へ丸める昇順クランプだけでは団子状の提案になってしまう）。
-    // ただし手動固定されている回は、現場の都合（水木連続仕込みなど）を優先しそのまま採用する。
-    if (completionDate < minNextCompletion && !manualBrewDateByIndex?.[i]) {
-      const deficit = differenceInDays(minNextCompletion, completionDate)
-      brewDate = snapBrewDate ? snapBrewDate(addDays(brewDate, deficit)) : addDays(brewDate, deficit)
-      let r     = computeCompletion(brewDate)
-      let guard = 0
-      while (r.completionDate < minNextCompletion && guard < 60) {
-        brewDate = snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1)
-        r        = computeCompletion(brewDate)
-        guard++
-      }
-      completionDate    = r.completionDate
-      actualFermentDays = r.days
-    }
-    // ── 出荷ピーク期の2回仕込み ──────────────────────────────
-    // 完成が対象期間に入る回は、翌仕込み可能日（水→木）にもう1本仕込んで2本立てにする。
-    // 冬は熟成が45日前後に伸びる一方、1本(≒1,600kg)が賄えるのは20〜25日分しかないため、
-    // 1本ずつでは出荷ピークの11〜12月に在庫が積み上がらないため。
-    let pairBrewDate:              Date | undefined
-    let pairCompletionDate:        Date | undefined
-    let pairFermentationDays:      number | undefined
-    let pairMaterialOrderDeadline: Date | undefined
-    if (isDoubleBatch?.(completionDate)) {
-      const pb = snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1)
-      const pr = computeCompletion(pb)
-      pairBrewDate              = pb
-      pairCompletionDate        = pr.completionDate
-      pairFermentationDays      = pr.days
-      pairMaterialOrderDeadline = addDays(pb, -orderLeadDays)
-    }
-    // 2本立ての場合は遅い方の完成日・2本分の歩留まりを基準に次回以降を連鎖させる
-    const chainCompletion = pairCompletionDate && pairCompletionDate > completionDate
-      ? pairCompletionDate : completionDate
-    const chainYieldKg    = pairBrewDate ? batchYieldKg * 2 : batchYieldKg
-
-    currentEstimate   = actualFermentDays
-    minNextBrewDate   = addDays(pairBrewDate ?? brewDate, 1)
-    // バッファ不足時は間隔を詰められる下限（stock/refDateはこの時点ではまだ前バッチ基準）
-    minNextCompletion = calcMinNextCompletion(chainCompletion, stock, refDate, chainYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
-
-    const materialOrderDeadline = addDays(brewDate, -orderLeadDays)
-    const daysUntilOrder        = differenceInDays(materialOrderDeadline, today)
-
-    // ── Q10補正なし（サブ・常温かつq10≠1のときのみ） ────────
-    let rawBrewDate: Date | undefined
-    let rawFermentationDays: number | undefined
-    let rawCompletionDate: Date | undefined
-    let rawMaterialOrderDeadline: Date | undefined
-    if (getCompletionRaw) {
-      let rawProv: Date
-      if (manualBrewDateByIndex?.[i]) {
-        rawProv = manualBrewDateByIndex[i]
-        // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
-        if (rawProv < minBrewDate) {
-          rawProv = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
-        }
-      } else {
-        // Q10補正ありと同様に、不動点反復で仕込み日の季節に合った熟成日数へ収束させる
-        rawProv = refineBrewDateToStockOut(rawStockOutDate, rawCurrentEstimate, safeBuffer, getCompletionRaw, snapBrewDate)
-        if (rawProv < minBrewDate) {
-          rawProv = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
-        }
-      }
-      // rawBrewDateも昇順を保証
-      if (rawProv < minNextRawBrewDate) {
-        rawProv = snapBrewDate ? snapBrewDate(minNextRawBrewDate) : minNextRawBrewDate
-      }
-      rawBrewDate = rawProv
-      let rr = getCompletionRaw(rawBrewDate)
-      // Q10補正ありと同様に、カバー期間で完成日の密集（仕込み日の団子化）を防ぐ（手動固定回は除く）
-      if (rr.completionDate < minNextRawCompletion && !manualBrewDateByIndex?.[i]) {
-        const deficit = differenceInDays(minNextRawCompletion, rr.completionDate)
-        rawBrewDate = snapBrewDate ? snapBrewDate(addDays(rawBrewDate, deficit)) : addDays(rawBrewDate, deficit)
-        rr          = getCompletionRaw(rawBrewDate)
-        let guard   = 0
-        while (rr.completionDate < minNextRawCompletion && guard < 60) {
-          rawBrewDate = snapBrewDate ? snapBrewDate(addDays(rawBrewDate, 1)) : addDays(rawBrewDate, 1)
-          rr          = getCompletionRaw(rawBrewDate)
-          guard++
-        }
-      }
-      minNextRawBrewDate       = addDays(rawBrewDate, 1)
-      rawFermentationDays      = rr.days
-      rawCompletionDate        = rr.completionDate
-      rawCurrentEstimate       = rawFermentationDays   // 次回の推定に実績値を使う
-      minNextRawCompletion     = calcMinNextCompletion(rawCompletionDate, rawStock, rawRefDate, batchYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
-      rawMaterialOrderDeadline = addDays(rawBrewDate, -orderLeadDays)
-    }
-
-    batches.push({
-      n: i + 1, brewDate, completionDate, fermentationDays: actualFermentDays,
-      stockOutDate, materialOrderDeadline, daysUntilOrder, startStockKg,
-      rawFermentationDays, rawCompletionDate, rawBrewDate, rawMaterialOrderDeadline,
-      pairBrewDate, pairCompletionDate, pairFermentationDays, pairMaterialOrderDeadline,
-    })
-
-    // 在庫引き継ぎはQ10補正ありの完成日を基準にする（月別変動レートで積分 + 熟成中ロット補充分を加算）
-    // 2本立ての回は遅い方の完成日まで進め、2本分の歩留まりを加算する
-    const consumed       = computeConsumed(refDate, chainCompletion, getDailyRateFn)
-    const supplyReceived = computeSupplyReceived(refDate, chainCompletion, supplyEvents)
-    refDate = chainCompletion
-    stock   = Math.max(0, stock - consumed + supplyReceived) + chainYieldKg
-    // Q10補正なしチェーンも独立して在庫を前進させる（2本立ての歩留まりは同じく2本分）
-    if (rawCompletionDate) {
-      const rawConsumed       = computeConsumed(rawRefDate, rawCompletionDate, getDailyRateFn)
-      const rawSupplyReceived = computeSupplyReceived(rawRefDate, rawCompletionDate, supplyEvents)
-      rawRefDate = rawCompletionDate
-      rawStock   = Math.max(0, rawStock - rawConsumed + rawSupplyReceived) + chainYieldKg
-    }
-  }
-
-  // 仕込み日昇順で並び替えて回数を振り直す（理論上は既に単調増加だが念のため）
-  return batches
-    .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
-    .map((b, i) => ({ ...b, n: i + 1 }))
-}
 
 function daysLabel(days: number): string {
   return days >= 0 ? `あと${days}日` : `${Math.abs(days)}日超過`
@@ -1276,7 +797,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     let generated = canCalc
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet)
       : []
 
     // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ
@@ -1314,7 +835,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       })
       if (Object.keys(overrides).length > 0) {
         Object.assign(manualBrewDateByIndex, overrides)
-        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch)
+        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet)
       }
     }
 
@@ -1351,7 +872,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, regDateSet)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -1388,7 +909,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate
