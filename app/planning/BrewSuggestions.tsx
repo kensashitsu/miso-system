@@ -23,15 +23,22 @@ import { addBlockedWeek, removeBlockedWeek } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
 // 仕込み日を最終的に決めた条件の表示名（BatchPlan.decidedBy と対応）
-// 「◯◯だったので、こう動かした」と分かる文にする。単語だけだと何が起きたのか伝わらない
-const DECIDED_BY_LABEL: Record<NonNullable<BatchPlan['decidedBy']>, string> = {
-  stockout: '逆算した日をそのまま採用',
-  peak:     '出荷ピーク期に完成する回なので、いつもより早めに仕込む',
-  earliest: '逆算すると来週より前になるので、最短で仕込める日まで後ろへ',
-  order:    '逆算すると前の回と重なるので、前の回の翌日以降まで後ろへ',
-  spacing:  '前の回の分を使い切る前に完成してしまうので、後ろへ',
-  blocked:  '逆算した日が仮登録済み・仕込めない週なので、次に仕込める日へ',
-  manual:   '✎ 手動で指定した日',
+// 「逆算では◯/◯だったが、◯◯なので◯/◯にした」と実際の日付入りで説明する。
+// 単語だけ・日付なしだと何が起きたのか伝わらない（2026-08-28にユーザー指摘）
+function decidedByText(b: BatchPlan): string {
+  const md = (d?: Date) => (d ? format(d, 'M/d') : '')
+  const solved = md(b.solvedBrewDate)
+  const brew   = md(b.brewDate)
+  switch (b.decidedBy) {
+    case 'manual':   return '✎ 手動で指定した日'
+    case 'stockout': return '逆算した日をそのまま採用'
+    case 'peak':     return `出荷ピーク期に完成する回なので、いつもより早めの ${brew} に`
+    case 'earliest': return `逆算では ${solved}（もう間に合わない）。最短で仕込める ${brew} に`
+    case 'order':    return `逆算では ${solved}。前の回（${md(b.prevBrewDate)}仕込み）と重なるので ${brew} に`
+    case 'blocked':  return `逆算の ${solved} は仮登録済み・仕込めない週なので ${brew} に`
+    case 'spacing':  return `前の回の分を使い切る前に完成してしまうので、${solved} から ${brew} へ後ろ倒し`
+    default:         return '逆算した日をそのまま採用'
+  }
 }
 
 interface Recipe {
@@ -2283,7 +2290,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 といった制約で前後に動かしています。実際にその日を決めた条件を右端に出しています。
                               </p>
                               {/* 全回で1つのgrid＝列が縦に揃う */}
-                              <div className="grid grid-cols-[3.2rem_6.5rem_6.5rem_6.5rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1 whitespace-nowrap">
+                              <div className="grid grid-cols-[3.2rem_7.5rem_9rem_6.5rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1 whitespace-nowrap">
                                 <span className="text-foreground/40 text-[10px]">回</span>
                                 <span className="text-foreground/40 text-[10px]">仕込み日</span>
                                 <span className="text-foreground/40 text-[10px]">完成予定</span>
@@ -2296,13 +2303,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   const pBrew    = (useRawAsBase && hasRaw) ? b.rawBrewDate! : b.brewDate
                                   const pComp    = (useRawAsBase && b.rawCompletionDate) ? b.rawCompletionDate : b.completionDate
                                   const pDays    = (useRawAsBase && b.rawFermentationDays !== undefined) ? b.rawFermentationDays : b.fermentationDays
-                                  // 2本立ての回は遅い方の完成日で間に合うかを見る
-                                  const lastComp = (b.pairCompletionDate && b.pairCompletionDate > pComp) ? b.pairCompletionDate : pComp
+                                  // 2本立ての回は熟成日数が違うので、早い方・遅い方を分けて扱う。
+                                  // 「間に合うか」の判定は遅い方（2本そろう日）で見る
+                                  const lastComp  = (b.pairCompletionDate && b.pairCompletionDate > pComp) ? b.pairCompletionDate : pComp
+                                  const firstComp = (b.pairCompletionDate && b.pairCompletionDate < pComp) ? b.pairCompletionDate : pComp
                                   const marginDays = differenceInDays(b.stockOutDate, lastComp)
                                   const isManual   = !b.isFixed && plan.manualPinIndices.includes(genIndex)
-                                  const decidedTxt = isManual
-                                    ? DECIDED_BY_LABEL.manual
-                                    : DECIDED_BY_LABEL[b.decidedBy ?? 'stockout']
+                                  const decidedTxt = isManual ? '✎ 手動で指定した日' : decidedByText(b)
                                   return (
                                     <Fragment key={b.n}>
                                       <span className="text-foreground/60">{b.n}回目</span>
@@ -2310,13 +2317,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                         {format(pBrew, 'M/d')}
                                         {b.pairBrewDate && <span className="text-foreground/60">＋{format(b.pairBrewDate, 'M/d')}</span>}
                                       </span>
+                                      {/* 2本立ての回は相方の完成日も出す。熟成日数が違うので早い方から並べる */}
                                       <span className="tabular-nums">
-                                        {format(lastComp, 'M/d')}
+                                        {format(firstComp, 'M/d')}
+                                        {b.pairCompletionDate && (
+                                          <span className="text-foreground/60">＋{format(lastComp, 'M/d')}</span>
+                                        )}
                                         <span className="text-foreground/40">（{pDays}日）</span>
                                       </span>
                                       {/* 完成の補充が入る直前＝在庫の底。ここが薄いほどギリギリの仕込み */}
                                       {(() => {
-                                        const eveKey = format(addDays(pComp, -1), 'yyyy-MM-dd')
+                                        const eveKey = format(addDays(firstComp, -1), 'yyyy-MM-dd')
                                         const eve = plan.dailyStockByDate.get(eveKey)
                                         if (!eve) return <span className="text-foreground/40">—</span>
                                         const line = eve.safety

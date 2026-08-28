@@ -24,6 +24,8 @@ export interface BatchPlan {
   // その後ずらされることが多く、「在庫切れ − 熟成 − バッファ」の式では結果を説明できない。
   // 最後にこの日を動かした条件を記録する。
   decidedBy?: 'stockout' | 'peak' | 'earliest' | 'order' | 'spacing' | 'blocked' | 'manual'
+  solvedBrewDate?: Date  // 制約を当てる前の「逆算しただけの日」。理由の説明に使う
+  prevBrewDate?:   Date  // 前の回の仕込み日（2本立てなら相方）。decidedBy='order' の説明に使う
   // 出荷ピーク期（完成が10〜12月）の2回仕込み。1行で「連続2回（水→木）」を表す。
   // 行と回インデックスの1対1対応を保つため、2行に分けず1行に相方の日付を持たせている。
   pairBrewDate?:              Date
@@ -469,9 +471,14 @@ export function calcBatches(
     let brewDate: Date
     // 仕込み日を動かした条件を順に上書きしていく（最後に動かしたものが決め手）
     let decidedBy: BatchPlan['decidedBy'] = 'stockout'
+    // 制約を当てる前の「逆算しただけの日」。画面で理由を説明するために持ち回る
+    let solvedBrewDate: Date
+    // 前の回の仕込み日（初回はなし）。minNextBrewDate は前の回の翌日なので1日戻す
+    const prevBrewDate = i > 0 ? addDays(minNextBrewDate, -1) : undefined
     if (manualBrewDateByIndex?.[i]) {
       decidedBy = 'manual'
       brewDate = manualBrewDateByIndex[i]
+      solvedBrewDate = brewDate
       // 手動指定日が当日以前の場合も翌日以降に修正（elseブランチと統一）
       if (brewDate < minBrewDate) {
         brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
@@ -492,6 +499,7 @@ export function calcBatches(
         brewDate = solveBrewDate(safeBuffer + PEAK_EXTRA_BUFFER_DAYS)
         decidedBy = 'peak'
       }
+      solvedBrewDate = brewDate   // ここまでが「逆算しただけの日」
       // 計算結果が当日以前になった場合は翌日以降に修正（当日はもう仕込めないため）
       if (brewDate < minBrewDate) {
         brewDate = snapBrewDate ? snapBrewDate(minBrewDate) : minBrewDate
@@ -627,7 +635,7 @@ export function calcBatches(
       stockOutDate, materialOrderDeadline, daysUntilOrder, startStockKg,
       rawFermentationDays, rawCompletionDate, rawBrewDate, rawMaterialOrderDeadline,
       pairBrewDate, pairCompletionDate, pairFermentationDays, pairMaterialOrderDeadline,
-      decidedBy,
+      decidedBy, solvedBrewDate, prevBrewDate,
     })
 
     // 在庫引き継ぎはQ10補正ありの完成日を基準にする（月別変動レートで積分 + 熟成中ロット補充分を加算）
