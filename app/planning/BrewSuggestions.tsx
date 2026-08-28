@@ -23,14 +23,15 @@ import { addBlockedWeek, removeBlockedWeek } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
 // 仕込み日を最終的に決めた条件の表示名（BatchPlan.decidedBy と対応）
+// 「◯◯だったので、こう動かした」と分かる文にする。単語だけだと何が起きたのか伝わらない
 const DECIDED_BY_LABEL: Record<NonNullable<BatchPlan['decidedBy']>, string> = {
-  stockout: '在庫切れからの逆算どおり',
-  peak:     '出荷ピーク期のため前倒し',
-  earliest: '最短で仕込める日（来週）',
-  order:    '前の回の翌日以降',
-  spacing:  '前の回を使い切る頃に完成するよう後ろへ',
-  blocked:  '仮登録済み・仕込めない週を回避',
-  manual:   '✎ 手動で指定',
+  stockout: '逆算した日をそのまま採用',
+  peak:     '出荷ピーク期に完成する回なので、いつもより早めに仕込む',
+  earliest: '逆算すると来週より前になるので、最短で仕込める日まで後ろへ',
+  order:    '逆算すると前の回と重なるので、前の回の翌日以降まで後ろへ',
+  spacing:  '前の回の分を使い切る前に完成してしまうので、後ろへ',
+  blocked:  '逆算した日が仮登録済み・仕込めない週なので、次に仕込める日へ',
+  manual:   '✎ 手動で指定した日',
 }
 
 interface Recipe {
@@ -2275,7 +2276,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 <span className="text-foreground/40 text-[10px]">仕込み日</span>
                                 <span className="text-foreground/40 text-[10px]">完成予定</span>
                                 <span className="text-foreground/40 text-[10px]">在庫が{outWord}日に間に合うか</span>
-                                <span className="text-foreground/40 text-[10px]">この日になった決め手</span>
+                                <span className="text-foreground/40 text-[10px] whitespace-normal">この日になった理由</span>
                                 {plan.batches.map(b => {
                                   const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
                                   const hasRaw   = b.rawBrewDate !== undefined
@@ -2287,7 +2288,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   const marginDays = differenceInDays(b.stockOutDate, lastComp)
                                   const isManual   = !b.isFixed && plan.manualPinIndices.includes(genIndex)
                                   const decidedTxt = isManual
-                                    ? '✎ 手動で指定'
+                                    ? DECIDED_BY_LABEL.manual
                                     : DECIDED_BY_LABEL[b.decidedBy ?? 'stockout']
                                   return (
                                     <Fragment key={b.n}>
@@ -2310,8 +2311,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                             : <span className="text-amber-600">{' に '}{-marginDays} 日 遅れて完成</span>}
                                         </span>
                                       )}
-                                      <span className={b.isFixed ? 'text-emerald-700' : isManual ? 'text-amber-600' : 'text-foreground/60'}>
-                                        {b.isFixed ? '仮登録で確定済み' : decidedTxt}
+                                      <span className={`whitespace-normal ${b.isFixed ? 'text-emerald-700' : isManual ? 'text-amber-600' : 'text-foreground/60'}`}>
+                                        {b.isFixed ? '仮登録で確定済み（計算ではなく実際の予定）' : decidedTxt}
                                       </span>
                                     </Fragment>
                                   )
