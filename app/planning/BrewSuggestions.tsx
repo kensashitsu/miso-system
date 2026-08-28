@@ -2217,34 +2217,50 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 ? (useRawAsBase ? 'Q10補正なし基準' : `Q10補正あり（係数 ${q10Value}）`)
                                 : null
                               return (
-                                <div className="rounded-md bg-muted/50 px-2.5 py-2 space-y-0.5">
-                                  <p className="font-medium text-foreground/70">前提（全回共通）</p>
-                                  <p>
-                                    消費 <span className="tabular-nums font-medium text-foreground">{Math.round(plan.dailyRate).toLocaleString()} kg</span>/日
-                                    <span className="text-foreground/50">（{methodLabel} {Math.round(plan.monthlyAvg!).toLocaleString()} kg/月・2回目以降は月別変動値）</span>
-                                  </p>
-                                  <p>
-                                    起点の在庫 <span className="tabular-nums font-medium text-foreground">{Math.round(plan.stockKg).toLocaleString()} kg</span>
-                                    {plan.fermentingKg > 0 && (
-                                      <> ＋ 熟成中 <span className="tabular-nums">{Math.round(plan.fermentingKg).toLocaleString()} kg</span>
-                                      <span className="text-foreground/50">（完成予定日に補充）</span></>
-                                    )}
-                                  </p>
-                                  <p>{tempTxt}{basisTxt && `｜${basisTxt}`}</p>
-                                  <p>
-                                    {bufferEnabled && brewBufferDays > 0
-                                      ? <>バッファ <span className="tabular-nums">{brewBufferDays}</span> 日｜</>
-                                      : <>バッファなし｜</>}
-                                    原料リード <span className="tabular-nums">{plan.orderLeadDays}</span> 日
-                                  </p>
+                                <div className="rounded-md bg-muted/50 px-2.5 py-2">
+                                  <p className="font-medium text-foreground/70 mb-1">計算に使った前提（全回共通）</p>
+                                  <div className="grid grid-cols-[7rem_1fr] gap-x-3 gap-y-0.5">
+                                    <span className="text-foreground/50">1日の消費ペース</span>
+                                    <span>
+                                      <span className="tabular-nums font-medium text-foreground">{Math.round(plan.dailyRate).toLocaleString()} kg</span>/日
+                                      <span className="text-foreground/50">（{methodLabel} {Math.round(plan.monthlyAvg!).toLocaleString()} kg/月から換算・2回目以降は月別の変動値）</span>
+                                    </span>
+                                    <span className="text-foreground/50">今の在庫</span>
+                                    <span>
+                                      <span className="tabular-nums font-medium text-foreground">{Math.round(plan.stockKg).toLocaleString()} kg</span>
+                                      {plan.fermentingKg > 0 && (
+                                        <> ＋ 熟成中 <span className="tabular-nums">{Math.round(plan.fermentingKg).toLocaleString()} kg</span>
+                                        <span className="text-foreground/50">（完成予定日に在庫へ加算）</span></>
+                                      )}
+                                    </span>
+                                    <span className="text-foreground/50">熟成の条件</span>
+                                    <span>{tempTxt}{basisTxt && `｜${basisTxt}`}</span>
+                                    <span className="text-foreground/50">見込む余裕</span>
+                                    <span>
+                                      {bufferEnabled && brewBufferDays > 0
+                                        ? <>在庫切れの <span className="tabular-nums">{brewBufferDays}</span> 日前に完成させる（バッファ）</>
+                                        : <span className="text-foreground/50">バッファなし（在庫切れ当日に完成）</span>}
+                                    </span>
+                                    <span className="text-foreground/50">原料の手配</span>
+                                    <span>仕込みの <span className="tabular-nums">{plan.orderLeadDays}</span> 日前までに発注</span>
+                                  </div>
                                 </div>
                               )
                             })()}
-                            {/* 各回の逆算：1行1回 */}
-                            <div className="pt-1.5">
-                              <p className="font-medium text-foreground/70 mb-1">各回の逆算</p>
+                            {/* 各回の逆算：1行1回。列見出しを付けて何の日付かを明示する */}
+                            <div className="pt-2">
+                              <p className="font-medium text-foreground/70">仕込み日の決め方（各回）</p>
+                              <p className="text-foreground/50 mb-1.5">
+                                在庫が
+                                {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る日' : '尽きる日'}
+                                から、熟成にかかる日数とバッファを引いて仕込み日を決めています。
+                              </p>
                               {/* 全回で1つのgrid＝列（仕込み日・逆算式・手配日）が縦に揃う */}
-                              <div className="grid grid-cols-[3.5rem_3.5rem_auto_auto] justify-start items-baseline gap-x-3 gap-y-1">
+                              <div className="grid grid-cols-[3.5rem_4rem_auto_auto] justify-start items-baseline gap-x-4 gap-y-1">
+                                <span className="text-foreground/40 text-[10px]">回</span>
+                                <span className="text-foreground/40 text-[10px]">仕込み日</span>
+                                <span className="text-foreground/40 text-[10px]">その日になった理由（逆算）</span>
+                                <span className="text-foreground/40 text-[10px]">原料の発注期限</span>
                                 {plan.batches.map(b => {
                                   const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
                                   const hasRaw   = b.rawBrewDate !== undefined
@@ -2256,25 +2272,26 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       <span className="text-foreground/60">{b.n}回目</span>
                                       <span className="tabular-nums font-medium text-foreground">{format(pBrew, 'M/d')}</span>
                                       {b.isFixed ? (
-                                        <span className="text-emerald-700">← 仮登録で確定済み</span>
+                                        <span className="text-emerald-700">仮登録で確定済み（計算ではなく実際の予定）</span>
                                       ) : (
                                         <span>
-                                          ← <span className="tabular-nums">{format(b.stockOutDate, 'M/d')}</span>
-                                          {' '}
-                                          {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? 'ライン割れ' : '在庫切れ'}
-                                          {' − '}熟成 <span className="tabular-nums">{pDays}</span> 日
-                                          {bufferEnabled && brewBufferDays > 0 && (
-                                            <>{' − '}バッファ <span className="tabular-nums">{brewBufferDays}</span> 日</>
-                                          )}
+                                          <span className="tabular-nums font-medium text-foreground">{format(b.stockOutDate, 'M/d')}</span>
+                                          {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? ' に在庫がラインを割る' : ' に在庫が尽きる'}
+                                          <span className="text-foreground/50">
+                                            {' − '}熟成 <span className="tabular-nums">{pDays}</span> 日
+                                            {bufferEnabled && brewBufferDays > 0 && (
+                                              <>{' − '}バッファ <span className="tabular-nums">{brewBufferDays}</span> 日</>
+                                            )}
+                                          </span>
                                           {plan.manualPinIndices.includes(genIndex) && (
-                                            <span className="text-amber-600 ml-1">✎手動</span>
+                                            <span className="text-amber-600 ml-1">✎手動で調整済み</span>
                                           )}
                                         </span>
                                       )}
                                       <span className="whitespace-nowrap">
                                         {b.isFixed
                                           ? <span className="text-foreground/40">手配済</span>
-                                          : <>手配 <span className="tabular-nums text-foreground">{format(pDL, 'M/d')}</span></>}
+                                          : <span className="tabular-nums text-foreground">{format(pDL, 'M/d')}</span>}
                                       </span>
                                     </Fragment>
                                   )
