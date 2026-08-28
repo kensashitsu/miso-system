@@ -160,7 +160,7 @@ model MisoRecipe {
   soybeanOrigin   String?                    // 大豆産地デフォルト
   taneKojiG       Float    @default(0)       // 種麹デフォルト量（g）
   safetyStockKg   Float?                     // 安全在庫ライン（熟成済バラ＋小分け製品の合算、kg）。未設定なら閾値なし
-  // 冬季（11〜2月）の安全在庫ライン。冬は外気が低く常温保管でも着色が実質進まないため、
+  // 冬季（11〜12月）の安全在庫ライン。冬は外気が低く常温保管でも着色が実質進まないため、
   // 出荷ピークに備えて在庫を厚く持てる。未設定なら通年 safetyStockKg を使う
   winterSafetyStockKg Float?
   // 夏季（5〜8月）の安全在庫ライン。夏は13〜20日で着色リスク高に達するため、

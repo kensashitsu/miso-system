@@ -312,10 +312,10 @@ function RecipeForm({
           </p>
         </div>
 
-        {/* 冬季（11〜2月）の安全在庫ライン */}
+        {/* 冬季（11〜12月）の安全在庫ライン */}
         <div className="space-y-1">
           <Label htmlFor="rf-safety-winter">
-            冬季(11〜2月)の安全在庫ライン (kg) <span className="text-muted-foreground text-xs">（空欄=通年同じ）</span>
+            冬季(11〜12月)の安全在庫ライン (kg) <span className="text-muted-foreground text-xs">（空欄=通年同じ）</span>
           </Label>
           <Input id="rf-safety-winter" type="number" step="1" min="0" inputMode="decimal" {...input('winterSafetyStockKg')} placeholder="例: 2400" />
           <p className="text-[11px] text-muted-foreground">

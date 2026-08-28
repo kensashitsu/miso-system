@@ -11,7 +11,7 @@ import {
 export interface StockPoint {
   d:  string   // 'yyyy-MM-dd'
   kg: number
-  // その日に適用される安全在庫ライン(kg)。冬季（11〜2月）は厚くなるため日ごとに持つ
+  // その日に適用される安全在庫ライン(kg)。冬季（11〜12月）は厚くなるため日ごとに持つ
   safety?: number
 }
 
@@ -126,7 +126,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
             />
             {(safetyStockKg != null || hasSeasonalSafety) && (
               hasSeasonalSafety ? (
-                // 冬季（11〜2月）はラインが変わるので、水平線ではなく日ごとの階段で描く
+                // 冬季（11〜12月）はラインが変わるので、水平線ではなく日ごとの階段で描く
                 <Line
                   type="stepAfter"
                   dataKey="safety"

@@ -39,7 +39,7 @@ export default async function DashboardPage() {
   for (const r of recipes) recipeTargetMap[r.name] = r.targetTempSum
   // 安全在庫ライン（熟成済バラ＋小分け製品の合算、kg）。未設定の品種は含めない
   const safetyStockMap: Record<string, number> = {}
-  // 季節でラインが変わる（冬季11〜2月は厚め・夏季5〜8月は薄め）。未設定の季節は通年ライン
+  // 季節でラインが変わる（冬季11〜12月は厚め・夏季5〜8月は薄め）。未設定の季節は通年ライン
   const now = new Date()
   for (const r of recipes) {
     // 通年が未設定でも季節ラインだけ設定されている品種（例: 山吹みそ＝冬季300kg）がある

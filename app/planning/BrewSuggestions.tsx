@@ -728,7 +728,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const baseSafetyKg    = recipe.safetyStockKg ?? 0
     const safetyStockKg   = recipe.safetyStockKg ?? null
     const depletableStock = hasAnySafety ? effectiveStock - baseSafetyKg : effectiveStock
-    // 冬季（11〜2月）は着色が実質進まないためラインを厚く、夏季（5〜8月）は着色が早いため薄く。
+    // 冬季（11〜12月）は着色が実質進まないためラインを厚く、夏季（5〜8月）は着色が早いため薄く。
     // 在庫連鎖は通年ラインを引いた実質在庫で追跡しているので、季節差は差分で補正する
     const getSafetyDelta = hasAnySafety
       ? makeSafetyDeltaFn(baseSafetyKg, winterSafetyKg, summerSafetyKg)
@@ -1031,7 +1031,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         if (stock < 0) stock = 0
         daily.push({
           d: k, kg: Math.round(stock),
-          // 冬季（11〜2月）は安全在庫ラインが厚くなるため、その日のラインを持たせる
+          // 冬季（11〜12月）は安全在庫ラインが厚くなるため、その日のラインを持たせる
           safety: safetyLineAt ? safetyLineAt(d) : undefined,
         })
         d = addDays(d, 1)
