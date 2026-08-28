@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Fragment } from 'react'
 import { addDays, differenceInDays, format, getDaysInMonth, isSameISOWeek, startOfDay } from 'date-fns'
 import { Printer, Download, ChevronDown, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -2203,94 +2203,84 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 </p>
                               </div>
                             )}
-                            {/* ① 消費量推計：全回共通 */}
-                            <p>
-                              {plan.usingSarimax
-                                ? `① SARIMAX（気温外生変数）予測の翌3ヶ月平均`
+                            {/* 前提（全回共通）：回ごとに繰り返さず1回だけ示す */}
+                            {(() => {
+                              const methodLabel = plan.usingSarimax
+                                ? 'SARIMAX予測の翌3ヶ月平均'
                                 : plan.usingHW
-                                  ? `① ホルト・ウィンタース法（季節調整AI予測）による今月消費量推計`
-                                  : `① ${currentMonth}月の直近3年平均出荷量`}
-                              ：<span className="tabular-nums font-medium text-foreground">{Math.round(plan.monthlyAvg!).toLocaleString()} kg</span>
-                              　→ 当月約 <span className="tabular-nums font-medium text-foreground">{Math.round(plan.dailyRate).toLocaleString()} kg</span>/日
-                              <span className="text-foreground/50">（2回目以降は月別変動値を使用）</span>
-                            </p>
-                            {/* ②③④ 各回分 */}
-                            {plan.batches.map((b, idx) => {
-                              const isMulti = plan.batches.length > 1
-                              const label   = isMulti ? `【${b.n}回目】` : ''
-                              const prevCompletion = idx === 0 ? today : plan.batches[idx - 1].completionDate
-                              const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
-                              const hasRaw  = b.rawBrewDate !== undefined
-                              const sLabel  = useRawAsBase ? 'Q10補正あり' : '補正なし'
-                              const pBrew   = (useRawAsBase && hasRaw) ? b.rawBrewDate! : b.brewDate
-                              const sBrew   = hasRaw ? (useRawAsBase ? b.brewDate : b.rawBrewDate) : undefined
-                              const pDays   = (useRawAsBase && b.rawFermentationDays !== undefined) ? b.rawFermentationDays : b.fermentationDays
-                              const sDays   = b.rawFermentationDays !== undefined ? (useRawAsBase ? b.fermentationDays : b.rawFermentationDays) : undefined
-                              const pDL     = (useRawAsBase && b.rawMaterialOrderDeadline) ? b.rawMaterialOrderDeadline : b.materialOrderDeadline
-                              const sDL     = b.rawMaterialOrderDeadline ? (useRawAsBase ? b.materialOrderDeadline : b.rawMaterialOrderDeadline) : undefined
-                              const seasonLabel = `6〜9月:常温 / 10〜5月:暖房${heatingDefaultTemp}℃`
-                              const basisLabel = plan.location === '常温' && q10Value !== 1
-                                ? useRawAsBase
-                                  ? `・気象シミュレーション（${seasonLabel}）・補正なし（参考：Q10係数${q10Value}）`
-                                  : `・気象シミュレーション（${seasonLabel}）・Q10補正あり（係数：${q10Value}）`
-                                : plan.location === '常温'
-                                  ? `・気象シミュレーション（${seasonLabel}）・補正なし`
-                                  : `・${plan.dailyAccum.toFixed(1)}℃/日`
+                                  ? 'ホルト・ウィンタース法の今月推計'
+                                  : `${currentMonth}月の直近3年平均`
+                              const tempTxt = plan.location === '常温'
+                                ? `常温｜6〜9月=外気 / 10〜5月=暖房${heatingDefaultTemp}℃`
+                                : `${plan.location}｜${plan.dailyAccum.toFixed(1)}℃/日`
+                              const basisTxt = plan.location === '常温' && q10Value !== 1
+                                ? (useRawAsBase ? 'Q10補正なし基準' : `Q10補正あり（係数 ${q10Value}）`)
+                                : null
                               return (
-                                <div
-                                  key={b.n}
-                                  className={isMulti && idx > 0 ? 'mt-1.5 pt-1.5 border-t border-gray-100 space-y-1' : 'space-y-1'}
-                                >
+                                <div className="rounded-md bg-muted/50 px-2.5 py-2 space-y-0.5">
+                                  <p className="font-medium text-foreground/70">前提（全回共通）</p>
                                   <p>
-                                    {label}② 有効在庫：
-                                    {idx === 0 ? (
-                                      <>
-                                        現在庫 <span className="tabular-nums">{Math.round(plan.stockKg).toLocaleString()} kg</span>
-                                        {plan.fermentingKg > 0 && (
-                                          <> ＋ 熟成中 <span className="tabular-nums">{Math.round(plan.fermentingKg).toLocaleString()} kg</span>
-                                          <span className="text-foreground/50 text-[11px]">（完成予定日に補充）</span></>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <>{format(prevCompletion, 'M月d日')}時点 ＝ <span className="tabular-nums font-medium text-foreground">{Math.round(b.startStockKg).toLocaleString()} kg</span></>
-                                    )}
-                                    　→ 約 <span className="tabular-nums">{differenceInDays(b.stockOutDate, prevCompletion)}</span> 日後に在庫切れ
-                                    （<span className="tabular-nums">{format(b.stockOutDate, 'M月d日')}</span>）
+                                    消費 <span className="tabular-nums font-medium text-foreground">{Math.round(plan.dailyRate).toLocaleString()} kg</span>/日
+                                    <span className="text-foreground/50">（{methodLabel} {Math.round(plan.monthlyAvg!).toLocaleString()} kg/月・2回目以降は月別変動値）</span>
                                   </p>
                                   <p>
-                                    {label}③ 在庫切れ日 − 熟成{' '}
-                                    <span className="tabular-nums">{pDays}</span> 日
-                                    {sDays !== undefined && (
-                                      <span className="text-foreground/50">
-                                        {' '}/ <span className="tabular-nums">{sDays}</span> 日（{sLabel}）
-                                      </span>
-                                    )}
-                                    <span className="text-foreground/60">（{plan.location}{basisLabel}）</span>
-                                    {bufferEnabled && brewBufferDays > 0 && (
-                                      <>{' '}− バッファ <span className="tabular-nums">{brewBufferDays}</span> 日</>
-                                    )}
-                                    　→ 推奨仕込み日：<span className="tabular-nums font-medium text-foreground">{format(pBrew, 'M月d日')}</span>
-                                    {!b.isFixed && plan.manualPinIndices.includes(genIndex) && (
-                                      <span className="text-amber-600 text-[10px] ml-1">（手動調整済み）</span>
-                                    )}
-                                    {sBrew && (
-                                      <span className="text-foreground/50">
-                                        {' '}/ {sLabel}：{format(sBrew, 'M月d日')}
-                                      </span>
+                                    起点の在庫 <span className="tabular-nums font-medium text-foreground">{Math.round(plan.stockKg).toLocaleString()} kg</span>
+                                    {plan.fermentingKg > 0 && (
+                                      <> ＋ 熟成中 <span className="tabular-nums">{Math.round(plan.fermentingKg).toLocaleString()} kg</span>
+                                      <span className="text-foreground/50">（完成予定日に補充）</span></>
                                     )}
                                   </p>
+                                  <p>{tempTxt}{basisTxt && `｜${basisTxt}`}</p>
                                   <p>
-                                    {label}④ 推奨仕込み日の <span className="tabular-nums">{plan.orderLeadDays}</span> 日前
-                                    　→ 原料手配締切：<span className="tabular-nums font-medium text-foreground">{format(pDL, 'M月d日')}</span>
-                                    {sDL && (
-                                      <span className="text-foreground/50">
-                                        {' '}/ {sLabel}：{format(sDL, 'M月d日')}
-                                      </span>
-                                    )}
+                                    {bufferEnabled && brewBufferDays > 0
+                                      ? <>バッファ <span className="tabular-nums">{brewBufferDays}</span> 日｜</>
+                                      : <>バッファなし｜</>}
+                                    原料リード <span className="tabular-nums">{plan.orderLeadDays}</span> 日
                                   </p>
                                 </div>
                               )
-                            })}
+                            })()}
+                            {/* 各回の逆算：1行1回 */}
+                            <div className="pt-1.5">
+                              <p className="font-medium text-foreground/70 mb-1">各回の逆算</p>
+                              {/* 全回で1つのgrid＝列（仕込み日・逆算式・手配日）が縦に揃う */}
+                              <div className="grid grid-cols-[3.5rem_3.5rem_auto_auto] justify-start items-baseline gap-x-3 gap-y-1">
+                                {plan.batches.map(b => {
+                                  const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
+                                  const hasRaw   = b.rawBrewDate !== undefined
+                                  const pBrew    = (useRawAsBase && hasRaw) ? b.rawBrewDate! : b.brewDate
+                                  const pDays    = (useRawAsBase && b.rawFermentationDays !== undefined) ? b.rawFermentationDays : b.fermentationDays
+                                  const pDL      = (useRawAsBase && b.rawMaterialOrderDeadline) ? b.rawMaterialOrderDeadline : b.materialOrderDeadline
+                                  return (
+                                    <Fragment key={b.n}>
+                                      <span className="text-foreground/60">{b.n}回目</span>
+                                      <span className="tabular-nums font-medium text-foreground">{format(pBrew, 'M/d')}</span>
+                                      {b.isFixed ? (
+                                        <span className="text-emerald-700">← 仮登録で確定済み</span>
+                                      ) : (
+                                        <span>
+                                          ← <span className="tabular-nums">{format(b.stockOutDate, 'M/d')}</span>
+                                          {' '}
+                                          {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? 'ライン割れ' : '在庫切れ'}
+                                          {' − '}熟成 <span className="tabular-nums">{pDays}</span> 日
+                                          {bufferEnabled && brewBufferDays > 0 && (
+                                            <>{' − '}バッファ <span className="tabular-nums">{brewBufferDays}</span> 日</>
+                                          )}
+                                          {plan.manualPinIndices.includes(genIndex) && (
+                                            <span className="text-amber-600 ml-1">✎手動</span>
+                                          )}
+                                        </span>
+                                      )}
+                                      <span className="whitespace-nowrap">
+                                        {b.isFixed
+                                          ? <span className="text-foreground/40">手配済</span>
+                                          : <>手配 <span className="tabular-nums text-foreground">{format(pDL, 'M/d')}</span></>}
+                                      </span>
+                                    </Fragment>
+                                  )
+                                })}
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
