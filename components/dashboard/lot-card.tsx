@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
+import { bucketRemainingKg } from '@/lib/lotStock'
 import LotSimulationModal, { type LotSimConfig } from './LotSimulationModal'
 
 type ColoringRisk = 'normal' | 'warning' | 'danger'
@@ -221,11 +222,8 @@ export default function LotCard({
                     const isEmpty  = b.status === '空'
                     const isActive = b.status === '使用中'
                     const isWaiting = b.status === '待機中'
-                    const displayKg = isEmpty
-                      ? 0
-                      : isActive
-                        ? (b.remainingKg ?? b.initialKg)
-                        : b.initialKg
+                    // 在庫サマリーの合計と同じ数え方にする（lib/lotStock.ts）
+                    const displayKg = bucketRemainingKg(b.status, b.remainingKg, b.initialKg)
                     const pct = b.initialKg > 0 ? (displayKg / b.initialKg) * 100 : 0
                     const barColor = isEmpty   ? 'bg-gray-200'
                                    : isWaiting ? 'bg-slate-400'

@@ -8,8 +8,6 @@ import {
 } from 'recharts'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 
-const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
-
 // 凡例の定義
 const LEGEND_ITEMS = [
   { key: 'fermenting', label: '熟成中',     color: '#7B9EC2' },
@@ -70,13 +68,20 @@ function CustomTooltip({ active, payload }: {
   )
 }
 
-export default function InventoryTrendChart({ snapshots }: { snapshots: SnapshotRow[] }) {
+export default function InventoryTrendChart({ snapshots, misoTypes }: { snapshots: SnapshotRow[]; misoTypes: string[] }) {
+  // レシピに無い品種でもスナップショットにあればタブを出す
+  const types = [
+    ...misoTypes,
+    ...Array.from(new Set(snapshots.map(s => s.misoType))).filter(t => !misoTypes.includes(t)),
+  ]
   const [isOpen,       setIsOpen]       = useState(false)
-  const [selectedType, setSelectedType] = useState<string>(MISO_TYPES[0])
+  const [selectedType, setSelectedType] = useState<string>(types[0] ?? '')
 
+  // スナップショットは「前月末」時点なので、当月の列は必ず空になる。
+  // 直近13ヶ月＝先月までを表示する
   const today  = new Date()
   const months = Array.from({ length: 13 }, (_, i) =>
-    format(subMonths(startOfMonth(today), 12 - i), 'yyyy-MM')
+    format(subMonths(startOfMonth(today), 13 - i), 'yyyy-MM')
   )
 
   const snapshotMap: Record<string, SnapshotRow> = {}
@@ -90,9 +95,11 @@ export default function InventoryTrendChart({ snapshots }: { snapshots: Snapshot
     return {
       ym, label,
       hasData:     !!s,
-      fermenting:  s ? Math.round(s.fermentingKg) : 0,
-      aged:        s?.agedKg     != null ? Math.round(s.agedKg)     : 0,
-      packaged:    s?.packagedKg != null ? Math.round(s.packagedKg) : 0,
+      // バーは0未満にしない（外部APIがマイナス在庫を返すことがあり、
+      //  そのまま積むと下向きのバーになる）。ツールチップは実数(...Raw)を表示
+      fermenting:  s ? Math.max(0, Math.round(s.fermentingKg)) : 0,
+      aged:        s?.agedKg     != null ? Math.max(0, Math.round(s.agedKg))     : 0,
+      packaged:    s?.packagedKg != null ? Math.max(0, Math.round(s.packagedKg)) : 0,
       agedRaw:     s?.agedKg     ?? null,
       packagedRaw: s?.packagedKg ?? null,
     }
@@ -129,7 +136,7 @@ export default function InventoryTrendChart({ snapshots }: { snapshots: Snapshot
         <div className="rounded-xl border border-gray-100 bg-white shadow-sm overflow-hidden">
           {/* 品種タブ（アンダーライン式） */}
           <div className="flex border-b border-gray-100 px-4">
-            {MISO_TYPES.map(type => (
+            {types.map(type => (
               <button
                 key={type}
                 type="button"
@@ -149,7 +156,7 @@ export default function InventoryTrendChart({ snapshots }: { snapshots: Snapshot
             {!hasAnyData ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <p className="text-sm">まだデータがありません</p>
-                <p className="text-xs mt-1">毎月1日に自動蓄積されます</p>
+                <p className="text-xs mt-1">毎月末に自動蓄積されます</p>
               </div>
             ) : (
               <>

@@ -16,8 +16,30 @@ export type RoomTemps = {
 }
 const DEFAULT_ROOM_TEMPS: RoomTemps = { room1Temp: 24, room2Temp: 20, fridgeTemp: 6 }
 
-// WeatherCacheにデータがない日のデフォルト（℃/日、effectiveTemp相当）
+// WeatherCacheにデータがない日のデフォルト（℃/日、effectiveTemp相当）。
+// 下の月日平均も取れないときの最終フォールバック
 const DEFAULT_DAILY_TEMP = 14
+
+// WeatherCacheに無い日を「同じ月日の過去平均」で補うためのMap（MM-dd → effectiveTemp平均）。
+// 気象取り込みは前日分までしか入らないため当日は必ず欠測になり、以前は固定14℃/日で
+// 代用していた（夏は実測19〜20℃/日に対して5〜6℃・日の過小評価）。
+// weatherMapごとに一度だけ計算してキャッシュする
+const mmddAvgCache = new WeakMap<Map<string, number>, Map<string, number>>()
+function getMmddAverages(weatherMap: Map<string, number>): Map<string, number> {
+  const cached = mmddAvgCache.get(weatherMap)
+  if (cached) return cached
+  const totals = new Map<string, { sum: number; count: number }>()
+  for (const [dateKey, eff] of weatherMap) {
+    const key = dateKey.slice(5)  // MM-dd
+    const e = totals.get(key) ?? { sum: 0, count: 0 }
+    e.sum += eff; e.count += 1
+    totals.set(key, e)
+  }
+  const avg = new Map<string, number>()
+  for (const [key, { sum, count }] of totals) avg.set(key, sum / count)
+  mmddAvgCache.set(weatherMap, avg)
+  return avg
+}
 
 // 暖房・冷房・温調室（後方互換）から温度を抽出するパターン
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
@@ -61,8 +83,11 @@ function getDailyTemp(
     return naive
   }
   if (location === '冷蔵庫') return Math.max(roomTemps.fridgeTemp - BASE_TEMP, 0)
-  // 常温: WeatherCacheから取得してQ10補正を適用、なければデフォルトを補正
-  const eff  = weatherMap.get(dateKey) ?? DEFAULT_DAILY_TEMP
+  // 常温: WeatherCacheから取得してQ10補正を適用。
+  // 欠測日は同じ月日の過去平均 → それも無ければデフォルト
+  const eff  = weatherMap.get(dateKey)
+            ?? getMmddAverages(weatherMap).get(dateKey.slice(5))
+            ?? DEFAULT_DAILY_TEMP
   const q10  = roomTemps.q10Value        ?? 1
   const base = roomTemps.heatingBaseTemp ?? DEFAULT_HEATING_BASE_TEMP
   return applyQ10(eff, q10, base)
@@ -177,54 +202,4 @@ export function calcPeriodAccumulations(
       accumulated:  Math.round(accumulated * 10) / 10,
     }
   })
-}
-
-// 完成予定日を計算
-export function calcEstimatedCompletion(
-  accumulated: number,
-  target: number,
-  currentLocation: string,
-  weatherMap: Map<string, number>,
-  roomTemps: RoomTemps = DEFAULT_ROOM_TEMPS
-): Date | null {
-  if (accumulated >= target) return null
-
-  const remaining = target - accumulated
-
-  // 暖房: 月別補正係数で日次レートが変わるため、日ごとに積み上げて完成日を求める
-  if (currentLocation.startsWith('暖房')) {
-    const m = currentLocation.match(TEMP_LOCATION_RE)
-    const naive = m ? Math.max(Number(m[1]) - BASE_TEMP, 0) : 0
-    if (naive <= 0) return null
-    let acc = 0
-    let current = startOfDay(new Date())
-    for (let i = 0; i < 730; i++) {
-      const month = current.getMonth() + 1
-      acc += naive * (HEATING_MONTHLY_FACTOR[month] ?? 1)
-      current = addDays(current, 1)
-      if (acc >= remaining) return current
-    }
-    return null
-  }
-
-  let dailyTemp: number
-
-  const m = currentLocation.match(TEMP_LOCATION_RE)
-  if (m) {
-    dailyTemp = Math.max(Number(m[1]) - BASE_TEMP, 0)
-  } else if (currentLocation === '冷蔵庫') {
-    dailyTemp = Math.max(roomTemps.fridgeTemp - BASE_TEMP, 0)
-  } else {
-    // 常温: 直近30日の平均有効気温にQ10補正を適用して使用
-    const q10  = roomTemps.q10Value        ?? 1
-    const base = roomTemps.heatingBaseTemp ?? DEFAULT_HEATING_BASE_TEMP
-    const values = Array.from(weatherMap.values())
-    const recent = values.slice(-30)
-    dailyTemp = recent.length > 0
-      ? recent.map(v => applyQ10(v, q10, base)).reduce((a, b) => a + b, 0) / recent.length
-      : applyQ10(DEFAULT_DAILY_TEMP, q10, base)
-  }
-
-  if (dailyTemp <= 0) return null
-  return addDays(new Date(), Math.ceil(remaining / dailyTemp))
 }

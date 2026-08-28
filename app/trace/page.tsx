@@ -58,6 +58,9 @@ export default async function TracePage({
   let ingredientAlertCount = 0
   let ingredientAlertLabel = ''
 
+  // 品種の選択肢はレシピから（ハードコードすると品種追加時に検索できなくなる）
+  const misoTypes = (await getMisoRecipes()).map(r => r.name)
+
   if (hasSearched) {
     // ── BrewRecord フィルタ ────────────────────────────────
     const brewRecordWhere: Record<string, unknown> = {}
@@ -191,6 +194,7 @@ export default async function TracePage({
 
   return (
     <TraceClient
+      misoTypes={misoTypes}
       lots={lots}
       hasSearched={hasSearched}
       ingredientAlertCount={ingredientAlertCount}

@@ -2,7 +2,12 @@ name: 月末在庫スナップショット保存
 
 on:
   schedule:
-    - cron: '0 15 1 * *'  # 毎月1日 0:00 JST（= UTC 15:00 前日）で前月末在庫を保存
+    # 月末日 15:00 UTC（= JST 翌1日 0:00）に「その月の月末在庫」を保存する。
+    # cron に「月末日」は書けないため 28〜31日に起動し、下の判定ステップで
+    # JSTの日付が1日になる回（＝UTCの実行日が月末日）だけ本処理を走らせる。
+    # ※以前は '0 15 1 * *'（= JST 2日 0:00）で、月末の1〜2日あとの在庫を
+    #   「前月末」として保存していた。
+    - cron: '0 15 28-31 * *'
   workflow_dispatch:       # 手動実行（過去月の補完などに使用）
 
 jobs:
@@ -11,9 +16,23 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      - name: 月末日か判定（JSTで日付が1日になる回だけ実行）
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [ "$(TZ=Asia/Tokyo date +%d)" = "01" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "JST $(TZ=Asia/Tokyo date '+%Y-%m-%d %H:%M') は月末日の実行ではないためスキップします"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.check.outputs.run == 'true'
 
       - name: Set up Python 3.11
+        if: steps.check.outputs.run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -21,9 +40,11 @@ jobs:
           cache-dependency-path: scripts/requirements-forecast.txt
 
       - name: Install dependencies
+        if: steps.check.outputs.run == 'true'
         run: pip install psycopg2-binary requests
 
       - name: Save inventory snapshot
+        if: steps.check.outputs.run == 'true'
         env:
           DATABASE_URL:    ${{ secrets.FORECAST_DATABASE_URL }}
           STOCK_API_URL:   ${{ secrets.STOCK_API_URL }}

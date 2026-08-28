@@ -9,6 +9,7 @@ import { addDays, differenceInDays, format, getDaysInMonth, startOfDay } from 'd
 import { PrismaClient } from '../lib/generated/prisma'
 import * as brewSimNs from '../lib/brewSimulation'
 import * as tempCalcNs from '../lib/tempCalc'
+import * as lotStockNs from '../lib/lotStock'
 import * as calcNs from '../lib/brewPlanCalc'
 
 // tsxはlib配下の.tsをCJSとして読むため、名前付きexportがnamespace直下に出ないことがある。
@@ -19,6 +20,7 @@ const merge = (ns: unknown): Record<string, any> => {
 }
 const brewSim  = merge(brewSimNs)
 const tempCalc = merge(tempCalcNs)
+const lotStock = merge(lotStockNs)
 const calc    = merge(calcNs)
 
 const {
@@ -77,10 +79,7 @@ const getDailyRateFn = (date: Date) => rateMap[format(date, 'yyyy-MM')] ?? lastR
 // 供給イベント（熟成中ロットの完成 ＋ 仮登録の完成）
 const supplyEvents: { date: Date; kg: number; note: string }[] = []
 for (const lot of lots.filter(l => l.misoType === MISO)) {
-  const nonEmpty = lot.buckets.filter(b => b.status !== '空')
-  const yieldKg  = lot.buckets.length > 0
-    ? nonEmpty.reduce((s, b) => s + (b.remainingWeightKg ?? b.initialWeightKg), 0)
-    : lot.totalWeightKg
+  const yieldKg = lotStock.fermentingKgOfLot(lot, setting('yieldRate', 0.95))
   if (yieldKg <= 0) continue
   // 画面と同じく、今日時点の実績積算温度で較正した完成予定日を使う
   const accumulatedTemp = tempCalc.calcAccumulatedTemp(

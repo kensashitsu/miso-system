@@ -1,10 +1,11 @@
 /**
  * 熟成完了日シミュレーション（weatherAvg ベース・前向き予測）
  *
- * calcEstimatedCompletion（tempCalc.ts）は直近30日の実績気温を外挿するため、
- * 春仕込みのロットが夏の高温を見込めず完成日が過大になる。
- * こちらは月日平均（weatherAvg）を用いて今日以降を日別シミュレーションするため、
- * 夏季の常温熟成を正確に予測できる。
+ * 直近30日の実績気温を外挿する方式だと、春仕込みのロットが夏の高温を見込めず
+ * 完成日が過大になる。こちらは月日平均（weatherAvg）を用いて今日以降を日別に
+ * シミュレーションするため、夏季の常温熟成を正確に予測できる。
+ * さらに actualAccumToday（今日時点の実績積算温度）を渡すと、今日の点が実績と
+ * 一致するよう較正される。
  */
 
 import { addDays, format, startOfDay } from 'date-fns'
@@ -29,70 +30,6 @@ function parseLocation(loc: string, fridgeTemp: number): LocationInfo {
     return rate <= 0 ? { kind: 'stopped' } : { kind: 'fixed', rate }
   }
   return { kind: 'outdoor' }
-}
-
-/**
- * 現在の積算温度と現在地から完成予定日を計算する。
- *
- * @param accumulatedTemp  現在の積算温度（℃・日）
- * @param targetTempSum    目標積算温度（℃・日）
- * @param currentLocation  現在の場所文字列（例: '暖房25℃' / '常温' / '冷蔵庫'）
- * @param weatherAvg       MM-dd → effectiveTemp の月日平均 Map（全年履歴から計算）
- * @param q10Value         Q10係数（常温のみ適用）
- * @param heatingBaseTemp  Q10基準温度（= heatingDefaultTemp）
- * @param fridgeTemp       冷蔵庫設定温度（℃）
- * @returns 完成予定日、または null（冷蔵庫など停止中）
- */
-export function calcSimulatedCompletionDate(
-  accumulatedTemp:  number,
-  targetTempSum:    number,
-  currentLocation:  string,
-  weatherAvg:       Record<string, number>,
-  q10Value:         number,
-  heatingBaseTemp:  number,
-  fridgeTemp:       number,
-): Date | null {
-  if (targetTempSum <= 0) return null
-  if (accumulatedTemp >= targetTempSum) return startOfDay(new Date())
-
-  const info = parseLocation(currentLocation, fridgeTemp)
-  if (info.kind === 'stopped') return null
-
-  if (info.kind === 'fixed') {
-    if (info.rate <= 0) return null
-    const days = Math.ceil((targetTempSum - accumulatedTemp) / info.rate)
-    return addDays(startOfDay(new Date()), days)
-  }
-
-  if (info.kind === 'heating') {
-    if (info.rate <= 0) return null
-    let acc = 0
-    let curr = startOfDay(new Date())
-    for (let i = 0; i < 730; i++) {
-      const month = curr.getMonth() + 1
-      acc += info.rate * (HEATING_MONTHLY_FACTOR[month] ?? 1)
-      curr = addDays(curr, 1)
-      if (acc >= targetTempSum - accumulatedTemp) return curr
-    }
-    return null
-  }
-
-  // 常温: weatherAvg（過去複数年の月日平均 effectiveTemp）＋ Q10補正で日別前向きシミュレーション
-  // addDays は新しい Date を返し元を破壊しない
-  let curr  = startOfDay(new Date())
-  let accum = accumulatedTemp
-
-  for (let i = 0; i < 730; i++) {
-    const eff   = weatherAvg[format(curr, 'MM-dd')] ?? 0
-    const daily = (eff > 0 && q10Value !== 1)
-      ? eff * Math.pow(q10Value, (eff + 10 - heatingBaseTemp) / 10)
-      : eff
-    accum = Math.round((accum + daily) * 10) / 10
-    if (accum >= targetTempSum) return new Date(curr.getTime())
-    curr = addDays(curr, 1)
-  }
-
-  return null  // 730日以内に完成しない場合
 }
 
 // ─────────────────────────────────────────────────────────────

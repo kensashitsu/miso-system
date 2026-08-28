@@ -63,7 +63,7 @@ next start を社内PC1台で常時起動
 |--------|--------|-----------------|------|
 | 暖房 | `暖房25℃` | `設定温度 − 10` ℃/日 | ヒーター。設定温度は移動時に任意入力。保存形式: `暖房XX℃` |
 | 冷房 | `冷房20℃` | `max(設定温度 − 10, 0)` ℃/日 | クーラー。設定温度は移動時に任意入力。保存形式: `冷房XX℃` |
-| 常温 | `常温` | Q10補正済み値（後述） | WeatherCache（防府アメダス）使用。データなし日は14℃/日で補完してQ10適用 |
+| 常温 | `常温` | Q10補正済み値（後述） | WeatherCache（防府アメダス）使用。欠測日は同じ月日の過去平均→無ければ14℃/日で補完してQ10適用 |
 | 冷蔵庫 | `冷蔵庫` | `max(fridgeTemp − 10, 0)` ≒ 0℃/日 | 設定値`fridgeTemp`（デフォルト6℃）。実質積算停止 |
 
 ### ⚠️「温調室」は廃止済み
@@ -101,7 +101,6 @@ function applyQ10(effectiveTemp, q10Value, heatingBaseTemp):
 
 - **常温のみ**（暖房・冷房・冷蔵庫には適用しない）
 - `calcAccumulatedTemp()`・`calcDailyAccumulation()`・`calcPeriodAccumulations()` の常温パス
-- `calcEstimatedCompletion()` の常温推計（直近30日の補正済み平均を使用）
 - `lib/brewSimulation.ts` の `simulateLotForModal()` でも適用
 
 ### 検証値（q10=2.0、heatingBaseTemp=25℃）
@@ -177,7 +176,7 @@ function applyQ10(effectiveTemp, q10Value, heatingBaseTemp):
 |------|-----------|
 | `暖房XX℃` | `設定温度 - 10` ℃/日 |
 | `冷房XX℃` | `max(設定温度 - 10, 0)` ℃/日 |
-| `常温` | `applyQ10(max(avgTempC-10,0), q10Value, heatingBaseTemp)` |
+| `常温` | `applyQ10(max(avgTempC-10,0), q10Value, heatingBaseTemp)`。欠測日は同じ月日の過去平均で補完 |
 | `冷蔵庫` | `max(fridgeTemp - 10, 0)` ≒ 0℃/日 |
 | `温調室XX℃`（旧） | `設定温度 - 10` ℃/日（後方互換のみ） |
 
@@ -193,11 +192,14 @@ type RoomTemps = {
 }
 ```
 
-### 完成予定日の推計（`calcEstimatedCompletion`）
+### 完成予定日の推計（`calcCompletionFromBrew`／`lib/brewSimulation.ts`）
 
-- 暖房・冷房: `ceil(残り ÷ 日次値)` 日後
-- 常温: 直近30日の**Q10補正済み**平均で除算
-- 冷蔵庫（日次値≦0）: `null`（完了予定日なし）
+- 仕込み日から日別にシミュレーションし、Q10補正熟成値が100%に達する日を返す
+- 今日時点の実績積算温度（`actualAccumToday`）を渡して較正する（ダッシュボードの節を参照）
+- 暖房は月別補正係数（`HEATING_MONTHLY_FACTOR`）、常温は月日平均気温＋Q10補正
+- 冷蔵庫（日次値≦0）: `null`（完成予定日なし）
+- ※直近30日の平均気温を外挿する旧 `calcEstimatedCompletion()` は未使用のため2026-08-28に削除
+  （`calcSimulatedCompletionDate()` も同時に削除）
 
 ---
 
@@ -233,7 +235,7 @@ interface MonthlySalesItem { yearMonth: string; misoType: string; weightKg: numb
 
 | 列 | 取得元 |
 |----|--------|
-| 熟成中ロット | 本システム（Bucket残量ベースで品種別集計） |
+| 熟成中ロット | 本システム（Bucket残量ベースで品種別集計。数え方は `lib/lotStock.ts` の `fermentingKgOfLot()` に集約＝「空」桶は0／残量未入力は初期重量／桶レコードが無いロットは仕立量×歩留まり。ダッシュボード・仕込み計画・ロットカード・月末スナップショット（Python）で共通） |
 | 熟成済在庫 | 外部API（stockKg） |
 | 小分け製品在庫 | 外部API（packagedStockKg・追加対応待ち） |
 | 工場内合計 | 上記3列の合計 |
@@ -502,9 +504,10 @@ model IngredientAlert {
 | `lib/prisma.ts` | `prisma` | PrismaClientシングルトン |
 | `lib/settings.ts` | `getMoistureSettings()`, `saveMoistureSettings()`, `MoistureSettings`, `DEFAULT_MOISTURE` | SystemSettingの読み書き |
 | `lib/recipes.ts` | `getMisoRecipes()` | MisoRecipe一覧取得 |
-| `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcEstimatedCompletion()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む）。`calcAccumulatedTemp(..., untilDate?)` の第5引数で積算の終端日を指定できる（熟成中はnull＝今日まで／完成・要対応ロットは`completedAt`まで） |
-| `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcCompletionFromBrew()`, `calcSimulatedCompletionDate()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース）。最後の引数 `actualAccumToday` に今日時点の実績積算温度を渡すと、今日の点が実績と一致するよう較正される（後述） |
+| `lib/tempCalc.ts` | `calcAccumulatedTemp()`, `calcColoringRisk()`, `calcDailyAccumulation()`, `calcPeriodAccumulations()`, `getCurrentLocation()`, `RoomTemps` | 積算温度計算全般（Q10補正含む）。`calcAccumulatedTemp(..., untilDate?)` の第5引数で積算の終端日を指定できる（熟成中はnull＝今日まで／完成・要対応ロットは`completedAt`まで） |
+| `lib/brewSimulation.ts` | `simulateLotForModal()`, `calcCompletionFromBrew()`, `ModalSimDay` | シミュレーションモーダル用の将来予測（月日平均ベース）。最後の引数 `actualAccumToday` に今日時点の実績積算温度を渡すと、今日の点が実績と一致するよう較正される（後述） |
 | `lib/brewPlanCalc.ts` | `calcBatches()`, `findStockOutDate()`, `findStockOutDateAfter()`, `simulateFermentationDays()`, `refineBrewDateToStockOut()`, `BatchPlan` | AI仕込み提案の純粋な計算ロジック（UIから分離・テスト可能）。**日付ロジックを直すときは必ず `npx tsx scripts/debug-brew-plan.mts` で実データ再現してから出すこと** |
+| `lib/lotStock.ts` | `fermentingKgOfLot()`, `bucketRemainingKg()` | 熟成中ロットの在庫量(kg)の数え方（画面・スナップショットで共通） |
 | `lib/forecast.ts` | `holtWinters()`, `getTimeSeries()` | ホルト・ウィンタース法 |
 | `lib/backtest.ts` | `computeBacktest()`, `pickAutoMethods()`, `ForecastMethodKey`, `TypeBacktest` | 予測vs実績バックテスト（偏り・MAPE・最良方式）。④パネル表示と品種別自動方式選択で共有 |
 | `lib/weatherFetch.ts` | `fetchMonthlyWeather()` | 気象庁HTMLスクレイピング |
@@ -550,13 +553,13 @@ SystemSettingキー: `moisture_` プレフィックス（例: `moisture_q10Value
 ### lib/brewSimulation.ts の詳細
 
 `simulateLotForModal()` の動作:
-- **室内期間**（10〜5月）: `dailyRoomAccum`（= room1Temp - 10）を使用
+- **室内期間**（10〜5月）: `dailyRoomAccum`（= heatingDefaultTemp - 10）を使用
 - **屋外期間**（6〜9月）: `weatherAvg`（月日平均 `MM-dd` キー）を使用
 - Q10補正を全期間に適用
 - `futureFixedRate` 指定時はその固定値で計算（ユーザーが将来の場所を選んだ場合）
 - 730日先まで最大シミュレーション・200%で打ち切り
 
-`calcSimulatedCompletionDate()` は `simulateLotForModal()` の簡易版（完成日のみ返す）。
+`calcCompletionFromBrew()` は `simulateLotForModal()` の結果から100%到達日だけを返すラッパー。
 
 ---
 
@@ -592,6 +595,7 @@ STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 - 年範囲を指定して手動取り込み（0.7秒/月のディレイ）
 - `app/settings/weather-actions.ts` の Server Action
 - **当月も取り込み対象**（2026-08-26修正）: 以前は「当月はまだデータが揃っていない」として`currentMonth-1`までしか取り込まず、当月分のWeatherCacheが永久に欠測していた。気象庁は月の途中でも前日分までは公開しており`fetchMonthlyWeather`は実際に公開されている行だけを返すため、当月を含めても未来日が混ざる心配はない。この欠測により、常温熟成中ロットの熟成度%（`calcAccumulatedTemp`、欠測日はデフォルト14℃にフォールバック）と完成予定日（`calcCompletionFromBrew`、過去複数年平均`weatherAvg`を使用）が別々の代用データを参照する形になり、両者が大きく食い違う不具合があった。
+- **月末在庫スナップショット（`inventory-snapshot.yml`）は月末日の15:00 UTC（= JST翌1日0:00）に実行**。cronに「月末日」は書けないため `0 15 28-31 * *` で起動し、ジョブ内で「JSTの日付が1日か」を判定して月末回だけ本処理を走らせる。`get_prev_year_month()` もJST基準。※以前は `0 15 1 * *`（= JST 2日 0:00）で、月末の1〜2日あとの在庫を「前月末」として保存していた（2026-08-28修正）
 - **自動取り込み（GitHub Actions、2026-08-26追加）**: `.github/workflows/weather-import.yml`が毎日5:00 JSTに`scripts/import_weather.py`を実行し、当月（月初3日以内は前月も併せて）のWeatherCacheを自動更新する。SARIMAX予測（`forecast.yml`）・月末在庫スナップショット（`inventory-snapshot.yml`）と同じくPython+psycopg2で`FORECAST_DATABASE_URL`シークレットに直接接続する方式（Prisma経由はpgbouncer越しにハングする問題があるため踏襲）。`/settings`の手動ボタンは引き続き過去分の一括取り込みに使える。
 
 ---
@@ -896,6 +900,7 @@ const nextConfig: NextConfig = {
 - コメント・エラーメッセージは全て**日本語**
 - 日付はJST基準（WeatherCacheのみUTC midnight）。サーバー実行時のTZは `instrumentation.ts` で `Asia/Tokyo` に固定している（Vercel既定のUTCのままだと日付が1日ずれる）
 - 品種名は必ず正規化: 「無添加麦みそ」「田舎みそ」「山吹みそ」「白みそ」
+- **画面に出す品種リストはハードコードしない**: `MisoRecipe`（`isActive`・`sortOrder`順）から渡す。在庫サマリー・在庫推移グラフ・ロットの品種フィルタ・トレース検索の品種セレクタ・月末スナップショット（Python）は対応済み（2026-08-28）。データ側にしか無い品種は末尾に自動で足す
 
 ---
 

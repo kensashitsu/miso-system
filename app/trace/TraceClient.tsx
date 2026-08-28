@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/select'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 
-const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
 const STATUSES   = ['熟成中', '完成', '品質低下出荷', '種みそ転用', '出荷済'] as const
 
 export interface TraceSearchValues {
@@ -46,12 +45,18 @@ export interface TraceLot {
 }
 
 interface Props {
+  misoTypes:            string[]   // 品種の選択肢（MisoRecipe.sortOrder順）
   lots:                 TraceLot[]
   hasSearched:          boolean
   ingredientAlertCount: number
   ingredientAlertLabel: string
   defaultValues:        TraceSearchValues
 }
+
+// 出荷済ロットの completedAt は「熟成完了日」ではなく仕込帳から取り込んだ
+// 「使用開始日」が入っているため、熟成日数が実際より長く出る。数字に注記を付ける
+const SHIPPED_AGING_NOTE =
+  '出荷済ロットの完成日は仕込帳の「使用開始日」のため、実際の熟成日数より長く出ます'
 
 function statusBadgeClass(status: string): string {
   if (status === '熟成中')       return 'border-blue-200 bg-blue-50/70 text-blue-700'
@@ -75,6 +80,7 @@ function riskLabel(risk: string): string {
 }
 
 export default function TraceClient({
+  misoTypes,
   lots,
   hasSearched,
   ingredientAlertCount,
@@ -172,7 +178,7 @@ export default function TraceClient({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全品種</SelectItem>
-                    {MISO_TYPES.map(t => (
+                    {misoTypes.map(t => (
                       <SelectItem key={t} value={t}>{t}</SelectItem>
                     ))}
                   </SelectContent>
@@ -346,7 +352,10 @@ export default function TraceClient({
                     <span>現在地 <span className="text-gray-700">{lot.currentLocation}</span></span>
                     <span>積算温度 <span className="text-gray-700 tabular-nums">{lot.accumulatedTemp.toLocaleString()}/{lot.targetTempSum}℃</span></span>
                     {lot.elapsedDays !== null
-                      ? <span>熟成 <span className="text-gray-700 tabular-nums">{lot.elapsedDays}日</span></span>
+                      ? <span>熟成 <span
+                          className="text-gray-700 tabular-nums"
+                          title={lot.status === '出荷済' ? SHIPPED_AGING_NOTE : undefined}
+                        >{lot.elapsedDays}日{lot.status === '出荷済' && <span className="text-gray-400">※</span>}</span></span>
                       : lot.status !== '熟成中'
                         ? <span onClick={e => e.stopPropagation()}>
                             {editingCompletedAt === lot.id ? (
@@ -430,7 +439,11 @@ export default function TraceClient({
                       </td>
                       <td className="px-3 py-2.5 tabular-nums whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
                         {lot.elapsedDays !== null ? (
-                          <><span className="font-medium text-gray-700">{lot.elapsedDays}</span><span className="text-muted-foreground text-xs ml-0.5">日</span></>
+                          <span title={lot.status === '出荷済' ? SHIPPED_AGING_NOTE : undefined}>
+                            <span className="font-medium text-gray-700">{lot.elapsedDays}</span>
+                            <span className="text-muted-foreground text-xs ml-0.5">日</span>
+                            {lot.status === '出荷済' && <span className="text-gray-400 text-xs">※</span>}
+                          </span>
                         ) : editingCompletedAt === lot.id ? (
                           <div className="flex items-center gap-1 justify-end">
                             <input

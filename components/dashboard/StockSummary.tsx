@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 
-const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
-
+// 表示順は MisoRecipe.sortOrder（page.tsx から渡す）。ハードコードしない
 type StockSummaryProps = {
+  misoTypes:          string[]
   agedStockMap:       Record<string, { agedKg: number; packagedKg: number | null }>
   fermentingKgByType: Record<string, number>
   hasApiData:         boolean
@@ -24,10 +24,16 @@ function KgCell({ value, warn }: { value: number | null; warn?: boolean }) {
   )
 }
 
-export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiData, hasApiError, safetyStockMap }: StockSummaryProps) {
+export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByType, hasApiData, hasApiError, safetyStockMap }: StockSummaryProps) {
+  // レシピに無い品種でも在庫APIや熟成中ロットに出てきたら行を作る（取りこぼし防止）
+  const types = [
+    ...misoTypes,
+    ...Object.keys(agedStockMap).filter(t => !misoTypes.includes(t)),
+    ...Object.keys(fermentingKgByType).filter(t => !misoTypes.includes(t) && !(t in agedStockMap)),
+  ]
   const [isOpen, setIsOpen] = useState(true)
 
-  const rows = MISO_TYPES.map(type => {
+  const rows = types.map(type => {
     const stock      = agedStockMap[type] ?? null
     const aged       = stock?.agedKg ?? null
     const packaged   = stock?.packagedKg ?? null
@@ -98,7 +104,7 @@ export default function StockSummary({ agedStockMap, fermentingKgByType, hasApiD
                 </tr>
               </thead>
               <tbody>
-                {MISO_TYPES.map(type => {
+                {types.map(type => {
                   const stock      = agedStockMap[type] ?? null
                   const aged       = stock?.agedKg ?? null
                   const packaged   = stock?.packagedKg ?? null

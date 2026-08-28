@@ -10,11 +10,10 @@ interface Props {
   completedLots:   LotCardProps[]
   needsActionLots: LotCardProps[]
   simConfig?:      LotSimConfig
+  misoTypes?:      string[]   // 表示順（MisoRecipe.sortOrder）。省略時はロットの出現順
 }
 
-const MISO_TYPE_ORDER = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ']
-
-export default function DashboardLotGroups({ agingLots, completedLots, needsActionLots, simConfig }: Props) {
+export default function DashboardLotGroups({ agingLots, completedLots, needsActionLots, simConfig, misoTypes = [] }: Props) {
   const [forceSignal, setForceSignal] = useState<{ open: boolean } | null>(null)
   const [allOpen, setAllOpen] = useState(true)
   const [selectedType, setSelectedType] = useState<string | null>(null)
@@ -35,8 +34,12 @@ export default function DashboardLotGroups({ agingLots, completedLots, needsActi
     )
   }
 
-  // 実在する品種のみフィルタボタンを表示（表示順固定）
-  const availableTypes = MISO_TYPE_ORDER.filter(t => allLots.some(l => l.misoType === t))
+  // 実在する品種のみフィルタボタンを表示（レシピの並び順。レシピに無い品種は後ろに付ける）
+  const lotTypes = Array.from(new Set(allLots.map(l => l.misoType)))
+  const availableTypes = [
+    ...misoTypes.filter(t => lotTypes.includes(t)),
+    ...lotTypes.filter(t => !misoTypes.includes(t)),
+  ]
 
   const filter = (lots: LotCardProps[]) =>
     selectedType ? lots.filter(l => l.misoType === selectedType) : lots

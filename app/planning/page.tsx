@@ -5,6 +5,7 @@ import { getMisoRecipes } from '@/lib/recipes'
 import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import { calcAccumulatedTemp, getCurrentLocation } from '@/lib/tempCalc'
+import { fermentingKgOfLot } from '@/lib/lotStock'
 import { computeBacktest, pickAutoMethods } from '@/lib/backtest'
 import BrewSuggestions from './BrewSuggestions'
 import DemandChart from './DemandChart'
@@ -98,6 +99,7 @@ export default async function PlanningPage() {
       select: {
         misoType:      true,
         totalWeightKg: true,
+        yieldRate:     true,
         brewedAt:      true,
         targetTempSum: true,
         lotNumber:     true,
@@ -130,13 +132,10 @@ export default async function PlanningPage() {
     largeOrders = []
   }
 
-  // 熟成中ロットを品種別に集計（Bucketがある場合は残量で計算）
+  // 熟成中ロットを品種別に集計（数え方は lib/lotStock.ts に集約・ダッシュボードと共通）
   const fermentingByType: Record<string, { totalKg: number; count: number }> = {}
   for (const lot of fermentingLotRows) {
-    const nonEmptyBuckets = lot.buckets.filter(b => b.status !== '空')
-    const effectiveKg = lot.buckets.length > 0
-      ? nonEmptyBuckets.reduce((sum, b) => sum + (b.remainingWeightKg ?? b.initialWeightKg), 0)
-      : lot.totalWeightKg
+    const effectiveKg = fermentingKgOfLot(lot, moisture.yieldRate)
     const entry = fermentingByType[lot.misoType] ?? { totalKg: 0, count: 0 }
     entry.totalKg += effectiveKg
     entry.count   += 1
@@ -174,10 +173,7 @@ export default async function PlanningPage() {
   const dailyRoomAccum  = moisture.heatingDefaultTemp - 10
   const fermentingScheduleByType: Record<string, { completionDateStr: string; yieldKg: number; label?: string }[]> = {}
   for (const lot of fermentingLotRows) {
-    const nonEmptyBuckets = lot.buckets.filter(b => b.status !== '空')
-    const yieldKg = lot.buckets.length > 0
-      ? nonEmptyBuckets.reduce((sum, b) => sum + (b.remainingWeightKg ?? b.initialWeightKg), 0)
-      : lot.totalWeightKg
+    const yieldKg = fermentingKgOfLot(lot, moisture.yieldRate)
     if (yieldKg <= 0) continue
 
     const currentLocation = lot.locationHistory.length > 0 ? getCurrentLocation(lot.locationHistory) : '常温'

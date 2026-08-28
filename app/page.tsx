@@ -11,6 +11,7 @@ import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import { fetchAgedStock } from '@/lib/externalApi'
 import { getMisoRecipes } from '@/lib/recipes'
 import { makeSafetyLineFn } from '@/lib/brewPlanCalc'
+import { fermentingKgOfLot } from '@/lib/lotStock'
 import DashboardLotGroups from '@/components/dashboard/DashboardLotGroups'
 import { type LotCardProps, type LotSimConfig } from '@/components/dashboard/lot-card'
 import StockSummary from '@/components/dashboard/StockSummary'
@@ -46,6 +47,9 @@ export default async function DashboardPage() {
     const line = makeSafetyLineFn(r.safetyStockKg ?? 0, r.winterSafetyStockKg, r.summerSafetyStockKg)(now)
     if (line > 0) safetyStockMap[r.name] = line
   }
+  // 表示する品種はレシピ（有効なもの）から。ハードコードすると品種追加時に
+  // サマリー・グラフから無言で抜け落ちる
+  const misoTypes = recipes.map(r => r.name)
   const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
 
   // API在庫を品種別Mapに変換
@@ -168,13 +172,11 @@ export default async function DashboardPage() {
   sortGroup(completedLots)
   sortGroup(needsActionLots)
 
-  // 熟成中ロットを品種別に集計（桶残量ベース）
+  // 熟成中ロットを品種別に集計（桶残量ベース。数え方は lib/lotStock.ts に集約）
   const fermentingKgByType: Record<string, number> = {}
-  for (const lot of agingLots) {
-    const nonEmpty = lot.buckets.filter(b => b.status !== '空')
-    const kg = lot.buckets.length > 0
-      ? nonEmpty.reduce((sum, b) => sum + (b.remainingKg ?? b.initialKg), 0)
-      : 0
+  for (const lot of lots) {
+    if (lot.status !== '熟成中') continue
+    const kg = fermentingKgOfLot(lot, moisture.yieldRate)
     fermentingKgByType[lot.misoType] = (fermentingKgByType[lot.misoType] ?? 0) + kg
   }
 
@@ -196,6 +198,7 @@ export default async function DashboardPage() {
 
       {/* 品種別在庫サマリー */}
       <StockSummary
+        misoTypes={misoTypes}
         agedStockMap={agedStockMap}
         fermentingKgByType={fermentingKgByType}
         hasApiData={agedStockData != null}
@@ -204,7 +207,7 @@ export default async function DashboardPage() {
       />
 
       {/* 在庫推移グラフ */}
-      <InventoryTrendChart snapshots={inventorySnapshots} />
+      <InventoryTrendChart snapshots={inventorySnapshots} misoTypes={misoTypes} />
 
       {/* アラートバナー */}
       {(dangerLots.length > 0 || nearCompletionLots.length > 0 || lowSafetyStockTypes.length > 0) && (
@@ -248,6 +251,7 @@ export default async function DashboardPage() {
 
       {/* ロット一覧（グループ別） */}
       <DashboardLotGroups
+        misoTypes={misoTypes}
         agingLots={agingLots}
         completedLots={completedLots}
         needsActionLots={needsActionLots}
