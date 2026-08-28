@@ -101,7 +101,8 @@ interface RecipePlan {
   stockKg:          number
   fermentingKg:     number
   fermentingCount:  number
-  safetyStockKg:    number | null
+  safetyStockKg:    number | null   // 通年ライン（ラインが設定されているかの判定用）
+  currentSafetyKg:  number | null   // 今日に適用されるライン（季節で変わるため表示はこちらを使う）
   dailyRate:        number
   dailyAccum:       number
   location:         string
@@ -1048,6 +1049,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       name: recipe.name,
       monthlyAvg, usingHW, usingSarimax, autoApplied, fermentationDays,
       effectiveStock, stockKg, fermentingKg, fermentingCount, safetyStockKg,
+      currentSafetyKg: safetyLineAt ? safetyLineAt(today) : null,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, manualPinIndices: Object.keys(manualBrewDateRaw).map(Number),
@@ -1490,9 +1492,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
             const fermentLead = (plan.fermentingCount > 0 && !optimisticStock)
               ? `熟成中ロット ${fmtKg} kg（${plan.fermentingCount}件）が順次完成する分を見込んでも、` : ''
             // 安全在庫ライン設定時は「在庫切れ」ではなく「ラインを割る」という言い回しにする
-            const outLabel   = plan.safetyStockKg != null ? '安全在庫ラインを下回る見込み' : '在庫切れの見込み'
-            const safetyTxt  = plan.safetyStockKg != null
-              ? `（安全在庫ライン ${plan.safetyStockKg.toLocaleString()} kg を割らないよう逆算）` : ''
+            const outLabel   = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを下回る見込み' : '在庫切れの見込み'
+            const safetyTxt  = plan.currentSafetyKg != null && plan.currentSafetyKg > 0
+              ? `（安全在庫ライン ${plan.currentSafetyKg.toLocaleString()} kg を割らないよう逆算）` : ''
 
             // 在庫切れ超過中：最優先で警告トーン
             if (plan.isBrewDatePast) {
@@ -1751,11 +1753,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                     </p>
                     <p className="text-xs text-red-600/90">
                       現在の有効在庫：{Math.round(plan.effectiveStock).toLocaleString()} kg
-                      {plan.safetyStockKg != null && (
-                        <> （安全在庫ライン {plan.safetyStockKg.toLocaleString()} kg を除く実質 {Math.max(Math.round(plan.effectiveStock - plan.safetyStockKg), 0).toLocaleString()} kg）</>
+                      {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 && (
+                        <> （安全在庫ライン {plan.currentSafetyKg.toLocaleString()} kg を除く実質 {Math.max(Math.round(plan.effectiveStock - plan.currentSafetyKg), 0).toLocaleString()} kg）</>
                       )} ／
                       消費ペース：約 {Math.round(plan.dailyRate).toLocaleString()} kg/日 ／
-                      {plan.safetyStockKg != null ? '安全在庫ラインを割るまで' : '推定在庫切れまで'}：{plan.stockOutInDays != null ? `あと ${plan.stockOutInDays} 日` : '—'}
+                      {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割るまで' : '推定在庫切れまで'}：{plan.stockOutInDays != null ? `あと ${plan.stockOutInDays} 日` : '—'}
                     </p>
                   </div>
                 )}

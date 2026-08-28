@@ -142,7 +142,7 @@ const isDoubleBatch = MISO === '無添加麦みそ'
   : undefined
 
 console.log(`=== ${MISO} ===`)
-console.log(`今日 ${d(today)} / 1回の生産量 ${batchKg}kg${batchKg !== recipe.totalWeightKg ? `（実際は${recipe.totalWeightKg}kg・試算で上書き）` : ''} / 安全在庫 ${safety}kg`)
+console.log(`今日 ${d(today)} / 今日のライン ${safetyLineAt(today)}kg / 1回の生産量 ${batchKg}kg${batchKg !== recipe.totalWeightKg ? `（実際は${recipe.totalWeightKg}kg・試算で上書き）` : ''} / 安全在庫 ${safety}kg`)
 console.log(`現在庫 ${stockKg}kg → 実質使える在庫 ${Math.round(depletableStock)}kg / 冬季ライン ${winterSafety ?? '未設定'} / 夏季ライン ${summerSafety ?? '未設定'}`)
 console.log('消費ペース(kg/日):', ['2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03']
   .map(m => `${m}:${Math.round(rateMap[m] ?? lastRate)}`).join(' '))
@@ -154,8 +154,8 @@ console.log('供給予定:', supplyEvents.map(e => `${d(e.date)} +${Math.round(e
 const minBrewDate = snapToBrewDay(nextWeekMonday(today))
 const earliest    = getCompletion(minBrewDate).completionDate
 console.log(`\n最短仕込み日 ${d(minBrewDate)} → その完成日 ${d(earliest)}（熟成${getCompletion(minBrewDate).days}日）`)
-console.log(`本当の在庫切れ日          : ${d(findStockOutDate(depletableStock, today, getDailyRateFn, supplyEvents))}`)
-console.log(`この回が狙う在庫切れ日    : ${d(findStockOutDateAfter(depletableStock, today, getDailyRateFn, earliest, supplyEvents))}`)
+console.log(`本当の在庫切れ日          : ${d(findStockOutDate(depletableStock, today, getDailyRateFn, supplyEvents, getSafetyDelta))}`)
+console.log(`この回が狙う在庫切れ日    : ${d(findStockOutDateAfter(depletableStock, today, getDailyRateFn, earliest, supplyEvents, getSafetyDelta))}`)
 
 const batches = calcBatches(
   depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, batchKg,
