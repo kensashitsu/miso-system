@@ -69,6 +69,10 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
   //   safetyStockKg が null でも階段線は描く
   const multi = markers.length > 1
   const lbl = (base: string, n: number) => (multi ? `${base}${n}` : base)
+  // 縦線は本数を絞る。手配締切・在庫切れは「これから最初に来る1本」だけ出す
+  const nextStockOut = markers
+    .filter(m => has(m.stockOut) && m.stockOut! >= todayStr)
+    .sort((a, b) => a.stockOut!.localeCompare(b.stockOut!))[0] ?? null
 
   // X軸ラベルは8個程度に間引く
   const tickStep = Math.max(1, Math.ceil(points.length / 8))
@@ -76,7 +80,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
 
   return (
     <div className="space-y-1">
-      <div className="h-48 w-full">
+      <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={points} margin={{ top: 18, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -158,51 +162,50 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
                 />
               )
             })}
-            {markers.map(m => (
-              <g key={m.n}>
-                {has(m.deadline) && (
-                  <ReferenceLine
-                    x={m.deadline}
-                    stroke={COLOR.deadline}
-                    strokeDasharray="4 3"
-                    label={{ value: lbl('手配', m.n), position: 'insideTop', fontSize: 10, fill: COLOR.deadline }}
-                  />
-                )}
-                {has(m.brew) && (
-                  <ReferenceLine
-                    x={m.brew}
-                    stroke={COLOR.brew}
-                    label={{ value: lbl(m.isFixed ? '仕込済' : '仕込', m.n), position: 'insideBottomLeft', fontSize: 10, fill: COLOR.brew }}
-                  />
-                )}
-                {has(m.completion) && (
-                  <ReferenceLine
-                    x={m.completion}
-                    stroke={COLOR.comp}
-                    label={{ value: lbl('完成', m.n), position: 'insideTop', fontSize: 10, fill: COLOR.comp }}
-                  />
-                )}
-                {has(m.stockOut) && (
-                  <ReferenceLine
-                    x={m.stockOut}
-                    stroke={COLOR.out}
-                    strokeDasharray="4 3"
-                    label={{ value: lbl('切れ', m.n), position: 'insideBottomRight', fontSize: 10, fill: COLOR.out }}
-                  />
-                )}
-              </g>
+            {/* 仕込み日：ラベルを外し細い薄線だけにする（正確な日付は上の表を参照）。
+                ラベル付きの縦線を回数分出すと重なって読めなくなるため */}
+            {markers.filter(m => has(m.brew)).map(m => (
+              <ReferenceLine
+                key={`brew-${m.n}`}
+                x={m.brew}
+                stroke={COLOR.brew}
+                strokeOpacity={0.35}
+                strokeWidth={1}
+              />
             ))}
+            {/* 完成日：在庫が跳ね上がる点に打つ。確定分は桶番号ラベルが別途出るので新規提案のみ */}
+            {markers.filter(m => !m.isFixed && has(m.completion)).map(m => (
+              <ReferenceDot
+                key={`comp-${m.n}`}
+                x={m.completion}
+                y={kgAt.get(m.completion!) ?? 0}
+                r={3.5}
+                fill={COLOR.comp}
+                stroke="#fff"
+                strokeWidth={1.5}
+                label={{ value: lbl('完成', m.n), position: 'top', fontSize: 9, fill: COLOR.comp }}
+              />
+            ))}
+            {/* 在庫切れは直近の1本だけ縦線で出す（全回分出すと線だらけで読めない）。
+                手配締切は上の表に載っているのでグラフには出さない */}
+            {nextStockOut && (
+              <ReferenceLine
+                x={nextStockOut.stockOut!}
+                stroke={COLOR.out}
+                strokeDasharray="4 3"
+                label={{ value: lbl('切れ', nextStockOut.n), position: 'insideBottomRight', fontSize: 10, fill: COLOR.out }}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-1">
         <span><span className="inline-block w-2.5 h-2.5 rounded-sm align-[-1px] mr-1" style={{ background: COLOR.stock, opacity: 0.5 }} />在庫見込み</span>
-        <span style={{ color: COLOR.deadline }}>┆ 手配締切</span>
         <span style={{ color: COLOR.brew }}>│ 仕込み日</span>
-        <span style={{ color: COLOR.comp }}>│ 完成（補充）</span>
+        <span style={{ color: COLOR.comp }}>● 完成（補充）</span>
         {hasFermenting && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶）</span>}
         {hasRegistered && <span style={{ color: COLOR.regBucket }}>● 仮登録の完成（桶）</span>}
-        <span style={{ color: COLOR.out }}>┆ 在庫切れ</span>
+        <span style={{ color: COLOR.out }}>┆ 直近の在庫切れ</span>
       </div>
     </div>
   )
