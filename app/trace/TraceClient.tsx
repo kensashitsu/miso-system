@@ -37,6 +37,7 @@ export interface TraceLot {
   status:          string
   elapsedDays:     number | null
   accumulatedTemp: number
+  postCompletionTemp: number | null   // 完成後に置き場で進んだ積算
   targetTempSum:   number
   coloringRisk:    'normal' | 'warning' | 'danger'
   currentLocation: string
@@ -55,6 +56,9 @@ interface Props {
 
 // 出荷済ロットの completedAt は「熟成完了日」ではなく仕込帳から取り込んだ
 // 「使用開始日」が入っているため、熟成日数が実際より長く出る。数字に注記を付ける
+const POST_COMPLETION_NOTE =
+  '完成後も置き場の温度に応じて熟成は進みます（この分は目標到達後の上乗せ）'
+
 const SHIPPED_AGING_NOTE =
   '出荷済ロットの完成日は仕込帳の「使用開始日」のため、実際の熟成日数より長く出ます'
 
@@ -350,7 +354,14 @@ export default function TraceClient({
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <span>仕込み <span className="text-gray-700 tabular-nums">{format(new Date(lot.brewedAtISO), 'yyyy/MM/dd')}</span></span>
                     <span>現在地 <span className="text-gray-700">{lot.currentLocation}</span></span>
-                    <span>積算温度 <span className="text-gray-700 tabular-nums">{lot.accumulatedTemp.toLocaleString()}/{lot.targetTempSum}℃</span></span>
+                    <span>積算温度 <span className="text-gray-700 tabular-nums">
+                      {lot.accumulatedTemp.toLocaleString()}/{lot.targetTempSum}℃
+                      {lot.postCompletionTemp != null && (
+                        <span className="text-amber-700 ml-1" title={POST_COMPLETION_NOTE}>
+                          (完成後+{lot.postCompletionTemp.toLocaleString()})
+                        </span>
+                      )}
+                    </span></span>
                     {lot.elapsedDays !== null
                       ? <span>熟成 <span
                           className="text-gray-700 tabular-nums"
@@ -498,6 +509,11 @@ export default function TraceClient({
                             <span className="text-muted-foreground text-xs ml-0.5">
                               /{lot.targetTempSum}℃
                             </span>
+                            {lot.postCompletionTemp != null && (
+                              <span className="text-amber-700 text-xs ml-1" title={POST_COMPLETION_NOTE}>
+                                +{lot.postCompletionTemp.toLocaleString()}
+                              </span>
+                            )}
                           </span>
                           {lot.status === '熟成中' && (
                             <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${riskBadgeClass(lot.coloringRisk)}`}>

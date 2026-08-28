@@ -3,7 +3,7 @@ import { differenceInDays, format, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
 import {
-  calcAccumulatedTemp,
+  calcAccumulatedTempSplit,
   calcColoringRisk,
   calcPeriodAccumulations,
   getCurrentLocation,
@@ -65,11 +65,13 @@ export default async function LotDetailPage({ params }: Props) {
   }
 
   const today = startOfDay(new Date())
-  // 熟成中は今日まで、それ以外は完成日（completedAt）で積算を打ち切る（ダッシュボードと同じ扱い）
+  // 「完成までの熟成度」と「完成後に進んだ分」を分ける（ダッシュボードと同じ扱い）。
+  // 着色リスクは累計で判定する
   const accumUntil = lot.status === '熟成中' ? null : lot.completedAt
-  const accumulatedTemp = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps, accumUntil)
+  const accum = calcAccumulatedTempSplit(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps, accumUntil)
+  const accumulatedTemp = accum.untilCompletion
   const currentLocation = getCurrentLocation(lot.locationHistory)
-  const coloringRisk = calcColoringRisk(accumulatedTemp, targetTempSum)
+  const coloringRisk = calcColoringRisk(accum.total, targetTempSum)
   // 今日時点の実績積算を渡して較正（熟成度%と完成予定日が同じ点を通るようにする）
   const estimatedCompletion =
     lot.status === '熟成中'
@@ -125,6 +127,7 @@ export default async function LotDetailPage({ params }: Props) {
     completedAtISO:         lot.completedAt?.toISOString() ?? null,
     bucketNumbers:          lot.bucketNumbers ?? null,
     accumulatedTemp,
+    postCompletionTemp:     accum.afterCompletion > 0 ? accum.afterCompletion : null,
     currentLocation,
     coloringRisk,
     estimatedCompletionISO: estimatedCompletion?.toISOString() ?? null,

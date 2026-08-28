@@ -3,7 +3,7 @@ import { AlertTriangle, Clock } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import {
-  calcAccumulatedTemp,
+  calcAccumulatedTempSplit,
   calcColoringRisk,
   getCurrentLocation,
 } from '@/lib/tempCalc'
@@ -104,12 +104,13 @@ export default async function DashboardPage() {
   // 各ロットの積算温度・リスク・完成予定日を計算
   const lotData: LotCardProps[] = lots.map(lot => {
     const targetTempSum   = recipeTargetMap[lot.misoType] ?? lot.targetTempSum
-    // 熟成中は今日まで、それ以外は完成日（completedAt）で積算を打ち切る。
-    // 打ち切らないと完成後も熟成度%が伸び続け、完成ロットが「着色リスク高」になる
+    // 「完成までの熟成度」と「完成後に進んだ分」を分けて出す。
+    // 完成後も置き場の温度に応じて熟成は進むため、着色リスクは累計で判定する
     const accumUntil      = lot.status === '熟成中' ? null : lot.completedAt
-    const accumulated     = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps, accumUntil)
+    const accum           = calcAccumulatedTempSplit(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps, accumUntil)
+    const accumulated     = accum.untilCompletion
     const currentLocation = getCurrentLocation(lot.locationHistory)
-    const coloringRisk    = calcColoringRisk(accumulated, targetTempSum)
+    const coloringRisk    = calcColoringRisk(accum.total, targetTempSum)
     // 仕込み日起点シミュレーション（simulateLotForModal準拠）→ ロット詳細モーダルと完成予定日を統一。
     // 今日時点の実績積算（accumulated）を渡して較正するため、カードの熟成度%と同じ点を通る
     const estimatedCompletion =
@@ -134,6 +135,7 @@ export default async function DashboardPage() {
       brewedAtISO: lot.brewedAt.toISOString(),
       elapsedDays,
       accumulatedTemp: accumulated,
+      postCompletionTemp: accum.afterCompletion > 0 ? accum.afterCompletion : null,
       targetTempSum,
       currentLocation,
       estimatedCompletionISO: estimatedCompletion?.toISOString() ?? null,

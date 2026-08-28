@@ -21,7 +21,8 @@ export interface LotCardProps {
   misoType: string
   brewedAtISO: string
   elapsedDays: number
-  accumulatedTemp: number
+  accumulatedTemp: number         // 完成までの積算（熟成中は今日まで）
+  postCompletionTemp?: number | null  // 完成後に進んだ積算（完成ロットのみ）
   targetTempSum: number
   currentLocation: string
   estimatedCompletionISO: string | null
@@ -60,6 +61,13 @@ const PROGRESS_COLOR: Record<ColoringRisk, string> = {
   danger:  'bg-rose-500',
 }
 
+// 熟成度%から着色リスクを求める（バーの色分け用。判定基準は calcColoringRisk と同じ）
+function riskOfPct(pct: number): ColoringRisk {
+  if (pct >= 150) return 'danger'
+  if (pct >= 120) return 'warning'
+  return 'normal'
+}
+
 // 「あと3日」「本日」「5日前」の表記（日付単位。時刻の差で1日ズレないよう startOfDay 基準で数える）
 function relativeDayLabel(days: number): string {
   if (days === 0) return '本日'
@@ -79,6 +87,7 @@ export default function LotCard({
   brewedAtISO,
   elapsedDays,
   accumulatedTemp,
+  postCompletionTemp,
   targetTempSum,
   currentLocation,
   estimatedCompletionISO,
@@ -105,6 +114,11 @@ export default function LotCard({
   // バー幅は常に 100% 上限。完成済みは実際の値（例: 120.3%）をテキストで表示
   const barWidth    = Math.min(100, rawPct)
   const progressPercent = Math.round(rawPct * 10) / 10
+  // 完成後も置き場の温度に応じて熟成は進む。完成時点の熟成度と分けて表示する
+  const postTemp    = postCompletionTemp ?? 0
+  const hasPost     = postTemp > 0
+  const totalPct    = targetTempSum > 0 ? ((accumulatedTemp + postTemp) / targetTempSum) * 100 : 0
+  const postBarWidth = Math.max(0, Math.min(100 - barWidth, totalPct - rawPct))
   const brewDate        = new Date(brewedAtISO)
   const completionDate  = estimatedCompletionISO ? new Date(estimatedCompletionISO) : null
   const completedAt     = completedAtISO ? new Date(completedAtISO) : null
@@ -174,23 +188,47 @@ export default function LotCard({
           {/* 熟成度・進捗バー */}
           <div>
             <div className="flex justify-between text-sm mb-1">
-              <span className="text-muted-foreground">熟成度</span>
+              <span className="text-muted-foreground">{hasPost ? '熟成度（完成時）' : '熟成度'}</span>
               <span className="font-medium tabular-nums">{progressPercent}%</span>
             </div>
-            <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+            <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden flex">
+              {/* 完成までの分。色は完成時点の熟成度で決める（完成後の上乗せは次のセグメント） */}
               <div
-                className={`h-full rounded-full transition-all ${PROGRESS_COLOR[coloringRisk]}`}
+                className={`h-full transition-all ${PROGRESS_COLOR[riskOfPct(rawPct)]}`}
                 style={{ width: `${barWidth}%` }}
               />
+              {/* 完成後に進んだ分（斜線色を変えて区別） */}
+              {postBarWidth > 0 && (
+                <div
+                  className={`h-full transition-all ${coloringRisk === 'danger' ? 'bg-rose-300' : 'bg-amber-300'}`}
+                  style={{ width: `${postBarWidth}%` }}
+                  title="完成後に進んだ熟成"
+                />
+              )}
             </div>
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
               <span className="tabular-nums">
                 {Math.round(accumulatedTemp)} / {targetTempSum} ℃・日
               </span>
-              <span className={`font-medium px-2 py-0.5 rounded-full text-xs ${RISK_BADGE_CLASS[coloringRisk]}`}>
+              <span
+                className={`font-medium px-2 py-0.5 rounded-full text-xs ${RISK_BADGE_CLASS[coloringRisk]}`}
+                title={hasPost ? `完成後の熟成も含めた累計 ${Math.round(totalPct)}% で判定` : undefined}
+              >
                 {RISK_LABEL[coloringRisk]}
               </span>
             </div>
+            {hasPost && (
+              <div className="flex justify-between text-xs mt-1 pt-1 border-t border-dashed border-gray-100">
+                <span className="text-muted-foreground">
+                  完成後の熟成
+                  <span className="text-gray-400 ml-1">（{currentLocation}）</span>
+                </span>
+                <span className="tabular-nums text-amber-700">
+                  +{Math.round(postTemp)} ℃・日
+                  <span className="text-muted-foreground ml-1">（累計 {Math.round(totalPct * 10) / 10}%）</span>
+                </span>
+              </div>
+            )}
           </div>
 
           {/* 現在地 + 詳細トグルボタン */}

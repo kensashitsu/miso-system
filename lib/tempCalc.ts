@@ -136,6 +136,36 @@ export function calcAccumulatedTemp(
   return total
 }
 
+// 完成までの積算と、完成後に進んだ積算を分けて返す。
+//
+// 完成＝熟成が止まるわけではなく、置き場の温度に応じて実際にはゆるやかに熟成が進む
+// （冷蔵庫ならほぼ停止、冷房・常温なら進む）。「その製品を決めた熟成度」と
+// 「完成後に上乗せされた分」は意味が違うので、画面では分けて表示する。
+export type AccumulationSplit = {
+  untilCompletion: number   // 仕込み〜完成日（完成日が無ければ今日まで）
+  afterCompletion: number   // 完成日〜今日（完成日が無ければ0）
+  total: number             // 上記の合計（着色リスクの判定はこちらを使う）
+}
+
+export function calcAccumulatedTempSplit(
+  brewedAt: Date,
+  locationHistory: LocationHistory[],
+  weatherMap: Map<string, number>,
+  roomTemps: RoomTemps = DEFAULT_ROOM_TEMPS,
+  completedAt?: Date | null,
+): AccumulationSplit {
+  const total = calcAccumulatedTemp(brewedAt, locationHistory, weatherMap, roomTemps)
+  if (!completedAt) {
+    return { untilCompletion: total, afterCompletion: 0, total }
+  }
+  const untilCompletion = calcAccumulatedTemp(brewedAt, locationHistory, weatherMap, roomTemps, completedAt)
+  return {
+    untilCompletion,
+    afterCompletion: Math.max(0, total - untilCompletion),
+    total,
+  }
+}
+
 // 現在の場所を取得（endDateがないエントリ）
 export function getCurrentLocation(history: LocationHistory[]): string {
   if (history.length === 0) return '不明'

@@ -94,7 +94,8 @@ export interface LotDetailProps {
   targetTempSum: number
   completedAtISO: string | null
   bucketNumbers: string | null
-  accumulatedTemp: number
+  accumulatedTemp: number             // 完成までの積算（熟成中は今日まで）
+  postCompletionTemp?: number | null  // 完成後に進んだ積算（完成ロットのみ）
   currentLocation: string
   coloringRisk: 'normal' | 'warning' | 'danger'
   estimatedCompletionISO: string | null
@@ -279,6 +280,7 @@ export default function LotDetail({
   completedAtISO,
   bucketNumbers,
   accumulatedTemp,
+  postCompletionTemp,
   currentLocation,
   coloringRisk,
   estimatedCompletionISO,
@@ -406,7 +408,13 @@ export default function LotDetail({
   const [isSavingBrew, startBrewTransition] = useTransition()
   const [brewSaveError, setBrewSaveError] = useState<string | null>(null)
 
-  const progressPercent = Math.min(100, (accumulatedTemp / targetTempSum) * 100)
+  const rawProgressPct  = targetTempSum > 0 ? (accumulatedTemp / targetTempSum) * 100 : 0
+  const progressPercent = Math.min(100, rawProgressPct)
+  // 完成後も置き場の温度に応じて熟成は進む（冷蔵庫ならほぼ停止）。分けて表示する
+  const postTemp     = postCompletionTemp ?? 0
+  const hasPost      = postTemp > 0
+  const totalPct     = targetTempSum > 0 ? ((accumulatedTemp + postTemp) / targetTempSum) * 100 : 0
+  const postBarWidth = Math.max(0, Math.min(100 - progressPercent, totalPct - rawProgressPct))
   const brewedAt = new Date(brewedAtISO)
   const estimatedCompletion = estimatedCompletionISO ? new Date(estimatedCompletionISO) : null
 
@@ -839,18 +847,42 @@ export default function LotDetail({
         {/* 進捗バー */}
         <div className="space-y-1">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">積算温度</span>
+            <span className="text-muted-foreground">{hasPost ? '積算温度（完成まで）' : '積算温度'}</span>
             <span className="font-medium tabular-nums">
               {Math.round(accumulatedTemp)} / {targetTempSum} ℃・日
               <span className="text-muted-foreground ml-2">({Math.round(progressPercent)}%)</span>
             </span>
           </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden flex">
+            {/* 完成までの分。色は完成時点の熟成度で決める */}
             <div
-              className={`h-full rounded-full ${PROGRESS_COLOR[coloringRisk]}`}
+              className={`h-full ${PROGRESS_COLOR[
+                rawProgressPct >= 150 ? 'danger' : rawProgressPct >= 120 ? 'warning' : 'normal'
+              ]}`}
               style={{ width: `${progressPercent}%` }}
             />
+            {postBarWidth > 0 && (
+              <div
+                className={`h-full ${coloringRisk === 'danger' ? 'bg-rose-300' : 'bg-amber-300'}`}
+                style={{ width: `${postBarWidth}%` }}
+                title="完成後に進んだ熟成"
+              />
+            )}
           </div>
+          {hasPost && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                完成後の熟成
+                <span className="text-muted-foreground/70 ml-1 text-xs">（{currentLocation}）</span>
+              </span>
+              <span className="font-medium tabular-nums text-amber-700">
+                +{Math.round(postTemp)} ℃・日
+                <span className="text-muted-foreground ml-2 font-normal">
+                  累計 {Math.round(totalPct)}%（着色リスクはこの値で判定）
+                </span>
+              </span>
+            </div>
+          )}
         </div>
 
         {/* 現在地と完成予定日 */}

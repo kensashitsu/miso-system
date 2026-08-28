@@ -3,7 +3,7 @@ import { differenceInDays, format, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import {
-  calcAccumulatedTemp,
+  calcAccumulatedTempSplit,
   calcColoringRisk,
   getCurrentLocation,
 } from '@/lib/tempCalc'
@@ -160,11 +160,12 @@ export default async function TracePage({
           : lastLocEndDate      ? startOfDay(lastLocEndDate)
           : lastUsageDate       ? startOfDay(lastUsageDate)
           : null
-        // 熟成終了日で積算を打ち切る（打ち切らないと完成後も熟成度%が伸び続ける）
-        const accumulated   = calcAccumulatedTemp(
+        // 熟成終了日までの積算と、そのあと置き場で進んだ分を分ける
+        const accum = calcAccumulatedTempSplit(
           lot.brewedAt, lot.locationHistory, weatherMap, roomTemps,
           lot.status === '熟成中' ? null : endDate,
         )
+        const accumulated = accum.untilCompletion
         return {
           id:              lot.id,
           lotNumber:       lot.lotNumber,
@@ -173,8 +174,10 @@ export default async function TracePage({
           status:          lot.status,
           elapsedDays:     endDate !== null ? differenceInDays(endDate, startOfDay(lot.brewedAt)) : null,
           accumulatedTemp: Math.round(accumulated),
+          postCompletionTemp: accum.afterCompletion > 0 ? Math.round(accum.afterCompletion) : null,
           targetTempSum,
-          coloringRisk:    calcColoringRisk(accumulated, targetTempSum),
+          // 着色は完成後も進むため累計で判定する
+          coloringRisk:    calcColoringRisk(accum.total, targetTempSum),
           currentLocation: getCurrentLocation(lot.locationHistory),
           bucketNumbers:   lot.bucketNumbers ?? null,
           soybeanOrigin:   lot.brewRecord?.soybeanOrigin ?? null,
