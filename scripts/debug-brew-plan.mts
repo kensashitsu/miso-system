@@ -22,7 +22,7 @@ const calc    = merge(calcNs)
 const {
   simulateFermentationDays, calcBatches, findStockOutDate, findStockOutDateAfter,
   snapToBrewDay, nextWeekMonday, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
-  PEAK_COMPLETION_MONTHS, makeSafetyDeltaFn,
+  PEAK_COMPLETION_MONTHS, makeSafetyDeltaFn, makeSafetyLineFn,
 } = calc
 
 const prisma   = new PrismaClient()
@@ -95,7 +95,9 @@ const effectiveStock = stockKg + immediateKg
 const depletableStock = effectiveStock - safety
 
 const winterSafety = process.argv[6] != null ? Number(process.argv[6]) : recipe.winterSafetyStockKg
-const getSafetyDelta = makeSafetyDeltaFn(safety, winterSafety, today)
+const summerSafety = process.argv[7] != null ? Number(process.argv[7]) : recipe.summerSafetyStockKg
+const getSafetyDelta = makeSafetyDeltaFn(safety, winterSafety, summerSafety)
+const safetyLineAt   = makeSafetyLineFn(safety, winterSafety, summerSafety)
 
 const getCompletion = (brewDate: Date) =>
   simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg, weatherFallback,
@@ -106,7 +108,7 @@ const isDoubleBatch = MISO === '無添加麦みそ'
 
 console.log(`=== ${MISO} ===`)
 console.log(`今日 ${d(today)} / 1回の生産量 ${recipe.totalWeightKg}kg / 安全在庫 ${safety}kg`)
-console.log(`現在庫 ${stockKg}kg → 実質使える在庫 ${Math.round(depletableStock)}kg / 冬季ライン ${winterSafety ?? '未設定'}`)
+console.log(`現在庫 ${stockKg}kg → 実質使える在庫 ${Math.round(depletableStock)}kg / 冬季ライン ${winterSafety ?? '未設定'} / 夏季ライン ${summerSafety ?? '未設定'}`)
 console.log('消費ペース(kg/日):', ['2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03']
   .map(m => `${m}:${Math.round(rateMap[m] ?? lastRate)}`).join(' '))
 console.log(`→ 1回(${recipe.totalWeightKg}kg)で賄える日数: ` + ['2026-10','2026-12','2027-02']
@@ -144,8 +146,7 @@ let runStart: string | null = null
 for (let i = 0; i < 400; i++) {
   stock += events.get(d(cur)) ?? 0
   stock -= getDailyRateFn(cur)
-  const lineToday = (winterSafety != null && [11,12,1,2].includes(cur.getMonth() + 1)) ? winterSafety : safety
-  if (stock < lineToday) { if (!runStart) runStart = d(cur) }
+  if (stock < safetyLineAt(cur)) { if (!runStart) runStart = d(cur) }
   else if (runStart) { below.push(`${runStart}〜${d(cur)}`); runStart = null }
   cur = addDays(cur, 1)
 }
@@ -158,7 +159,7 @@ const monthly = new Map<string, { min: number; max: number; line: number }>()
   for (let i = 0; i < 400; i++) {
     st += events.get(d(c)) ?? 0
     st -= getDailyRateFn(c)
-    const ln = (winterSafety != null && [11,12,1,2].includes(c.getMonth() + 1)) ? winterSafety : safety
+    const ln = safetyLineAt(c)
     const ym = format(c, 'yyyy-MM')
     const e = monthly.get(ym) ?? { min: Infinity, max: -Infinity, line: ln }
     e.min = Math.min(e.min, st); e.max = Math.max(e.max, st); e.line = ln

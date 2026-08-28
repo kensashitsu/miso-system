@@ -228,18 +228,38 @@ export const SHORTFALL_TOLERANCE_DAYS = 7
 // そのため出荷ピークに備えて安全在庫ラインを厚くできる。
 export const WINTER_MONTHS = [11, 12, 1, 2]
 
-// 「その日の安全在庫ライン − 基準日の安全在庫ライン」を返す関数を作る。
-// 在庫連鎖は基準日のラインを引いた「実質使える在庫」で追跡しているため、
-// 季節でラインが変わる分をこの差分で補正する（差分ぶんだけ早く在庫切れ扱いになる）。
+// 夏季（この月）は完成後13〜20日で着色リスク高に達するため、安全在庫ラインを厚くすると
+// 在庫の底が上がって滞留が延び、かえって不利になる。薄め（0＝底を作らない）で運用する。
+export const SUMMER_MONTHS = [5, 6, 7, 8]
+
+// その日に適用される安全在庫ライン(kg)を返す関数を作る（冬季・夏季・それ以外の3段階）
+export function makeSafetyLineFn(
+  baseSafetyKg:   number,
+  winterSafetyKg: number | null | undefined,
+  summerSafetyKg: number | null | undefined,
+): (date: Date) => number {
+  return (date: Date) => {
+    const m = date.getMonth() + 1
+    if (winterSafetyKg != null && WINTER_MONTHS.includes(m)) return winterSafetyKg
+    if (summerSafetyKg != null && SUMMER_MONTHS.includes(m)) return summerSafetyKg
+    return baseSafetyKg
+  }
+}
+
+// 「その日の安全在庫ライン − 通年ライン」を返す関数を作る。
+// 在庫連鎖は通年ライン(safetyStockKg)を引いた「実質使える在庫」で追跡しているため、
+// 季節でラインが変わる分をこの差分で補正する（差分ぶんだけ早く／遅く在庫切れ扱いになる）。
+// ※基準は必ず通年ライン。基準日のライン（季節で変わりうる）にすると引き算がズレる
 export function makeSafetyDeltaFn(
   baseSafetyKg:   number,
   winterSafetyKg: number | null | undefined,
-  baseDate:       Date,
+  summerSafetyKg: number | null | undefined,
 ): ((date: Date) => number) | undefined {
-  if (winterSafetyKg == null || winterSafetyKg === baseSafetyKg) return undefined
-  const lineAt = (dt: Date) => WINTER_MONTHS.includes(dt.getMonth() + 1) ? winterSafetyKg : baseSafetyKg
-  const base   = lineAt(baseDate)
-  return (date: Date) => lineAt(date) - base
+  const hasWinter = winterSafetyKg != null && winterSafetyKg !== baseSafetyKg
+  const hasSummer = summerSafetyKg != null && summerSafetyKg !== baseSafetyKg
+  if (!hasWinter && !hasSummer) return undefined
+  const lineAt = makeSafetyLineFn(baseSafetyKg, winterSafetyKg, summerSafetyKg)
+  return (date: Date) => lineAt(date) - baseSafetyKg
 }
 
 // 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、

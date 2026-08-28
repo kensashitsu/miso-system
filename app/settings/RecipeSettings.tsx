@@ -22,6 +22,7 @@ type FormState = {
   taneKojiG: string
   safetyStockKg: string
   winterSafetyStockKg: string
+  summerSafetyStockKg: string
 }
 
 const EMPTY_FORM: FormState = {
@@ -32,6 +33,7 @@ const EMPTY_FORM: FormState = {
   taneKojiG: '0',
   safetyStockKg: '',
   winterSafetyStockKg: '',
+  summerSafetyStockKg: '',
 }
 
 function recipeToForm(r: MisoRecipe): FormState {
@@ -49,6 +51,7 @@ function recipeToForm(r: MisoRecipe): FormState {
     taneKojiG:       String(r.taneKojiG),
     safetyStockKg:   r.safetyStockKg != null ? String(r.safetyStockKg) : '',
     winterSafetyStockKg: r.winterSafetyStockKg != null ? String(r.winterSafetyStockKg) : '',
+    summerSafetyStockKg: r.summerSafetyStockKg != null ? String(r.summerSafetyStockKg) : '',
   }
 }
 
@@ -69,6 +72,7 @@ function formToData(f: FormState, totalWeightKg: number) {
     taneKojiG:       n(f.taneKojiG),
     safetyStockKg:   f.safetyStockKg.trim() === '' ? null : n(f.safetyStockKg),
     winterSafetyStockKg: f.winterSafetyStockKg.trim() === '' ? null : n(f.winterSafetyStockKg),
+    summerSafetyStockKg: f.summerSafetyStockKg.trim() === '' ? null : n(f.summerSafetyStockKg),
   }
 }
 
@@ -315,6 +319,17 @@ function RecipeForm({
           </p>
         </div>
 
+        {/* 夏季（5〜8月）の安全在庫ライン */}
+        <div className="space-y-1">
+          <Label htmlFor="rf-safety-summer">
+            夏季(5〜8月)の安全在庫ライン (kg) <span className="text-muted-foreground text-xs">（空欄=通年同じ・0=底を作らない）</span>
+          </Label>
+          <Input id="rf-safety-summer" type="number" step="1" min="0" inputMode="decimal" {...input('summerSafetyStockKg')} placeholder="例: 0" />
+          <p className="text-[11px] text-muted-foreground">
+            夏は完成後13〜20日で着色リスク高に達します。底を上げると滞留が延びて不利なため薄めに設定します。
+          </p>
+        </div>
+
       </div>
 
       <div className="flex gap-2 pt-2">
@@ -401,6 +416,7 @@ export default function RecipeSettings({ recipes, moisture }: { recipes: MisoRec
                 <th className="text-right px-3 py-2">種麹(g)</th>
                 <th className="text-right px-3 py-2">安全在庫(kg)</th>
                 <th className="text-right px-3 py-2">冬季(kg)</th>
+                <th className="text-right px-3 py-2">夏季(kg)</th>
                 <th className="text-center px-3 py-2">操作</th>
               </tr>
             </thead>
@@ -422,6 +438,7 @@ export default function RecipeSettings({ recipes, moisture }: { recipes: MisoRec
                     <td className="text-right px-3 py-2 tabular-nums">{r.taneKojiG > 0 ? r.taneKojiG : '—'}</td>
                     <td className="text-right px-3 py-2 tabular-nums">{r.safetyStockKg != null ? r.safetyStockKg.toLocaleString() : '—'}</td>
                     <td className="text-right px-3 py-2 tabular-nums">{r.winterSafetyStockKg != null ? r.winterSafetyStockKg.toLocaleString() : '—'}</td>
+                    <td className="text-right px-3 py-2 tabular-nums">{r.summerSafetyStockKg != null ? r.summerSafetyStockKg.toLocaleString() : '—'}</td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1 justify-center">
                         <Button

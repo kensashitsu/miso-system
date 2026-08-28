@@ -273,6 +273,7 @@ export default async function PlanningPage() {
     totalWeightKg:   r.totalWeightKg,
     safetyStockKg:   r.safetyStockKg,
     winterSafetyStockKg: r.winterSafetyStockKg,
+    summerSafetyStockKg: r.summerSafetyStockKg,
   }))
 
   // 品種別の自動方式選択：バックテストで最も的中する方式（精度しきい値以下のみ採用）

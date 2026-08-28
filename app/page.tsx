@@ -10,7 +10,7 @@ import {
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import { fetchAgedStock } from '@/lib/externalApi'
 import { getMisoRecipes } from '@/lib/recipes'
-import { WINTER_MONTHS } from '@/lib/brewPlanCalc'
+import { makeSafetyLineFn } from '@/lib/brewPlanCalc'
 import DashboardLotGroups from '@/components/dashboard/DashboardLotGroups'
 import { type LotCardProps, type LotSimConfig } from '@/components/dashboard/lot-card'
 import StockSummary from '@/components/dashboard/StockSummary'
@@ -38,11 +38,11 @@ export default async function DashboardPage() {
   for (const r of recipes) recipeTargetMap[r.name] = r.targetTempSum
   // 安全在庫ライン（熟成済バラ在庫、kg）。未設定の品種は含めない
   const safetyStockMap: Record<string, number> = {}
-  // 冬季（11〜2月）は着色が実質進まないため厚めのラインを使う（未設定なら通年同じ）
-  const isWinterNow = WINTER_MONTHS.includes(new Date().getMonth() + 1)
+  // 季節でラインが変わる（冬季11〜2月は厚め・夏季5〜8月は薄め）。未設定の季節は通年ライン
+  const now = new Date()
   for (const r of recipes) {
-    const line = (isWinterNow && r.winterSafetyStockKg != null) ? r.winterSafetyStockKg : r.safetyStockKg
-    if (line != null) safetyStockMap[r.name] = line
+    if (r.safetyStockKg == null) continue
+    safetyStockMap[r.name] = makeSafetyLineFn(r.safetyStockKg, r.winterSafetyStockKg, r.summerSafetyStockKg)(now)
   }
   const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
 

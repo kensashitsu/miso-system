@@ -27,6 +27,7 @@ interface Recipe {
   defaultLocation: string
   safetyStockKg:   number | null
   winterSafetyStockKg: number | null
+  summerSafetyStockKg: number | null
 }
 
 interface FermentingInfo {
@@ -711,7 +712,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 冬季（11〜2月）は着色が実質進まないため安全在庫ラインを厚くできる。
     // 在庫連鎖は「今日のライン」を引いた実質在庫で追跡しているので、季節差は差分で補正する
     const getSafetyDelta = safetyStockKg != null
-      ? makeSafetyDeltaFn(safetyStockKg, recipe.winterSafetyStockKg, today)
+      ? makeSafetyDeltaFn(safetyStockKg, recipe.winterSafetyStockKg, recipe.summerSafetyStockKg)
       : undefined
 
     const canCalc   = monthlyAvg !== null && monthlyAvg > 0 && fermentationDays > 0
