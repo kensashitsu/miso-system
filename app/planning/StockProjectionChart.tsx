@@ -4,13 +4,15 @@
 // 有効在庫が消費ペースで減り、完成補充でジャンプし、在庫切れに向かう様子を
 // 手配締切・仕込み日・完成日・在庫切れ日の縦線とともに時間軸で表示する。
 import {
-  ComposedChart, Area, XAxis, YAxis, Tooltip, ReferenceLine, ReferenceDot,
+  ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ReferenceLine, ReferenceDot,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 
 export interface StockPoint {
   d:  string   // 'yyyy-MM-dd'
   kg: number
+  // その日に適用される安全在庫ライン(kg)。冬季（11〜2月）は厚くなるため日ごとに持つ
+  safety?: number
 }
 
 export interface BatchMarker {
@@ -61,6 +63,8 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
   )
   const hasFermenting = buckets.some(m => m.kind === 'fermenting')
   const hasRegistered = buckets.some(m => m.kind === 'registered')
+  // 季節でラインが変わるか（変わるなら階段線で描く）
+  const hasSeasonalSafety = points.some(p => p.safety != null && p.safety !== points[0].safety)
   const multi = markers.length > 1
   const lbl = (base: string, n: number) => (multi ? `${base}${n}` : base)
 
@@ -113,12 +117,26 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
               label={{ value: '今日', position: 'insideTopLeft', fontSize: 10, fill: COLOR.today }}
             />
             {safetyStockKg != null && (
-              <ReferenceLine
-                y={safetyStockKg}
-                stroke={COLOR.safety}
-                strokeDasharray="4 3"
-                label={{ value: `安全在庫ライン ${safetyStockKg.toLocaleString()}kg`, position: 'insideBottomRight', fontSize: 10, fill: COLOR.safety }}
-              />
+              hasSeasonalSafety ? (
+                // 冬季（11〜2月）はラインが変わるので、水平線ではなく日ごとの階段で描く
+                <Line
+                  type="stepAfter"
+                  dataKey="safety"
+                  stroke={COLOR.safety}
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  dot={false}
+                  isAnimationActive={false}
+                  name="安全在庫ライン"
+                />
+              ) : (
+                <ReferenceLine
+                  y={safetyStockKg}
+                  stroke={COLOR.safety}
+                  strokeDasharray="4 3"
+                  label={{ value: `安全在庫ライン ${safetyStockKg.toLocaleString()}kg`, position: 'insideBottomRight', fontSize: 10, fill: COLOR.safety }}
+                />
+              )
             )}
             {buckets.map(m => {
               const color = m.kind === 'registered' ? COLOR.regBucket : COLOR.comp

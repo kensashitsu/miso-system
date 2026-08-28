@@ -981,7 +981,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         stock += events.get(k) ?? 0
         stock -= getDailyRateFn(d)
         if (stock < 0) stock = 0
-        daily.push({ d: k, kg: Math.round(stock) })
+        daily.push({
+          d: k, kg: Math.round(stock),
+          // 冬季（11〜2月）は安全在庫ラインが厚くなるため、その日のラインを持たせる
+          safety: safetyStockKg != null ? safetyStockKg + (getSafetyDelta?.(d) ?? 0) : undefined,
+        })
         d = addDays(d, 1)
       }
       // 描画点を間引く（補充ジャンプの前後の点は形が崩れないよう必ず残す）
