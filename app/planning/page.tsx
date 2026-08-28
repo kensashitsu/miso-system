@@ -237,10 +237,14 @@ export default async function PlanningPage() {
   // 需要推計・バックテスト用のベース需要マップ（確認済み大口を差し引き）
   const baseShipmentMap = subtractLargeOrders(shipmentMap, largeOrders)
 
-  // API在庫を品種別Mapに変換（熟成済 + 小分け製品の合計）
+  // API在庫を品種別Mapに変換（熟成済バラのみ。小分け製品は含めない）
+  // 現場では小分け製品を一定量（1,600kg前後）に保つよう熟成済から日々充填しているため、
+  // 小分けは減らず出荷分はすべて熟成済から引かれる。つまり小分けは「常に補充される作業在庫」で
+  // 在庫の余裕にはならないので、仕込み計画は熟成済バラだけで在庫切れを判定する。
+  // これにより在庫見込み・安全在庫ライン・ダッシュボードの警告がすべて熟成済バラ基準で揃う。
   const apiStockByType: Record<string, number> = {}
   for (const item of apiStock ?? []) {
-    apiStockByType[item.misoType] = item.stockKg + (item.packagedStockKg ?? 0)
+    apiStockByType[item.misoType] = item.stockKg
   }
 
   // ForecastCacheを未来予測（sarimaxMap）と過去LOO予測（sarimaxPastForecast）に分離

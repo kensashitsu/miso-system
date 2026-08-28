@@ -717,7 +717,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
     const activeSupplyEvents = combinedEvents.length > 0 ? combinedEvents : undefined
 
-    // 安全在庫ライン（小分けとは別に確保する熟成済バラ）が設定されている品種は、在庫切れ判定・仕込み提案の
+    // 安全在庫ライン（熟成済バラの下限）が設定されている品種は、在庫切れ判定・仕込み提案の
     // 起点をライン到達時点にシフトする（実在庫からラインを引いた「実質使える在庫」で計算し、
     // 0を切ったタイミング＝ライン到達日として扱う）。表示用のeffectiveStockは実数のまま。
     // 季節ラインだけ設定されている品種（例: 山吹みそ＝通年なし・冬季300kg）もあるため、
@@ -2192,14 +2192,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   safetyStockKg={plan.safetyStockKg}
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
-                                  在庫見込み＝<span className="font-medium">熟成済バラ＋小分け製品</span>の合計（完成の補充を織り込み）。
-                                  {plan.safetyStockKg != null ? (
-                                    <>
-                                      安全在庫ラインは<span className="font-medium">熟成済バラの取り置き量</span>なので、
-                                      合計がラインに触れる時点＝<span className="font-medium">小分けを使い切って熟成済がラインちょうどになる</span>タイミングです
-                                      （それまでに使える量＝合計−ライン）。赤の縦線はその日。
-                                    </>
-                                  ) : '赤の縦線は在庫が尽きる日。'}
+                                  在庫見込み＝<span className="font-medium">熟成済バラ</span>（完成の補充を織り込み）。
+                                  小分け製品は一定量に保つよう熟成済から日々充填する運用のため、在庫の余裕には数えていません。
+                                  {plan.safetyStockKg != null
+                                    ? '赤の縦線は安全在庫ラインを割る日。'
+                                    : '赤の縦線は在庫が尽きる日。'}
                                   {plan.location === '常温' && q10Value !== 1 && 'グラフはQ10補正あり基準。'}
                                 </p>
                               </div>

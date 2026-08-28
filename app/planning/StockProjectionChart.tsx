@@ -111,7 +111,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
             <Area
               type="stepAfter"
               dataKey="kg"
-              name="在庫見込み（熟成済＋小分け）"
+              name="在庫見込み（熟成済バラ）"
               stroke={COLOR.stock}
               strokeWidth={1.8}
               fill={COLOR.stock}
@@ -200,7 +200,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
         </ResponsiveContainer>
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-1">
-        <span><span className="inline-block w-2.5 h-2.5 rounded-sm align-[-1px] mr-1" style={{ background: COLOR.stock, opacity: 0.5 }} />在庫見込み（熟成済＋小分け）</span>
+        <span><span className="inline-block w-2.5 h-2.5 rounded-sm align-[-1px] mr-1" style={{ background: COLOR.stock, opacity: 0.5 }} />在庫見込み（熟成済バラ）</span>
         <span style={{ color: COLOR.brew }}>│ 仕込み日</span>
         <span style={{ color: COLOR.comp }}>● 完成（補充）</span>
         {hasFermenting && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶）</span>}
