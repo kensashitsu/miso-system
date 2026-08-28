@@ -26,7 +26,7 @@ const calc    = merge(calcNs)
 const {
   simulateFermentationDays, calcBatches, findStockOutDate, findStockOutDateAfter,
   snapToBrewDay, nextWeekMonday, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
-  PEAK_COMPLETION_MONTHS, makeSafetyDeltaFn, makeSafetyLineFn,
+  PEAK_COMPLETION_MONTHS, makeSafetyDeltaFn, makeSafetyLineFn, expandBlockedWeeks,
 } = calc
 
 const prisma   = new PrismaClient()
@@ -106,6 +106,11 @@ const immediateKg = supplyEvents.filter(e => e.date <= today).reduce((s, e) => s
 const effectiveStock = stockKg + immediateKg
 const depletableStock = effectiveStock - safety
 
+// 仕込めない週（DBのplanning_blockedWeeks）
+const blockedRow = await prisma.systemSetting.findUnique({ where: { key: 'planning_blockedWeeks' } })
+let blockedWeeks: string[] = []
+try { const p = JSON.parse(blockedRow?.value ?? '[]'); if (Array.isArray(p)) blockedWeeks = p } catch {}
+
 const winterSafety = process.argv[6] != null ? Number(process.argv[6]) : recipe.winterSafetyStockKg
 const summerSafety = process.argv[7] != null ? Number(process.argv[7]) : recipe.summerSafetyStockKg
 const getSafetyDelta = makeSafetyDeltaFn(safety, winterSafety, summerSafety)
@@ -125,6 +130,7 @@ console.log('消費ペース(kg/日):', ['2026-09','2026-10','2026-11','2026-12'
   .map(m => `${m}:${Math.round(rateMap[m] ?? lastRate)}`).join(' '))
 console.log(`→ 1回(${recipe.totalWeightKg}kg)で賄える日数: ` + ['2026-10','2026-12','2027-02']
   .map(m => `${m}=${(recipe.totalWeightKg / (rateMap[m] ?? lastRate)).toFixed(1)}日`).join(' / '))
+console.log('仕込めない週:', blockedWeeks.length ? blockedWeeks.join(' ') : 'なし')
 console.log('供給予定:', supplyEvents.map(e => `${d(e.date)} +${Math.round(e.kg)}(${e.note})`).join('  '))
 
 const minBrewDate = snapToBrewDay(nextWeekMonday(today))
@@ -137,7 +143,7 @@ const batches = calcBatches(
   depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, recipe.totalWeightKg,
   Number(process.argv[4] ?? 5), today, ORDER_LEAD_DAYS[MISO] ?? DEFAULT_ORDER_LEAD_DAYS, brewBufferDays,
   getCompletion, snapToBrewDay, undefined, undefined, {}, supplyEvents, isDoubleBatch,
-  new Set(regPlans.map(p => d(p.brewDate))), getSafetyDelta)
+  new Set([...regPlans.map(p => d(p.brewDate)), ...expandBlockedWeeks(blockedWeeks)]), getSafetyDelta)
 
 console.log('\n=== 生成された提案 ===')
 for (const b of batches) {

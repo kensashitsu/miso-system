@@ -89,7 +89,7 @@ function enrichShipmentMap(
 }
 
 export default async function PlanningPage() {
-  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount, largeOrderSetting] = await Promise.all([
+  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount, largeOrderSetting, blockedWeekSetting] = await Promise.all([
     getMoistureSettings(),
     getMisoRecipes(),
     prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
@@ -121,7 +121,18 @@ export default async function PlanningPage() {
     prisma.monthlyInventorySnapshot.count(),
     // 確認済み大口注文リスト（forecast_largeOrders）
     prisma.systemSetting.findUnique({ where: { key: 'forecast_largeOrders' } }),
+    // 仕込めない週（planning_blockedWeeks・月曜日の 'yyyy-MM-dd' 配列）
+    prisma.systemSetting.findUnique({ where: { key: 'planning_blockedWeeks' } }),
   ])
+
+  // 仕込めない週をパース（不正JSONは空扱い）
+  let blockedWeeks: string[] = []
+  try {
+    const parsed = JSON.parse(blockedWeekSetting?.value ?? '[]')
+    if (Array.isArray(parsed)) blockedWeeks = parsed.filter((v): v is string => typeof v === 'string')
+  } catch {
+    blockedWeeks = []
+  }
 
   // 確認済み大口注文をパース（不正JSONは空扱い）
   let largeOrders: { yearMonth: string; misoType: string; kg: number }[] = []
@@ -380,6 +391,7 @@ export default async function PlanningPage() {
           .map(p => `${p.misoType}::${format(p.brewDate, 'yyyy-MM-dd')}`)}
         registeredPlansByType={Object.keys(registeredPlansByType).length > 0 ? registeredPlansByType : undefined}
         registeredDoneDatesByType={Object.keys(registeredDoneDatesByType).length > 0 ? registeredDoneDatesByType : undefined}
+        initialBlockedWeeks={blockedWeeks}
       />
 
     </div>

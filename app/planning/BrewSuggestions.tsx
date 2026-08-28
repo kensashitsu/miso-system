@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { addDays, differenceInDays, format, getDaysInMonth, isSameISOWeek, startOfDay } from 'date-fns'
 import { Printer, Download, ChevronDown, ChevronLeft, ChevronRight, Pencil, X } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -16,8 +16,10 @@ import {
   type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
   snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
   PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, makeSafetyLineFn,
+  weekStartOf, expandBlockedWeeks,
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
+import { addBlockedWeek, removeBlockedWeek } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
 interface Recipe {
@@ -83,6 +85,8 @@ interface Props {
   // 本登録済み（ロット化済み）の仕込み日（品種別・yyyy-MM-dd）。
   // 同じ日付の手動調整ピンは実現済みのため自動解除するために使う。
   registeredDoneDatesByType?: Record<string, string[]>
+  // 仕込めない週（月曜日の 'yyyy-MM-dd' 配列・全品種共通）
+  initialBlockedWeeks?: string[]
 }
 
 
@@ -402,7 +406,7 @@ function WhatIfStepper({ value, onChange, step, min, max, signed, suffix }: {
   )
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
     const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
@@ -448,6 +452,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     () => new Set(existingBrewPlanKeys ?? [])
   )
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set())
+  // 仕込めない週（全品種共通）。その週は提案から除外し、翌週以降で提案する
+  const [blockedWeeks, setBlockedWeeks] = useState<string[]>(initialBlockedWeeks ?? [])
+  const [blockedWeekDraft, setBlockedWeekDraft] = useState('')
+  const [blockedSaving, setBlockedSaving] = useState(false)
+  const blockedDateSet = useMemo(() => expandBlockedWeeks(blockedWeeks), [blockedWeeks])
   // 提案テーブルのチェックボックス選択（まとめて仮登録用）。キーは仮登録と同じ `${品種名}::yyyy-MM-dd`
   const [selectedProposals, setSelectedProposals] = useState<Set<string>>(new Set())
   const [bulkSaving, setBulkSaving] = useState(false)
@@ -761,6 +770,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const recipeBatches = perRecipeBatches[recipe.name] ?? maxBatches
     // 仮登録（確定）と同じ日付の集合。手動固定や新規提案がこれと重複しないようにする
     const regDateSet    = new Set(regPlans.map(p => format(p.brewDate, 'yyyy-MM-dd')))
+    // 提案を置いてはいけない日＝仮登録済みの日 ＋ 仕込めない週の全日
+    const blockedForCalc = new Set<string>([...regDateSet, ...blockedDateSet])
     // 手動固定（回ごと・0始まり）。確定行と同じ日付なら無効化（確定供給で算入済み＝二重計上・行重複を防ぐ）
     const manualBrewDateRaw: Record<number, Date> = {}
     for (let idx = 0; idx < recipeBatches; idx++) {
@@ -812,7 +823,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     let generated = canCalc
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet, getSafetyDelta)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta)
       : []
 
     // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ
@@ -828,7 +839,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         let d = snapFn ? snapFn(from) : from
         for (let guard = 0; guard < 60; guard++) {
           const day = startOfDay(d)
-          const hitsRegistered = regDateSet.has(format(d, 'yyyy-MM-dd'))
+          const hitsRegistered = blockedForCalc.has(format(d, 'yyyy-MM-dd'))
           const hitsInaka      = inakaBrewDays.some(bd => isSameISOWeek(day, bd) && day <= bd)
           if (!hitsRegistered && !hitsInaka) return d
           d = snapFn ? snapFn(addDays(d, 1)) : addDays(d, 1)
@@ -850,7 +861,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       })
       if (Object.keys(overrides).length > 0) {
         Object.assign(manualBrewDateByIndex, overrides)
-        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet, getSafetyDelta)
+        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta)
       }
     }
 
@@ -887,7 +898,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, regDateSet, getSafetyDelta)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, blockedForCalc, getSafetyDelta)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -924,7 +935,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents, getSafetyDelta)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet, getSafetyDelta)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, blockedForCalc, getSafetyDelta)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate
@@ -1268,6 +1279,67 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
             </Button>
           </div>
         </div>
+        </div>
+      </div>
+
+      {/* 仕込めない週（全品種共通）。登録した週を避けて翌週以降で提案する */}
+      <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5 no-print">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-medium text-slate-700">仕込めない週</span>
+          <span className="text-[11px] text-muted-foreground">
+            現場の都合で仕込めない週を登録すると、その週を避けて翌週以降で提案します（全品種共通）
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap mt-2">
+          {blockedWeeks.length === 0 && (
+            <span className="text-[11px] text-muted-foreground">登録なし</span>
+          )}
+          {blockedWeeks.map(w => {
+            const mon = new Date(w + 'T00:00:00')
+            return (
+              <span
+                key={w}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] text-slate-700"
+              >
+                {format(mon, 'M/d')}〜{format(addDays(mon, 6), 'M/d')} の週
+                <button
+                  type="button"
+                  disabled={blockedSaving}
+                  onClick={async () => {
+                    setBlockedSaving(true)
+                    try { setBlockedWeeks(await removeBlockedWeek(w)) } finally { setBlockedSaving(false) }
+                  }}
+                  className="text-slate-400 hover:text-rose-500 transition-colors disabled:opacity-40"
+                  title="解除"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            )
+          })}
+          <input
+            type="date"
+            value={blockedWeekDraft}
+            onChange={e => setBlockedWeekDraft(e.target.value)}
+            className="text-xs border border-input rounded px-1.5 py-0.5 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+            aria-label="仕込めない週に含まれる日付"
+          />
+          <button
+            type="button"
+            disabled={blockedSaving || !blockedWeekDraft}
+            onClick={async () => {
+              if (!blockedWeekDraft) return
+              setBlockedSaving(true)
+              try {
+                const wk = weekStartOf(new Date(blockedWeekDraft + 'T00:00:00'))
+                setBlockedWeeks(await addBlockedWeek(wk))
+                setBlockedWeekDraft('')
+              } finally { setBlockedSaving(false) }
+            }}
+            className="text-[11px] px-2.5 py-1 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 whitespace-nowrap"
+          >
+            {blockedSaving ? '保存中' : 'この日を含む週を登録'}
+          </button>
         </div>
       </div>
 

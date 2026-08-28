@@ -86,6 +86,24 @@ export function nextWeekMonday(date: Date): Date {
   return addDays(date, 7 - isoDow)
 }
 
+// 指定日を含む週の月曜日を 'yyyy-MM-dd' で返す（仕込めない週の管理キー）
+export function weekStartOf(date: Date): string {
+  const isoDow = (date.getDay() + 6) % 7   // 月=0, 火=1, ... 日=6
+  return format(addDays(date, -isoDow), 'yyyy-MM-dd')
+}
+
+// 仕込めない週（月曜日の配列）を、その週の全日付の集合に展開する。
+// calcBatches の blockedBrewDates に渡して、その週を避けた提案にする
+export function expandBlockedWeeks(weekStarts: string[]): Set<string> {
+  const out = new Set<string>()
+  for (const w of weekStarts) {
+    const mon = new Date(w + 'T00:00:00')
+    if (isNaN(mon.getTime())) continue
+    for (let i = 0; i < 7; i++) out.add(format(addDays(mon, i), 'yyyy-MM-dd'))
+  }
+  return out
+}
+
 // 月別変動レートを使って在庫が尽きる日をシミュレーション（熟成中ロットの補充スケジュール考慮）
 export function findStockOutDate(
   stock:          number,
@@ -226,6 +244,10 @@ export const PEAK_COMPLETION_MONTHS = [10, 11, 12]
 // ピーク期に完成する回に上乗せするバッファ日数。冬は需要増＋熟成長期化で
 // 通常のバッファ（14日）だと完成待ちの間に安全在庫ラインを割り込みやすいため厚くする
 export const PEAK_EXTRA_BUFFER_DAYS = 14
+
+// 2本立ての相方をこの日数以内に置けないときは2本立てにしない。
+// 仮登録済みや仕込めない週を避けた結果、相方が数週間先になると「連続2回」の趣旨から外れるため
+export const MAX_PAIR_GAP_DAYS = 8
 
 // 既存の仕込みで埋まる短い谷は新規提案の対象にしない（この日数以内に在庫が回復するなら見送る）。
 // 安全在庫ライン自体が緩衝なので、数日の割り込みのために1回分（ピーク期は2本＝約3,200kg）を
@@ -477,13 +499,17 @@ export function calcBatches(
     let pairFermentationDays:      number | undefined
     let pairMaterialOrderDeadline: Date | undefined
     if (isDoubleBatch?.(completionDate)) {
-      // 相方も仮登録済みの日を避ける（避けないと確定分と同じ仕込みを二重に数えてしまう）
+      // 相方も仮登録済み・仕込めない週を避ける（避けないと確定分と同じ仕込みを二重に数えてしまう）
       const pb = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(brewDate, 1)) : addDays(brewDate, 1))
-      const pr = computeCompletion(pb)
-      pairBrewDate              = pb
-      pairCompletionDate        = pr.completionDate
-      pairFermentationDays      = pr.days
-      pairMaterialOrderDeadline = addDays(pb, -orderLeadDays)
+      // 「連続2回（水→木）」が趣旨なので、避けた結果あまりに離れる場合は2本立てにしない。
+      // 離れた相方は次の回として独立に提案されるべきで、1行にまとめると実態と食い違う
+      if (differenceInDays(pb, brewDate) <= MAX_PAIR_GAP_DAYS) {
+        const pr = computeCompletion(pb)
+        pairBrewDate              = pb
+        pairCompletionDate        = pr.completionDate
+        pairFermentationDays      = pr.days
+        pairMaterialOrderDeadline = addDays(pb, -orderLeadDays)
+      }
     }
     // 2本立ての場合は遅い方の完成日・2本分の歩留まりを基準に次回以降を連鎖させる
     const chainCompletion = pairCompletionDate && pairCompletionDate > completionDate
