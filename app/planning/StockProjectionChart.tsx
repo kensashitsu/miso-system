@@ -98,12 +98,14 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
                 const [y, m, day] = String(d ?? '').split('-')
                 return `${y}年${Number(m)}月${Number(day)}日`
               }}
-              formatter={(v) => [`${Math.round(Number(v ?? 0)).toLocaleString()} kg`, '在庫見込み']}
+              // 系列ごとに名前を出す（安全在庫ラインまで「在庫見込み」と表示されていた不具合の修正）
+              formatter={(v, name) => [`${Math.round(Number(v ?? 0)).toLocaleString()} kg`, String(name ?? '在庫見込み')]}
               contentStyle={{ fontSize: 11, padding: '4px 8px' }}
             />
             <Area
               type="stepAfter"
               dataKey="kg"
+              name="在庫見込み"
               stroke={COLOR.stock}
               strokeWidth={1.8}
               fill={COLOR.stock}

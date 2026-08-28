@@ -150,6 +150,28 @@ for (let i = 0; i < 400; i++) {
   cur = addDays(cur, 1)
 }
 if (runStart) below.push(`${runStart}〜(以降ずっと)`)
+// 月別の在庫水準（ラインに対してどれだけ余っているか）
+const monthly = new Map<string, { min: number; max: number; line: number }>()
+{
+  let st = effectiveStock
+  let c = today
+  for (let i = 0; i < 400; i++) {
+    st += events.get(d(c)) ?? 0
+    st -= getDailyRateFn(c)
+    const ln = (winterSafety != null && [11,12,1,2].includes(c.getMonth() + 1)) ? winterSafety : safety
+    const ym = format(c, 'yyyy-MM')
+    const e = monthly.get(ym) ?? { min: Infinity, max: -Infinity, line: ln }
+    e.min = Math.min(e.min, st); e.max = Math.max(e.max, st); e.line = ln
+    monthly.set(ym, e)
+    c = addDays(c, 1)
+  }
+}
+console.log('\n=== 月別の在庫水準（ラインに対する余剰） ===')
+for (const [ym, e] of monthly) {
+  const rate = getDailyRateFn(new Date(ym + '-15T00:00:00'))
+  console.log(` ${ym} 最小${Math.round(e.min).toString().padStart(5)}kg 最大${Math.round(e.max).toString().padStart(5)}kg (ライン${e.line}) 余剰最大${Math.round(e.max - e.line).toString().padStart(5)}kg=${((e.max - e.line) / rate).toFixed(0)}日分`)
+}
+
 console.log('\n=== 提案どおり仕込んだ場合に安全在庫ラインを割る期間 ===')
 console.log(below.length === 0 ? ' なし' : below.map(x => ' ' + x).join('\n'))
 
