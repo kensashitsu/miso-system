@@ -92,6 +92,7 @@ export function findStockOutDate(
   startDate:      Date,
   getDailyRateFn: (date: Date) => number,
   supplyEvents?:  { date: Date; kg: number }[],
+  getSafetyDelta?: (date: Date) => number,   // 季節で安全在庫ラインが変わる分の補正
 ): Date {
   if (stock <= 0 && (!supplyEvents || supplyEvents.length === 0)) return new Date(startDate)
   let remaining = stock
@@ -105,7 +106,7 @@ export function findStockOutDate(
       }
     }
     remaining -= getDailyRateFn(d)
-    if (remaining <= 0) return addDays(d, 1)
+    if (remaining - (getSafetyDelta?.(d) ?? 0) <= 0) return addDays(d, 1)
     d = addDays(d, 1)
   }
   return addDays(startDate, 3650)
@@ -125,6 +126,7 @@ export function findStockOutDateAfter(
   getDailyRateFn: (date: Date) => number,
   notBefore:      Date,
   supplyEvents?:  { date: Date; kg: number }[],
+  getSafetyDelta?: (date: Date) => number,   // 季節で安全在庫ラインが変わる分の補正
 ): Date {
   const notBeforeStr = format(notBefore, 'yyyy-MM-dd')
   let remaining = stock
@@ -143,7 +145,7 @@ export function findStockOutDateAfter(
       }
     }
     remaining -= getDailyRateFn(d)
-    if (remaining > 0) {
+    if (remaining - (getSafetyDelta?.(d) ?? 0) > 0) {
       if (dStr >= notBeforeStr) recoveredAfterNotBefore = true
       candidate = null   // 猶予内に回復した＝手当て済みの谷なので見送る
     } else {
@@ -221,6 +223,25 @@ export const PEAK_EXTRA_BUFFER_DAYS = 14
 // 追加提案するのは過剰。仕込みの完成日も熟成のブレで数日動くため、そもそも狙い撃ちできない。
 export const SHORTFALL_TOLERANCE_DAYS = 7
 
+// 冬季（この月）は外気が低く、完成後に常温へ出せば着色が実質進まない
+// （防府アメダス実測：11月195日・12〜2月は実質進まない／夏は13〜20日でリスク高）。
+// そのため出荷ピークに備えて安全在庫ラインを厚くできる。
+export const WINTER_MONTHS = [11, 12, 1, 2]
+
+// 「その日の安全在庫ライン − 基準日の安全在庫ライン」を返す関数を作る。
+// 在庫連鎖は基準日のラインを引いた「実質使える在庫」で追跡しているため、
+// 季節でラインが変わる分をこの差分で補正する（差分ぶんだけ早く在庫切れ扱いになる）。
+export function makeSafetyDeltaFn(
+  baseSafetyKg:   number,
+  winterSafetyKg: number | null | undefined,
+  baseDate:       Date,
+): ((date: Date) => number) | undefined {
+  if (winterSafetyKg == null || winterSafetyKg === baseSafetyKg) return undefined
+  const lineAt = (dt: Date) => WINTER_MONTHS.includes(dt.getMonth() + 1) ? winterSafetyKg : baseSafetyKg
+  const base   = lineAt(baseDate)
+  return (date: Date) => lineAt(date) - base
+}
+
 // 完成間隔を詰められる下限（水木仕込みなら同じ週に2回（水→木で1日差）まで可能なため、
 // 物理的な下限は1日。2026-08-26にユーザー指摘で「週1本」想定から緩和）
 export const MIN_COMPLETION_GAP_DAYS = 1
@@ -240,6 +261,7 @@ export function calcMinNextCompletion(
   bufferDays:     number,
   getDailyRateFn: (date: Date) => number,
   supplyEvents?:  { date: Date; kg: number }[],
+  getSafetyDelta?: (date: Date) => number,   // 季節で安全在庫ラインが変わる分の補正
 ): Date {
   const coverage = computeCoverageDays(batchYieldKg, completionDate, getDailyRateFn)
   // このバッチ完成時点の在庫の底（歩留まり加算前）
@@ -247,7 +269,8 @@ export function calcMinNextCompletion(
     0,
     stockAtRef
       - computeConsumed(refDate, completionDate, getDailyRateFn)
-      + computeSupplyReceived(refDate, completionDate, supplyEvents),
+      + computeSupplyReceived(refDate, completionDate, supplyEvents)
+      - (getSafetyDelta?.(completionDate) ?? 0),
   )
   const rate        = Math.max(getDailyRateFn(completionDate), 1e-9)
   const deficitDays = Math.max(0, bufferDays - floorKg / rate)
@@ -299,6 +322,7 @@ export function calcBatches(
   supplyEvents?:       { date: Date; kg: number }[],  // 熟成中ロットの補充スケジュール
   isDoubleBatch?:      (completionDate: Date) => boolean,  // その完成日は2回仕込み（連続2回）にするか
   blockedBrewDates?:   Set<string>,  // 'yyyy-MM-dd'。既に仮登録済みなど、提案を置いてはいけない日
+  getSafetyDelta?:     (date: Date) => number,  // 季節で安全在庫ラインが変わる分の補正
 ): BatchPlan[] {
   const batches: BatchPlan[] = []
   // 当週はもう原料手配等の都合で仕込めないため、仕込み日として提案できるのは最短で翌週から
@@ -338,10 +362,10 @@ export function calcBatches(
     const earliestCompletion = (getCompletion
       ? getCompletion(minBrewDate).completionDate
       : addDays(minBrewDate, fermentationDays))
-    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents)
+    const stockOutDate = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents, getSafetyDelta)
     // Q10補正なし専用の在庫切れ予測日（独立チェーン）
     const rawStockOutDate = getCompletionRaw
-      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents)
+      ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents, getSafetyDelta)
       : stockOutDate
 
     // 完成日を計算するヘルパー（常温はQ10シミュレーション、それ以外は固定熟成日数）
@@ -426,7 +450,7 @@ export function calcBatches(
     currentEstimate   = actualFermentDays
     minNextBrewDate   = addDays(pairBrewDate ?? brewDate, 1)
     // バッファ不足時は間隔を詰められる下限（stock/refDateはこの時点ではまだ前バッチ基準）
-    minNextCompletion = calcMinNextCompletion(chainCompletion, stock, refDate, chainYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
+    minNextCompletion = calcMinNextCompletion(chainCompletion, stock, refDate, chainYieldKg, safeBuffer, getDailyRateFn, supplyEvents, getSafetyDelta)
 
     const materialOrderDeadline = addDays(brewDate, -orderLeadDays)
     const daysUntilOrder        = differenceInDays(materialOrderDeadline, today)
@@ -473,7 +497,7 @@ export function calcBatches(
       rawFermentationDays      = rr.days
       rawCompletionDate        = rr.completionDate
       rawCurrentEstimate       = rawFermentationDays   // 次回の推定に実績値を使う
-      minNextRawCompletion     = calcMinNextCompletion(rawCompletionDate, rawStock, rawRefDate, batchYieldKg, safeBuffer, getDailyRateFn, supplyEvents)
+      minNextRawCompletion     = calcMinNextCompletion(rawCompletionDate, rawStock, rawRefDate, batchYieldKg, safeBuffer, getDailyRateFn, supplyEvents, getSafetyDelta)
       rawMaterialOrderDeadline = addDays(rawBrewDate, -orderLeadDays)
     }
 

@@ -10,6 +10,7 @@ import {
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import { fetchAgedStock } from '@/lib/externalApi'
 import { getMisoRecipes } from '@/lib/recipes'
+import { WINTER_MONTHS } from '@/lib/brewPlanCalc'
 import DashboardLotGroups from '@/components/dashboard/DashboardLotGroups'
 import { type LotCardProps, type LotSimConfig } from '@/components/dashboard/lot-card'
 import StockSummary from '@/components/dashboard/StockSummary'
@@ -37,7 +38,12 @@ export default async function DashboardPage() {
   for (const r of recipes) recipeTargetMap[r.name] = r.targetTempSum
   // 安全在庫ライン（熟成済バラ在庫、kg）。未設定の品種は含めない
   const safetyStockMap: Record<string, number> = {}
-  for (const r of recipes) if (r.safetyStockKg != null) safetyStockMap[r.name] = r.safetyStockKg
+  // 冬季（11〜2月）は着色が実質進まないため厚めのラインを使う（未設定なら通年同じ）
+  const isWinterNow = WINTER_MONTHS.includes(new Date().getMonth() + 1)
+  for (const r of recipes) {
+    const line = (isWinterNow && r.winterSafetyStockKg != null) ? r.winterSafetyStockKg : r.safetyStockKg
+    if (line != null) safetyStockMap[r.name] = line
+  }
   const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
 
   // API在庫を品種別Mapに変換

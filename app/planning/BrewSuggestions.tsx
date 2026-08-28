@@ -15,7 +15,7 @@ import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
 import {
   type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
   snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
-  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut,
+  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, WINTER_MONTHS,
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
@@ -26,6 +26,7 @@ interface Recipe {
   totalWeightKg:   number
   defaultLocation: string
   safetyStockKg:   number | null
+  winterSafetyStockKg: number | null
 }
 
 interface FermentingInfo {
@@ -707,6 +708,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 0を切ったタイミング＝ライン到達日として扱う）。表示用のeffectiveStockは実数のまま。
     const safetyStockKg   = recipe.safetyStockKg ?? null
     const depletableStock = safetyStockKg != null ? effectiveStock - safetyStockKg : effectiveStock
+    // 冬季（11〜2月）は着色が実質進まないため安全在庫ラインを厚くできる。
+    // 在庫連鎖は「今日のライン」を引いた実質在庫で追跡しているので、季節差は差分で補正する
+    const getSafetyDelta = safetyStockKg != null
+      ? makeSafetyDeltaFn(safetyStockKg, recipe.winterSafetyStockKg, today)
+      : undefined
 
     const canCalc   = monthlyAvg !== null && monthlyAvg > 0 && fermentationDays > 0
     const daysInMonth = getDaysInMonth(today)
@@ -763,7 +769,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       supplyEvents: { date: Date; kg: number }[] | undefined,
     ): { stockOut: Date | null; ideal: Date | null } => {
       if (!canCalc) return { stockOut: null, ideal: null }
-      const so = findStockOutDate(depletableStock, today, getDailyRateFn, supplyEvents)
+      const so = findStockOutDate(depletableStock, today, getDailyRateFn, supplyEvents, getSafetyDelta)
       // calcBatches と同じ不動点反復で1回目推奨日を求める（単発補正だと前倒し過ぎてバナーが誤って超過表示になる）
       let ideal: Date
       if (getCompletion) {
@@ -797,7 +803,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     // 新規提案バッチ（仮登録の確定生産を供給算入した上で、足りない分を生成）
     let generated = canCalc
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet, getSafetyDelta)
       : []
 
     // 工程上の運用ルール：無添加が田舎と同じ週で同日以前になっていたら、田舎の翌仕込み可能日へ
@@ -835,7 +841,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       })
       if (Object.keys(overrides).length > 0) {
         Object.assign(manualBrewDateByIndex, overrides)
-        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet)
+        generated = calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet, getSafetyDelta)
       }
     }
 
@@ -872,7 +878,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 予定出荷の反映効果：予定出荷なしの新規提案を同一条件で別途算出し、各回を before→after で比較。
     // 1回目の起点は手動指定のみ引き継ぐ（予定出荷由来の自動補正は渡さない＝1回目の真の前倒しも見えるように）。
     const generatedNoOrders = (canCalc && hasOrders)
-      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, regDateSet)
+      ? calcBatches(depletableStock, getDailyRateFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateRaw, noOrderSupply, isDoubleBatch, regDateSet, getSafetyDelta)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       : null
     const shownGenCount = batches.filter(b => !b.isFixed).length
@@ -906,10 +912,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     if (canCalc && stockOutDate0) {
       const factor   = 1 + wifPct / 100
       const scaledFn = (d: Date) => getDailyRateFn(d) * factor
-      const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents)
+      const so       = findStockOutDate(depletableStock, today, scaledFn, activeSupplyEvents, getSafetyDelta)
       demandStockOut = { newStockOut: so, delta: differenceInDays(so, stockOutDate0) }
       // スケール済みレートで全回再計算し、表示中の各回と同インデックスで比較
-      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet)
+      const scaledGen = calcBatches(depletableStock, scaledFn, fermentationDays, recipe.totalWeightKg, recipeBatches, today, orderLeadDays, bufferDays, getCompletion, snapFn, getCompletionRaw, fermentationDaysRaw, manualBrewDateByIndex, activeSupplyEvents, isDoubleBatch, regDateSet, getSafetyDelta)
         .filter(b => !regDateSet.has(format(b.brewDate, 'yyyy-MM-dd')))
       demandBatches = shownNew.map((b, i) => {
         const after = scaledGen[i]?.brewDate ?? b.brewDate

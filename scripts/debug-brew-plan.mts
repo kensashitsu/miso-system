@@ -22,7 +22,7 @@ const calc    = merge(calcNs)
 const {
   simulateFermentationDays, calcBatches, findStockOutDate, findStockOutDateAfter,
   snapToBrewDay, nextWeekMonday, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
-  PEAK_COMPLETION_MONTHS,
+  PEAK_COMPLETION_MONTHS, makeSafetyDeltaFn,
 } = calc
 
 const prisma   = new PrismaClient()
@@ -88,10 +88,14 @@ supplyEvents.sort((a, b) => a.date.getTime() - b.date.getTime())
 
 // 在庫（外部APIが取れないのでコマンドライン第3引数、既定は画面表示値）
 const stockKg = Number(process.argv[3] ?? 2667)
-const safety  = recipe.safetyStockKg ?? 0
+// 第5引数で安全在庫ラインを上書きできる（設定変更の影響を試算するため）
+const safety  = Number(process.argv[5] ?? recipe.safetyStockKg ?? 0)
 const immediateKg = supplyEvents.filter(e => e.date <= today).reduce((s, e) => s + e.kg, 0)
 const effectiveStock = stockKg + immediateKg
 const depletableStock = effectiveStock - safety
+
+const winterSafety = process.argv[6] != null ? Number(process.argv[6]) : recipe.winterSafetyStockKg
+const getSafetyDelta = makeSafetyDeltaFn(safety, winterSafety, today)
 
 const getCompletion = (brewDate: Date) =>
   simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg, weatherFallback,
@@ -102,7 +106,7 @@ const isDoubleBatch = MISO === '無添加麦みそ'
 
 console.log(`=== ${MISO} ===`)
 console.log(`今日 ${d(today)} / 1回の生産量 ${recipe.totalWeightKg}kg / 安全在庫 ${safety}kg`)
-console.log(`現在庫 ${stockKg}kg → 実質使える在庫 ${Math.round(depletableStock)}kg`)
+console.log(`現在庫 ${stockKg}kg → 実質使える在庫 ${Math.round(depletableStock)}kg / 冬季ライン ${winterSafety ?? '未設定'}`)
 console.log('消費ペース(kg/日):', ['2026-09','2026-10','2026-11','2026-12','2027-01','2027-02','2027-03']
   .map(m => `${m}:${Math.round(rateMap[m] ?? lastRate)}`).join(' '))
 console.log(`→ 1回(${recipe.totalWeightKg}kg)で賄える日数: ` + ['2026-10','2026-12','2027-02']
@@ -119,7 +123,7 @@ const batches = calcBatches(
   depletableStock, getDailyRateFn, getCompletion(minBrewDate).days, recipe.totalWeightKg,
   Number(process.argv[4] ?? 5), today, ORDER_LEAD_DAYS[MISO] ?? DEFAULT_ORDER_LEAD_DAYS, brewBufferDays,
   getCompletion, snapToBrewDay, undefined, undefined, {}, supplyEvents, isDoubleBatch,
-  new Set(regPlans.map(p => d(p.brewDate))))
+  new Set(regPlans.map(p => d(p.brewDate))), getSafetyDelta)
 
 console.log('\n=== 生成された提案 ===')
 for (const b of batches) {
@@ -140,7 +144,8 @@ let runStart: string | null = null
 for (let i = 0; i < 400; i++) {
   stock += events.get(d(cur)) ?? 0
   stock -= getDailyRateFn(cur)
-  if (stock < safety) { if (!runStart) runStart = d(cur) }
+  const lineToday = (winterSafety != null && [11,12,1,2].includes(cur.getMonth() + 1)) ? winterSafety : safety
+  if (stock < lineToday) { if (!runStart) runStart = d(cur) }
   else if (runStart) { below.push(`${runStart}〜${d(cur)}`); runStart = null }
   cur = addDays(cur, 1)
 }
