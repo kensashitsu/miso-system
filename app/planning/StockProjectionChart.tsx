@@ -65,6 +65,8 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
   const hasRegistered = buckets.some(m => m.kind === 'registered')
   // 季節でラインが変わるか（変わるなら階段線で描く）
   const hasSeasonalSafety = points.some(p => p.safety != null && p.safety !== points[0].safety)
+  // ※通年ライン未設定でも季節ラインだけ設定されている品種（例: 山吹みそ）があるため、
+  //   safetyStockKg が null でも階段線は描く
   const multi = markers.length > 1
   const lbl = (base: string, n: number) => (multi ? `${base}${n}` : base)
 
@@ -118,7 +120,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
               strokeDasharray="4 3"
               label={{ value: '今日', position: 'insideTopLeft', fontSize: 10, fill: COLOR.today }}
             />
-            {safetyStockKg != null && (
+            {(safetyStockKg != null || hasSeasonalSafety) && (
               hasSeasonalSafety ? (
                 // 冬季（11〜2月）はラインが変わるので、水平線ではなく日ごとの階段で描く
                 <Line
@@ -133,10 +135,10 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
                 />
               ) : (
                 <ReferenceLine
-                  y={safetyStockKg}
+                  y={safetyStockKg ?? undefined}
                   stroke={COLOR.safety}
                   strokeDasharray="4 3"
-                  label={{ value: `安全在庫ライン ${safetyStockKg.toLocaleString()}kg`, position: 'insideBottomRight', fontSize: 10, fill: COLOR.safety }}
+                  label={{ value: `安全在庫ライン ${(safetyStockKg ?? 0).toLocaleString()}kg`, position: 'insideBottomRight', fontSize: 10, fill: COLOR.safety }}
                 />
               )
             )}

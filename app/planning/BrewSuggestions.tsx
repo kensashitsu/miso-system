@@ -15,7 +15,7 @@ import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
 import {
   type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
   snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
-  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, WINTER_MONTHS,
+  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, makeSafetyLineFn,
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
@@ -707,13 +707,21 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 安全在庫ライン（熟成済バラ在庫）が設定されている品種は、在庫切れ判定・仕込み提案の
     // 起点をライン到達時点にシフトする（実在庫からラインを引いた「実質使える在庫」で計算し、
     // 0を切ったタイミング＝ライン到達日として扱う）。表示用のeffectiveStockは実数のまま。
+    // 季節ラインだけ設定されている品種（例: 山吹みそ＝通年なし・冬季300kg）もあるため、
+    // 通年が未設定なら 0 を基準にして季節差だけを効かせる
+    const winterSafetyKg  = recipe.winterSafetyStockKg
+    const summerSafetyKg  = recipe.summerSafetyStockKg
+    const hasAnySafety    = recipe.safetyStockKg != null || winterSafetyKg != null || summerSafetyKg != null
+    const baseSafetyKg    = recipe.safetyStockKg ?? 0
     const safetyStockKg   = recipe.safetyStockKg ?? null
-    const depletableStock = safetyStockKg != null ? effectiveStock - safetyStockKg : effectiveStock
-    // 冬季（11〜2月）は着色が実質進まないため安全在庫ラインを厚くできる。
-    // 在庫連鎖は「今日のライン」を引いた実質在庫で追跡しているので、季節差は差分で補正する
-    const getSafetyDelta = safetyStockKg != null
-      ? makeSafetyDeltaFn(safetyStockKg, recipe.winterSafetyStockKg, recipe.summerSafetyStockKg)
+    const depletableStock = hasAnySafety ? effectiveStock - baseSafetyKg : effectiveStock
+    // 冬季（11〜2月）は着色が実質進まないためラインを厚く、夏季（5〜8月）は着色が早いため薄く。
+    // 在庫連鎖は通年ラインを引いた実質在庫で追跡しているので、季節差は差分で補正する
+    const getSafetyDelta = hasAnySafety
+      ? makeSafetyDeltaFn(baseSafetyKg, winterSafetyKg, summerSafetyKg)
       : undefined
+    // その日に適用されるライン（グラフの階段線・当月の表示に使う）
+    const safetyLineAt    = hasAnySafety ? makeSafetyLineFn(baseSafetyKg, winterSafetyKg, summerSafetyKg) : null
 
     const canCalc   = monthlyAvg !== null && monthlyAvg > 0 && fermentationDays > 0
     const daysInMonth = getDaysInMonth(today)
@@ -985,7 +993,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         daily.push({
           d: k, kg: Math.round(stock),
           // 冬季（11〜2月）は安全在庫ラインが厚くなるため、その日のラインを持たせる
-          safety: safetyStockKg != null ? safetyStockKg + (getSafetyDelta?.(d) ?? 0) : undefined,
+          safety: safetyLineAt ? safetyLineAt(d) : undefined,
         })
         d = addDays(d, 1)
       }

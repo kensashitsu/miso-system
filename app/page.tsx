@@ -41,8 +41,10 @@ export default async function DashboardPage() {
   // 季節でラインが変わる（冬季11〜2月は厚め・夏季5〜8月は薄め）。未設定の季節は通年ライン
   const now = new Date()
   for (const r of recipes) {
-    if (r.safetyStockKg == null) continue
-    safetyStockMap[r.name] = makeSafetyLineFn(r.safetyStockKg, r.winterSafetyStockKg, r.summerSafetyStockKg)(now)
+    // 通年が未設定でも季節ラインだけ設定されている品種（例: 山吹みそ＝冬季300kg）がある
+    if (r.safetyStockKg == null && r.winterSafetyStockKg == null && r.summerSafetyStockKg == null) continue
+    const line = makeSafetyLineFn(r.safetyStockKg ?? 0, r.winterSafetyStockKg, r.summerSafetyStockKg)(now)
+    if (line > 0) safetyStockMap[r.name] = line
   }
   const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
 
