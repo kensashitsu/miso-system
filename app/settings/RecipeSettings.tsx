@@ -304,8 +304,11 @@ function RecipeForm({
 
         {/* 安全在庫ライン */}
         <div className="space-y-1">
-          <Label htmlFor="rf-safety">安全在庫ライン・熟成済バラ (kg) <span className="text-muted-foreground text-xs">（空欄=設定しない）</span></Label>
+          <Label htmlFor="rf-safety">安全在庫ライン・熟成済＋小分け (kg) <span className="text-muted-foreground text-xs">（空欄=設定しない）</span></Label>
           <Input id="rf-safety" type="number" step="1" min="0" inputMode="decimal" {...input('safetyStockKg')} placeholder="例: 1600" />
+          <p className="text-[11px] text-muted-foreground">
+            判定対象は「熟成済バラ在庫＋小分け製品在庫」の合計です（熟成中ロットは含みません）。
+          </p>
         </div>
 
         {/* 冬季（11〜2月）の安全在庫ライン */}

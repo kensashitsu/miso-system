@@ -717,7 +717,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const combinedEvents   = [...baseSupplyEvents, ...futureOrderEvents]
     const activeSupplyEvents = combinedEvents.length > 0 ? combinedEvents : undefined
 
-    // 安全在庫ライン（熟成済バラ在庫）が設定されている品種は、在庫切れ判定・仕込み提案の
+    // 安全在庫ライン（熟成済バラ＋小分け製品の合計）が設定されている品種は、在庫切れ判定・仕込み提案の
     // 起点をライン到達時点にシフトする（実在庫からラインを引いた「実質使える在庫」で計算し、
     // 0を切ったタイミング＝ライン到達日として扱う）。表示用のeffectiveStockは実数のまま。
     // 季節ラインだけ設定されている品種（例: 山吹みそ＝通年なし・冬季300kg）もあるため、

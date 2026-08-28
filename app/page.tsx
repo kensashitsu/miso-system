@@ -37,7 +37,7 @@ export default async function DashboardPage() {
   // レシピの現在の目標積算温度を品種名でルックアップ
   const recipeTargetMap: Record<string, number> = {}
   for (const r of recipes) recipeTargetMap[r.name] = r.targetTempSum
-  // 安全在庫ライン（熟成済バラ在庫、kg）。未設定の品種は含めない
+  // 安全在庫ライン（工場内合計＝熟成済バラ＋小分け製品、kg）。未設定の品種は含めない
   const safetyStockMap: Record<string, number> = {}
   // 季節でラインが変わる（冬季11〜2月は厚め・夏季5〜8月は薄め）。未設定の季節は通年ライン
   const now = new Date()
@@ -189,9 +189,14 @@ export default async function DashboardPage() {
     const days = differenceInDays(new Date(l.estimatedCompletionISO), today)
     return days >= 0 && days <= 7
   })
-  // 安全在庫ラインを下回っている品種（熟成済バラ在庫のみで判定。小分け製品は含めない）
+  // 安全在庫ラインを下回っている品種。判定は「熟成済バラ＋小分け製品」の合計で行う
+  // （仕込み計画のAI提案も同じ合計で在庫切れを判定しているため揃える）
   const lowSafetyStockTypes = Object.entries(safetyStockMap)
-    .map(([type, line]) => ({ type, line, agedKg: agedStockMap[type]?.agedKg ?? null }))
+    .map(([type, line]) => {
+      const aged = agedStockMap[type]?.agedKg ?? null
+      const pkg  = agedStockMap[type]?.packagedKg ?? 0
+      return { type, line, agedKg: aged != null ? aged + pkg : null }
+    })
     .filter(t => t.agedKg != null && t.agedKg < t.line)
 
   return (
@@ -218,7 +223,7 @@ export default async function DashboardPage() {
             <div className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-orange-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                <span className="font-semibold">安全在庫ライン割れ（熟成済バラ在庫）：</span>
+                <span className="font-semibold">安全在庫ライン割れ（熟成済＋小分け）：</span>
                 {lowSafetyStockTypes
                   .map(t => `${t.type}（${Math.round(t.agedKg!).toLocaleString()}kg／ライン${t.line.toLocaleString()}kg）`)
                   .join('、')}

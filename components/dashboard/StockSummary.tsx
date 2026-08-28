@@ -10,7 +10,7 @@ type StockSummaryProps = {
   fermentingKgByType: Record<string, number>
   hasApiData:         boolean
   hasApiError:        boolean
-  safetyStockMap?:    Record<string, number>  // 品種ごとの安全在庫ライン（熟成済バラ在庫、kg）
+  safetyStockMap?:    Record<string, number>  // 品種ごとの安全在庫ライン（熟成済バラ＋小分け製品の合計、kg）
 }
 
 function KgCell({ value, warn }: { value: number | null; warn?: boolean }) {
@@ -19,7 +19,7 @@ function KgCell({ value, warn }: { value: number | null; warn?: boolean }) {
     <>
       <span className={`font-semibold ${warn ? 'text-orange-600' : 'text-gray-900'}`}>{value.toLocaleString()}</span>
       <span className={`font-normal text-xs ml-0.5 ${warn ? 'text-orange-400' : 'text-gray-400'}`}>kg</span>
-      {warn && <span className="ml-1 text-orange-500" title="安全在庫ラインを下回っています">⚠</span>}
+      {warn && <span className="ml-1 text-orange-500" title="安全在庫ライン（熟成済＋小分け）を下回っています">⚠</span>}
     </>
   )
 }
@@ -111,15 +111,19 @@ export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByTy
                   const fermenting = Math.round(fermentingKgByType[type] ?? 0)
                   const total      = aged != null ? aged + (packaged ?? 0) + fermenting : null
                   const safetyLine = safetyStockMap?.[type]
-                  const belowSafety = safetyLine != null && aged != null && aged < safetyLine
+                  // 判定は「熟成済バラ＋小分け製品」の合計（熟成中は含めない）。
+                  // 山吹みそのように熟成済がゼロで小分けだけの品種があるため、
+                  // 熟成済だけで見ると在庫があっても常に警告になってしまう
+                  const shippableKg = aged != null ? aged + (packaged ?? 0) : null
+                  const belowSafety = safetyLine != null && shippableKg != null && shippableKg < safetyLine
                   return (
                     <tr key={type} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
                       <td className="py-2.5 pr-2 px-4 text-sm font-medium text-gray-700 whitespace-nowrap">{type}</td>
                       <td className="py-2.5 px-2 text-right tabular-nums">
                         <KgCell value={fermenting > 0 ? fermenting : null} />
                       </td>
-                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={aged} warn={belowSafety} /></td>
-                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={packaged} /></td>
+                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={aged} /></td>
+                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={packaged} warn={belowSafety} /></td>
                       <td className="py-2.5 pl-2 pr-4 text-right tabular-nums"><KgCell value={total} /></td>
                     </tr>
                   )
