@@ -1553,6 +1553,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
           // 安全在庫ラインを設定している品種は「在庫切れ」ではなく「ラインを割る」と言い換える
           const outWord = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る' : '尽きる'
+          // 表のセル内で「その日付が何の日か」を言うための言い回し（見出しは離れていて読まれない）
+          const outPhrase = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る' : '在庫が尽きる'
 
           const summaryStyle = {
             urgent: 'border-red-200 bg-red-50/70 text-red-800',
@@ -2295,7 +2297,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                 <span className="text-foreground/40 text-[10px]">仕込み日</span>
                                 <span className="text-foreground/40 text-[10px]">完成予定</span>
                                 <span className="text-foreground/40 text-[10px]">完成前日の在庫</span>
-                                <span className="text-foreground/40 text-[10px]">在庫が{outWord}日に間に合うか</span>
+                                <span className="text-foreground/40 text-[10px]">間に合うか</span>
                                 <span className="text-foreground/40 text-[10px] whitespace-normal">この日になった理由</span>
                                 {plan.batches.map(b => {
                                   const genIndex = b.isFixed ? -1 : genBatches.indexOf(b)
@@ -2343,7 +2345,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       {b.isFixed ? (
                                         <span className="text-foreground/40">—</span>
                                       ) : (
+                                        // 列見出しは離れていて読まれないので、セル内で日付が何の日かを言う
                                         <span>
+                                          {outPhrase}{' '}
                                           <span className="tabular-nums">{format(b.stockOutDate, 'M/d')}</span>
                                           {marginDays >= 0
                                             ? <span className="text-emerald-700">{' の '}{marginDays} 日前に完成</span>
