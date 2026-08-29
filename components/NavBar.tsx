@@ -77,7 +77,7 @@ export default function NavBar({ username }: { username: string | null }) {
       </div>
 
       {/* デスクトップ: 1行レイアウト */}
-      <div className="hidden sm:flex items-center gap-8 h-14 max-w-5xl mx-auto px-4">
+      <div className="hidden sm:flex items-center gap-8 h-14 max-w-[1400px] mx-auto px-4">
         <span className="font-bold text-gray-900 tracking-tight text-lg shrink-0 select-none">
           みそ熟成管理
         </span>

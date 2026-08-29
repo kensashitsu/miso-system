@@ -198,6 +198,9 @@ export default async function DashboardPage() {
     })
     .filter(t => t.agedKg != null && t.agedKg < t.line)
 
+  // ダッシュボードの幅は据え置き（他のデータ系画面は1400pxへ拡大済み）。
+  // 単に広げると在庫サマリー表が横に間延びするため、「今日やること」＋サマリーと
+  // グラフの2カラム化とあわせて広げる
   return (
     <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-4 sm:space-y-6">
       <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">ダッシュボード</h1>

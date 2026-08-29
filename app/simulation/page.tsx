@@ -129,7 +129,7 @@ export default async function SimulationPage() {
     : (baseGrainKg_w * moisture.komeKojiRatio * moisture.komeKoji + baseSoybeanKg_w * moisture.soybeanRatio * steamedSoyMoisture) / baseTotalKg_w
 
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
+    <div className="max-w-[1280px] mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">試作シミュレーター</h1>
         <p className="text-sm text-muted-foreground mt-1">

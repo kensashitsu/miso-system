@@ -74,7 +74,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30 no-print">
-      <div className="max-w-5xl mx-auto px-4">
+      <div className="max-w-[1400px] mx-auto px-4">
       {/* 展開時のパネル */}
       {isOpen && (
         <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden max-h-[55vh] flex flex-col">
