@@ -1552,9 +1552,19 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           })()
 
           // 安全在庫ラインを設定している品種は「在庫切れ」ではなく「ラインを割る」と言い換える
-          const outWord = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る' : '尽きる'
-          // 表のセル内で「その日付が何の日か」を言うための言い回し（見出しは離れていて読まれない）
-          const outPhrase = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割る' : '在庫が尽きる'
+          // 見出し・説明文の言い回しは「この品種にラインが設定されているか」で決める。
+          // 今日のライン（currentSafetyKg）で判定すると、夏季0kgの品種（無添加麦みそ）が
+          // 夏のあいだだけ「在庫が尽きる」表記になってしまう（2026-08-29にユーザー指摘）
+          const hasSafetyLine = (plan.safetyStockKg != null && plan.safetyStockKg > 0)
+            || (plan.currentSafetyKg != null && plan.currentSafetyKg > 0)
+          const outWord = hasSafetyLine ? '安全在庫ラインを割る' : '尽きる'
+          // 表のセル内で「その日付が何の日か」を言うための言い回し（見出しは離れていて読まれない）。
+          // ラインは季節で変わるので、判定に使ったその日のラインで言い分ける
+          const outPhraseAt = (d: Date): string => {
+            const line = plan.dailyStockByDate.get(format(d, 'yyyy-MM-dd'))?.safety
+            if (line === undefined) return hasSafetyLine ? '安全在庫ラインを割る' : '在庫が尽きる'
+            return line > 0 ? '安全在庫ラインを割る' : '在庫が尽きる'
+          }
 
           const summaryStyle = {
             urgent: 'border-red-200 bg-red-50/70 text-red-800',
@@ -2347,7 +2357,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                       ) : (
                                         // 列見出しは離れていて読まれないので、セル内で日付が何の日かを言う
                                         <span>
-                                          {outPhrase}{' '}
+                                          {outPhraseAt(b.stockOutDate)}{' '}
                                           <span className="tabular-nums">{format(b.stockOutDate, 'M/d')}</span>
                                           {marginDays >= 0
                                             ? <span className="text-emerald-700">{' の '}{marginDays} 日前に完成</span>
