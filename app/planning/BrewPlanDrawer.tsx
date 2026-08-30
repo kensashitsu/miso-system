@@ -6,7 +6,7 @@ import { format } from 'date-fns'
 import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
-import { deleteBrewPlan, deleteBrewPlans } from '@/app/planning/brew-plan-actions'
+import { deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered } from '@/app/planning/brew-plan-actions'
 
 export interface BrewPlanItem {
   id:                    string
@@ -17,6 +17,7 @@ export interface BrewPlanItem {
   location:              string
   bucketNumbers:         string | null
   materialOrderDeadline: Date
+  materialOrderedAt:     Date | null
   status:                string
   lotId:                 string | null
 }
@@ -25,6 +26,9 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // 原料手配チェックの楽観的更新。サーバーアクション＋再検証を待つとチェックが
+  // 一拍遅れて反応しないように見えるため、押した瞬間の見た目をここで持つ
+  const [pendingOrdered, setPendingOrdered] = useState<Record<string, boolean>>({})
   // 固定ドロワーの実高さ（畳んでいるとき＝バーのみ／開いているとき＝バー＋一覧）。
   // 同じ高さの余白を流し込み側に確保して、ページ末尾がドロワーに隠れないようにする
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -32,6 +36,21 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
 
   // 本登録済（ロット化済み）は自動でリストから外れるため、ここに来るのは仮登録のみのはず
   const pending = plans.filter(p => p.status === '仮登録')
+
+  // サーバー側の値が楽観的な値に追いついたら、楽観的な値を捨てる
+  useEffect(() => {
+    setPendingOrdered(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const p of plans) {
+        if (p.id in next && next[p.id] === (p.materialOrderedAt != null)) {
+          delete next[p.id]
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [plans])
 
   // 開閉・件数でドロワーの高さが変わるので、そのつど測り直して余白に反映する
   useEffect(() => {
@@ -128,6 +147,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                   <th className="text-left px-3 py-2 font-medium">品種</th>
                   <th className="text-left px-3 py-2 font-medium">仕込み予定日</th>
                   <th className="text-left px-3 py-2 font-medium">完成予定日</th>
+                  <th className="text-left px-3 py-2 font-medium whitespace-nowrap">原料手配</th>
                   <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">桶番号</th>
                   <th className="text-left px-3 py-2 font-medium hidden sm:table-cell">場所</th>
                   <th className="text-left px-3 py-2 font-medium">状態</th>
@@ -136,6 +156,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
               </thead>
               <tbody>
                 {pending.map(plan => {
+                  const ordered = pendingOrdered[plan.id] ?? (plan.materialOrderedAt != null)
                   return (
                     <tr key={plan.id} className="border-b last:border-0">
                       <td className="px-3 py-2.5">
@@ -182,6 +203,48 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                             <CalendarPlus className="h-3.5 w-3.5" />
                           </a>
                         </span>
+                      </td>
+                      {/* 原料手配のチェック。済にするとダッシュボードの督促から外れる */}
+                      <td className="px-3 py-2.5">
+                        <label className="inline-flex items-center gap-1.5 cursor-pointer whitespace-nowrap">
+                          <input
+                            type="checkbox"
+                            checked={ordered}
+                            onChange={e => {
+                              const next = e.target.checked
+                              setPendingOrdered(prev => ({ ...prev, [plan.id]: next }))
+                              startTransition(async () => {
+                                try {
+                                  await setBrewPlanMaterialOrdered(plan.id, next)
+                                  // ここで楽観的な値を捨ててはいけない。アクションの完了と
+                                  // 再検証されたpropsの到着にはズレがあり、捨てると一瞬
+                                  // 元の状態に戻って見える（実測で150〜400msちらついた）。
+                                  // 破棄は下の useEffect（propsが追いついたら）で行う
+                                } catch {
+                                  // 失敗したら押す前の状態に戻す
+                                  setPendingOrdered(prev => {
+                                    const rest = { ...prev }
+                                    delete rest[plan.id]
+                                    return rest
+                                  })
+                                }
+                              })
+                            }}
+                            className="h-3.5 w-3.5 align-middle"
+                          />
+                          {ordered ? (
+                            <span className="text-emerald-600">
+                              手配済
+                              {plan.materialOrderedAt && (
+                                <span className="text-[10px] text-muted-foreground"> {format(plan.materialOrderedAt, 'M/d')}</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              未手配 <span className="text-[10px]">締切 {format(plan.materialOrderDeadline, 'M/d')}</span>
+                            </span>
+                          )}
+                        </label>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums hidden sm:table-cell">
                         {plan.bucketNumbers ?? '—'}

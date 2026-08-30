@@ -241,7 +241,10 @@ export default async function DashboardPage() {
   const DOW = ['日', '月', '火', '水', '木', '金', '土']
   const planLabel = (p: { misoType: string; bucketNumbers: string | null }) =>
     `${p.misoType}${p.bucketNumbers ? `（桶${p.bucketNumbers}）` : ''}`
+  // 手配済みにチェックが入ったものは督促しない。これが無いと、ロット登録するまで
+  // 同じ督促が出続けて壁紙化する（2026-08-31ユーザー指摘）
   const orderDeadlinePlans = brewPlans
+    .filter(p => p.materialOrderedAt == null)
     .map(p => ({ p, days: differenceInDays(startOfDay(p.materialOrderDeadline), today) }))
     .filter(x => x.days <= ORDER_ALERT_DAYS)
     .sort((a, b) => a.days - b.days)
@@ -289,7 +292,7 @@ export default async function DashboardPage() {
       body: `${planLabel(overdueOrderPlans[0].p)}（${format(overdueOrderPlans[0].p.brewDate, 'M/d')} 仕込み予定）の手配締切 `
         + `${format(overdueOrderPlans[0].p.materialOrderDeadline, 'M/d')} を ${-overdueOrderPlans[0].days} 日超過`
         + (overdueOrderPlans.length > 1 ? `。ほか ${overdueOrderPlans.length - 1} 件` : '')
-        + '（手配済みなら対応不要です）',
+        + '。手配済みなら仮登録リストでチェックすると消えます',
       href: '/planning',
     }] : []),
     ...lowSafetyStockTypes.map(t => ({

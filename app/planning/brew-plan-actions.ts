@@ -99,6 +99,17 @@ export async function deleteBrewPlans(ids: string[]): Promise<void> {
   revalidatePath('/', 'layout')
 }
 
+// 原料の手配が済んだかどうかを切り替える。
+// これが無いと、ダッシュボードの「原料手配の締切」がロット登録するまで永遠に出続け、
+// 壁紙化して読み飛ばされる（2026-08-31ユーザー指摘）
+export async function setBrewPlanMaterialOrdered(id: string, ordered: boolean): Promise<void> {
+  await prisma.brewPlan.update({
+    where: { id },
+    data:  { materialOrderedAt: ordered ? new Date() : null },
+  })
+  revalidatePath('/', 'layout')
+}
+
 export async function markBrewPlanRegistered(id: string, lotId: string): Promise<void> {
   await prisma.brewPlan.update({
     where: { id },
