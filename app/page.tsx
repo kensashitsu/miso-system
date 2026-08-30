@@ -191,6 +191,11 @@ export default async function DashboardPage() {
   // 表示用の累計%（完成ロットは完成後に進んだ分を足した値で判定している）
   const totalRiskPct = (l: LotCardProps) =>
     Math.round(((l.accumulatedTemp + (l.postCompletionTemp ?? 0)) / l.targetTempSum) * 100)
+  // 現場はロット番号より桶番号で覚えているため、「今日やること」に桶番号も出す
+  const lotLabel = (l: LotCardProps) => {
+    const buckets = l.bucketNumbers ?? (l.buckets.length > 0 ? l.buckets.map(b => b.bucketNumber).join('・') : null)
+    return `${l.lotNumber}（${l.misoType}${buckets ? `・桶${buckets}` : ''}）`
+  }
   const nearCompletionLots = agingLots.filter(l => {
     if (!l.estimatedCompletionISO) return false
     const days = differenceInDays(new Date(l.estimatedCompletionISO), today)
@@ -218,19 +223,19 @@ export default async function DashboardPage() {
     ...overdueLots.map(l => ({
       key: `over-${l.id}`, tone: 'rose' as const, icon: 'clock' as const,
       label: '完成予定を超過',
-      body: `${l.lotNumber}（${l.misoType}）が完成予定日を ${l.overdueDays} 日過ぎています`,
+      body: `${lotLabel(l)}が完成予定日を ${l.overdueDays} 日過ぎています`,
       href: `/lots/${l.id}`,
     })),
     ...dangerLots.map(l => ({
       key: `color-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
       label: '着色リスク高',
-      body: `${l.lotNumber}（${l.misoType}）が目標の 150% を超えています（累計 ${totalRiskPct(l)}%）`,
+      body: `${lotLabel(l)}が目標の 150% を超えています（累計 ${totalRiskPct(l)}%）`,
       href: `/lots/${l.id}`,
     })),
     ...dangerCompletedLots.map(l => ({
       key: `color-done-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
       label: '着色リスク高（完成済）',
-      body: `${l.lotNumber}（${l.misoType}）は完成後も熟成が進み累計 ${totalRiskPct(l)}%。`
+      body: `${lotLabel(l)}は完成後も熟成が進み累計 ${totalRiskPct(l)}%。`
         + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
       href: `/lots/${l.id}`,
     })),
@@ -243,7 +248,7 @@ export default async function DashboardPage() {
     ...nearCompletionLots.map(l => ({
       key: `near-${l.id}`, tone: 'amber' as const, icon: 'clock' as const,
       label: '完成間近',
-      body: `${l.lotNumber}（${l.misoType}）はあと ${differenceInDays(new Date(l.estimatedCompletionISO!), today)} 日で完成予定です`,
+      body: `${lotLabel(l)}はあと ${differenceInDays(new Date(l.estimatedCompletionISO!), today)} 日で完成予定です`,
       href: `/lots/${l.id}`,
     })),
   ]
