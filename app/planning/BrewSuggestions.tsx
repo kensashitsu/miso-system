@@ -129,8 +129,14 @@ interface RecipePlan {
   batches:          BatchPlan[]
   hasData:          boolean
   canCalc:          boolean
-  isBrewDatePast:   boolean       // 1回目AI推奨仕込み日が今日より過去かどうか
+  isBrewDatePast:   boolean       // 1回目AI推奨仕込み日が今日より過去かどうか（間に合わない谷は除く）
   overdueDays:      number        // 何日超過しているか
+  // 直近の在庫切れ（ライン割れ）が「今から最短で仕込んでも完成が間に合わない」ものか。
+  // 既に仕込んだ分・仮登録済みの分でしか手当てできないので「推奨日を超過」とは言わない
+  unreachableStockOut: boolean
+  earliestCompletion0: Date | null  // 今から最短で仕込んだ場合の完成日
+  fixedKg:          number        // 仮登録（確定）分の合計生産量
+  fixedCount:       number        // 仮登録（確定）分の件数
   manualPinIndices: number[]      // 手動固定が実際に効いている回のインデックス（確定日と重複時は除外）
   idealBrewDate0:   Date | null   // 修正前のAI推奨仕込み日（警告バナー表示用）
   orderImpact:      {             // 予定出荷の反映前後の比較（未入力時はnull）
@@ -852,8 +858,20 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const withOrders     = computeIdeal(activeSupplyEvents)
     const stockOutDate0  = withOrders.stockOut
     const idealBrewDate0 = withOrders.ideal
-    // 当日はもう仕込めないため、推奨日が「今日以前」なら超過扱いにする
-    const isBrewDatePast = !!idealBrewDate0 && idealBrewDate0 <= today
+    // 今から最短で仕込んだ場合の完成日（calcBatches の earliestCompletion と同じ考え方）
+    const minBrewDate0 = snapEnabled ? snapToBrewDay(nextWeekMonday(today)) : nextWeekMonday(today)
+    const earliestCompletion0 = canCalc
+      ? (getCompletion ? getCompletion(minBrewDate0).completionDate : addDays(minBrewDate0, fermentationDays))
+      : null
+    // 最初の在庫切れ（ライン割れ）が「最短で仕込んでも完成が間に合わない」ものかどうか。
+    // 間に合わない谷は、既に仕込んだロット・仮登録済みの分で手当てするしかなく、
+    // 逆算した推奨日（過去日）を突きつけても打つ手がない。
+    // ※2026-08-30 ユーザー指摘：8/19に実際に仕込んでいるのに「推奨日を32日超過（本来は7/29）」と
+    //   出し続けるのは意味がない。calcBatches 側は既に findStockOutDateAfter で
+    //   「間に合う谷」だけを狙うようになっており、バナーだけが旧ロジックのまま取り残されていた。
+    const unreachableStockOut = !!stockOutDate0 && !!earliestCompletion0 && stockOutDate0 < earliestCompletion0
+    // 当日はもう仕込めないため、推奨日が「今日以前」なら超過扱いにする（間に合わない谷は除く）
+    const isBrewDatePast = !!idealBrewDate0 && idealBrewDate0 <= today && !unreachableStockOut
     const overdueDays    = isBrewDatePast && idealBrewDate0 ? differenceInDays(today, idealBrewDate0) : 0
     const stockOutInDays = stockOutDate0 ? differenceInDays(stockOutDate0, today) : null
 
@@ -1082,7 +1100,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       currentSafetyKg: safetyLineAt ? safetyLineAt(today) : null,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       batches, hasData, canCalc,
-      isBrewDatePast, overdueDays, manualPinIndices: Object.keys(manualBrewDateRaw).map(Number),
+      isBrewDatePast, overdueDays, unreachableStockOut, earliestCompletion0,
+      fixedKg: regPlans.length * recipe.totalWeightKg, fixedCount: regPlans.length,
+      manualPinIndices: Object.keys(manualBrewDateRaw).map(Number),
       idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, dailyStockByDate, supplyMarkers,
     }
   })
@@ -1529,6 +1549,28 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
             const daysToBrew     = differenceInDays(primaryBrew, today)
             const daysToStockOut = differenceInDays(firstNew.stockOutDate, today)
+
+            // 直近の谷が「今から仕込んでも間に合わない」場合。
+            // 過去の推奨日を突きつけても打つ手がないので、間に合わない事実と
+            // 既に手当て済みであること・次にやるべきことを言う（2026-08-30ユーザー指摘）
+            if (plan.unreachableStockOut && outDate && plan.earliestCompletion0) {
+              const doneKg = Math.round(plan.fermentingKg + plan.fixedKg).toLocaleString()
+              const doneCount = plan.fermentingCount + plan.fixedCount
+              const deadline2 = firstPrimaryDeadline
+                ? `原料手配は ${format(firstPrimaryDeadline, 'M/d')}（あと ${Math.max(firstDaysUntilOrder, 0)} 日）が締切です。`
+                : ''
+              return {
+                tone: 'soon',
+                text: `${plan.name}は${(plan.stockOutInDays ?? 0) <= 0
+                    ? `既に${outLabel.replace('見込み', '状態です')}`
+                    : ` ${format(outDate, 'M/d')}（あと約 ${plan.stockOutInDays} 日）に${outLabel}です`}${safetyTxt}。`
+                  + `ただし今から最短で仕込んでも完成は ${format(plan.earliestCompletion0, 'M/d')} なので、この谷には間に合いません。`
+                  + `仕込み済み・仮登録済みの ${doneKg} kg（${doneCount}件）が順次完成して埋める形になります`
+                  + `（急ぐ場合は加温で熟成を早められます）。`
+                  + `有効在庫 ${stockKgTxt} kg${stockClause}・消費ペース約 ${rateTxt} kg/日。`
+                  + `次の仕込みは ${format(primaryBrew, 'M/d')} が目安です。${deadline2}`,
+              }
+            }
             const deadlineTxt    = firstPrimaryDeadline
               ? `原料手配は ${format(firstPrimaryDeadline, 'M/d')}（あと ${Math.max(firstDaysUntilOrder, 0)} 日）が締切です。`
               : ''
