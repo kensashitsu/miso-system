@@ -245,6 +245,8 @@ export default async function DashboardPage() {
     .map(p => ({ p, days: differenceInDays(startOfDay(p.materialOrderDeadline), today) }))
     .filter(x => x.days <= ORDER_ALERT_DAYS)
     .sort((a, b) => a.days - b.days)
+  const overdueOrderPlans  = orderDeadlinePlans.filter(x => x.days < 0)
+  const upcomingOrderPlans = orderDeadlinePlans.filter(x => x.days >= 0)
   const upcomingBrewPlans = brewPlans
     .map(p => ({ p, days: differenceInDays(startOfDay(p.brewDate), today) }))
     .filter(x => x.days >= 0 && x.days <= BREW_ALERT_DAYS)
@@ -276,21 +278,37 @@ export default async function DashboardPage() {
           + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
         href: `/lots/${l.id}`,
       })),
-    ...orderDeadlinePlans.map(({ p, days }) => ({
-      key: `order-${p.id}`,
-      tone: (days < 0 ? 'rose' : 'amber') as 'rose' | 'amber',
+    // 手配締切は仮登録の件数だけ出ると赤い行が並んで他が埋もれる（実際に4件並んで
+    // 「煩い」と指摘された・2026-08-31）。行き先も対処も同じ（仕込み計画を見る）なので、
+    // 超過分・予定分をそれぞれ1行にまとめ、代表として最も急ぐものだけ具体的に書く
+    ...(overdueOrderPlans.length > 0 ? [{
+      key: 'order-overdue',
+      tone: 'rose' as const,
       icon: 'order' as const,
-      label: days < 0 ? '原料手配が締切超過' : '原料手配の締切',
-      body: `${planLabel(p)}（${format(p.brewDate, 'M/d')} 仕込み予定）の手配締切は ${format(p.materialOrderDeadline, 'M/d')}`
-        + (days < 0 ? `。${-days} 日超過しています` : `（あと ${days} 日）`),
+      label: '原料手配が締切超過',
+      body: `${planLabel(overdueOrderPlans[0].p)}（${format(overdueOrderPlans[0].p.brewDate, 'M/d')} 仕込み予定）の手配締切 `
+        + `${format(overdueOrderPlans[0].p.materialOrderDeadline, 'M/d')} を ${-overdueOrderPlans[0].days} 日超過`
+        + (overdueOrderPlans.length > 1 ? `。ほか ${overdueOrderPlans.length - 1} 件` : '')
+        + '（手配済みなら対応不要です）',
       href: '/planning',
-    })),
+    }] : []),
     ...lowSafetyStockTypes.map(t => ({
       key: `safety-${t.type}`, tone: 'orange' as const, icon: 'stock' as const,
       label: '安全在庫ライン割れ',
       body: `${t.type} が ${Math.round(t.agedKg!).toLocaleString()} kg（ライン ${t.line.toLocaleString()} kg）を下回っています`,
       href: '/planning',
     })),
+    ...(upcomingOrderPlans.length > 0 ? [{
+      key: 'order-soon',
+      tone: 'amber' as const,
+      icon: 'order' as const,
+      label: '原料手配の締切',
+      body: `${planLabel(upcomingOrderPlans[0].p)}（${format(upcomingOrderPlans[0].p.brewDate, 'M/d')} 仕込み予定）の手配締切は `
+        + `${format(upcomingOrderPlans[0].p.materialOrderDeadline, 'M/d')}（あと ${upcomingOrderPlans[0].days} 日）`
+        + (upcomingOrderPlans.length > 1 ? `。ほか ${upcomingOrderPlans.length - 1} 件` : ''),
+      href: '/planning',
+    }] : []),
+    // 仕込み予定は日付ごとにやることが変わる（その日に何を仕込むか）ので1行ずつ出す
     ...upcomingBrewPlans.map(({ p, days }) => ({
       key: `brew-${p.id}`,
       tone: 'blue' as const,
