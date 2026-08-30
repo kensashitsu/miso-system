@@ -183,8 +183,14 @@ export default async function DashboardPage() {
     fermentingKgByType[lot.misoType] = (fermentingKgByType[lot.misoType] ?? 0) + kg
   }
 
-  // アラート条件（熟成中のみ対象）
-  const dangerLots = agingLots.filter(l => l.coloringRisk === 'danger')
+  // 着色リスク高は熟成中・完成の両方を対象にする（2026-08-30ユーザー判断）。
+  // 完成後も置き場の温度に応じて着色は進むため（judgeは累計 total ベース）、
+  // 完成ロットこそ「早めに出荷するか冷蔵庫へ移す」判断が要る
+  const dangerLots          = agingLots.filter(l => l.coloringRisk === 'danger')
+  const dangerCompletedLots = completedLots.filter(l => l.coloringRisk === 'danger')
+  // 表示用の累計%（完成ロットは完成後に進んだ分を足した値で判定している）
+  const totalRiskPct = (l: LotCardProps) =>
+    Math.round(((l.accumulatedTemp + (l.postCompletionTemp ?? 0)) / l.targetTempSum) * 100)
   const nearCompletionLots = agingLots.filter(l => {
     if (!l.estimatedCompletionISO) return false
     const days = differenceInDays(new Date(l.estimatedCompletionISO), today)
@@ -218,7 +224,14 @@ export default async function DashboardPage() {
     ...dangerLots.map(l => ({
       key: `color-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
       label: '着色リスク高',
-      body: `${l.lotNumber}（${l.misoType}）が目標の 150% を超えています（${Math.round((l.accumulatedTemp / l.targetTempSum) * 100)}%）`,
+      body: `${l.lotNumber}（${l.misoType}）が目標の 150% を超えています（累計 ${totalRiskPct(l)}%）`,
+      href: `/lots/${l.id}`,
+    })),
+    ...dangerCompletedLots.map(l => ({
+      key: `color-done-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
+      label: '着色リスク高（完成済）',
+      body: `${l.lotNumber}（${l.misoType}）は完成後も熟成が進み累計 ${totalRiskPct(l)}%。`
+        + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
       href: `/lots/${l.id}`,
     })),
     ...lowSafetyStockTypes.map(t => ({
