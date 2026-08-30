@@ -1412,62 +1412,20 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         </div>
       </div>
 
-      {/* ③ 今週やるべきこと（最優先品種） */}
-      {topPriority && (() => {
-        const { plan, brewDate, deadline, daysUntilOrder, isUrgent } = topPriority
-        const daysToBrew    = Math.max(differenceInDays(brewDate, today), 0)
-        const deadlineRel   =
-          daysUntilOrder < 0  ? `${-daysUntilOrder}日 超過` :
-          daysUntilOrder === 0 ? '本日まで' :
-          daysUntilOrder === 1 ? '明日' : `あと ${daysUntilOrder} 日`
-        const typeBadge = (
-          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold" style={getMisoTypeBadgeStyle(plan.name)}>
-            {plan.name}
+      {/* 今すぐ動くべき品種が無いときだけ、その旨を1行で出す。
+          急ぎがある場合はサマリー表の「最優先」チップと状態バッジが担うので、
+          同じことを言うバナーは出さない（赤い警告が3つ重なる問題・2026-08-30） */}
+      {topPriority && !topPriority.isUrgent && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2 text-xs text-emerald-900">
+          <span>✅</span>
+          <span>今すぐ手配が必要な品種はありません。</span>
+          <span className="text-emerald-800/80">
+            直近の候補は {topPriority.plan.name}（手配締切{' '}
+            {topPriority.deadline ? format(topPriority.deadline, 'M/d') : '—'}・
+            あと {Math.max(topPriority.daysUntilOrder, 0)} 日）
           </span>
-        )
-        if (!isUrgent) {
-          return (
-            <div className="mb-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900">
-              <span>✅</span>
-              <span>今すぐ手配が必要な品種はありません。</span>
-              <span className="text-emerald-800/80">直近の候補は</span>
-              {typeBadge}
-              <span className="text-emerald-800/80">（手配締切 {deadline ? format(deadline, 'M/d') : '—'}・{deadlineRel}）</span>
-            </div>
-          )
-        }
-        const tone = plan.isBrewDatePast || daysUntilOrder <= 14
-          ? 'border-red-300 bg-red-50 text-red-800'
-          : 'border-amber-300 bg-amber-50 text-amber-800'
-        return (
-          <div className={`mb-4 rounded-lg border px-4 py-3 ${tone}`}>
-            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold">
-              <span className="text-base">⚠️</span>
-              <span>最優先：</span>
-              {typeBadge}
-              {plan.isBrewDatePast ? (
-                <span>
-                  推奨仕込み日を {plan.overdueDays} 日超過。できるだけ早く仕込んでください
-                  {plan.stockOutInDays != null && (
-                    <span className="font-normal">（在庫切れまであと約 {Math.max(plan.stockOutInDays, 0)} 日）</span>
-                  )}
-                </span>
-              ) : daysUntilOrder <= 14 ? (
-                // 手配締切が差し迫っているときは、それを先頭に出す（仕込み日が先でも今動くべきは手配）
-                <span>
-                  原料手配の締切が {deadline ? format(deadline, 'M/d') : '—'}（{deadlineRel}）に迫っています。
-                  <span className="font-normal"> 推奨仕込み日は {format(brewDate, 'M/d')}（あと {daysToBrew} 日）。</span>
-                </span>
-              ) : (
-                <span>
-                  推奨仕込み日まであと {daysToBrew} 日（{format(brewDate, 'M/d')}）。
-                  <span className="font-normal"> 原料手配の締切は {deadline ? format(deadline, 'M/d') : '—'}（{deadlineRel}）です。</span>
-                </span>
-              )}
-            </div>
-          </div>
-        )
-      })()}
+        </div>
+      )}
 
       {/* 全品種の1行サマリー＋開いた品種だけ詳細（アコーディオン） */}
       <div className="rounded-lg border overflow-hidden divide-y">
@@ -1546,13 +1504,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               ? `（安全在庫ライン ${plan.currentSafetyKg.toLocaleString()} kg を割らないよう逆算）` : ''
 
             // 在庫切れ超過中：最優先で警告トーン
+            // ※以前はこの下にもう1つ「在庫切れリスク」バナーを出していたが、同じことを
+            //   2度言っていたのでこちらに統合した（本来の推奨日・実質在庫をここに含める）
             if (plan.isBrewDatePast) {
               const outTxt = plan.stockOutInDays != null
                 ? (plan.stockOutInDays <= 0 ? `既に${outLabel}` : `${outLabel}まであと約 ${plan.stockOutInDays} 日`)
                 : '見込み時期は算出不可'
+              const idealTxt = plan.idealBrewDate0
+                ? `（本来の推奨仕込み日は ${format(plan.idealBrewDate0, 'M/d')}）` : ''
               return {
                 tone: 'urgent',
-                text: `${plan.name}は既に推奨仕込み日を ${plan.overdueDays} 日超過しています${safetyTxt}。`
+                text: `${plan.name}は既に推奨仕込み日を ${plan.overdueDays} 日超過しています${idealTxt}${safetyTxt}。`
                   + `有効在庫 ${stockKgTxt} kg${stockClause}・消費ペース約 ${rateTxt} kg/日で、${fermentLead}${outTxt}。`
                   + `${plan.location}での熟成に約 ${ferment} 日かかるため、できるだけ早く仕込んでください。`,
               }
@@ -1603,6 +1565,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           const stateBadge = plan.isBrewDatePast
             ? { label: `推奨日を ${plan.overdueDays} 日超過`, cls: 'bg-rose-100 text-rose-700 border border-rose-300' }
             : urgencyBadge ?? { label: '余裕あり', cls: 'bg-emerald-100 text-emerald-700 border border-emerald-200' }
+          // 全品種で最も急ぐ1件。以前は表の上に別バナーで出していたが、行に印を付ける形にした
+          const isTop = topPriority?.isUrgent === true && topPriority.plan.name === plan.name
 
           return (
             <div key={plan.name}>
@@ -1610,12 +1574,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               <button
                 type="button"
                 onClick={() => setOpenTypes(prev => ({ ...prev, [plan.name]: !prev[plan.name] }))}
-                className={`grid w-full grid-cols-[11rem_8rem_7rem_10rem_8rem_1fr_5rem] items-center gap-x-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40 ${isOpen ? 'bg-muted/30' : ''}`}
+                className={`grid w-full grid-cols-[11rem_8rem_7rem_10rem_8rem_1fr_5rem] items-center gap-x-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40 ${isOpen ? 'bg-muted/30' : ''} ${isTop ? 'border-l-2 border-l-rose-500' : ''}`}
               >
-                <span>
+                <span className="flex items-center gap-1.5">
                   <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" style={getMisoTypeBadgeStyle(plan.name)}>
                     {plan.name}
                   </span>
+                  {isTop && (
+                    <span className="rounded bg-rose-600 px-1 py-0.5 text-[9px] font-bold text-white" title="全品種のうち最も急ぐ品種です">
+                      最優先
+                    </span>
+                  )}
                 </span>
                 <span className="text-right tabular-nums font-medium text-foreground">
                   {plan.canCalc ? `${Math.round(plan.stockKg).toLocaleString()} kg` : '—'}
@@ -1853,22 +1822,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                   </div>
                 )}
 
-                {/* 在庫切れ警告バナー */}
-                {plan.isBrewDatePast && plan.idealBrewDate0 && (
-                  <div className="rounded-lg border border-red-200 bg-red-50/70 px-3 py-2.5 space-y-1">
-                    <p className="text-xs font-semibold text-red-700">
-                      ⚠️ 在庫切れリスク：推奨仕込み日（{format(plan.idealBrewDate0, 'M/d')}）を {plan.overdueDays} 日超過しています。早急に仕込みを検討してください。
-                    </p>
-                    <p className="text-xs text-red-600/90">
-                      現在の有効在庫：{Math.round(plan.effectiveStock).toLocaleString()} kg
-                      {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 && (
-                        <> （安全在庫ライン {plan.currentSafetyKg.toLocaleString()} kg を除く実質 {Math.max(Math.round(plan.effectiveStock - plan.currentSafetyKg), 0).toLocaleString()} kg）</>
-                      )} ／
-                      消費ペース：約 {Math.round(plan.dailyRate).toLocaleString()} kg/日 ／
-                      {plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを割るまで' : '推定在庫切れまで'}：{plan.stockOutInDays != null ? `あと ${plan.stockOutInDays} 日` : '—'}
-                    </p>
-                  </div>
-                )}
+                {/* ※旧「在庫切れリスク」バナーは上の自然文サマリーに統合（2026-08-30） */}
 
                 {/* 計画テーブル */}
                 {!plan.hasData ? (
