@@ -1,5 +1,6 @@
+import Link from 'next/link'
 import { differenceInDays, format, startOfDay } from 'date-fns'
-import { AlertTriangle, Clock } from 'lucide-react'
+import { AlertTriangle, Clock, CalendarClock, PackageSearch, CheckCircle2 } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import {
@@ -198,65 +199,100 @@ export default async function DashboardPage() {
     })
     .filter(t => t.agedKg != null && t.agedKg < t.line)
 
-  // ダッシュボードの幅は据え置き（他のデータ系画面は1400pxへ拡大済み）。
-  // 単に広げると在庫サマリー表が横に間延びするため、「今日やること」＋サマリーと
-  // グラフの2カラム化とあわせて広げる
+  // 完成予定日を過ぎている熟成中ロット。ロットカードには「（超過）」と出ていたが
+  // アラートには載っておらず、開いて最初に目に入らなかった（2026-08-30に追加）
+  const overdueLots = agingLots
+    .filter(l => l.estimatedCompletionISO && differenceInDays(new Date(l.estimatedCompletionISO), today) < 0)
+    .map(l => ({ ...l, overdueDays: -differenceInDays(new Date(l.estimatedCompletionISO!), today) }))
+    .sort((a, b) => b.overdueDays - a.overdueDays)
+
+  // 「今日やること」に出す項目。緊急度の高い順に並べる
+  type Todo = { key: string; tone: 'rose' | 'amber' | 'orange'; icon: 'alert' | 'clock' | 'stock'; label: string; body: string; href: string }
+  const todos: Todo[] = [
+    ...overdueLots.map(l => ({
+      key: `over-${l.id}`, tone: 'rose' as const, icon: 'clock' as const,
+      label: '完成予定を超過',
+      body: `${l.lotNumber}（${l.misoType}）が完成予定日を ${l.overdueDays} 日過ぎています`,
+      href: `/lots/${l.id}`,
+    })),
+    ...dangerLots.map(l => ({
+      key: `color-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
+      label: '着色リスク高',
+      body: `${l.lotNumber}（${l.misoType}）が目標の 150% を超えています（${Math.round((l.accumulatedTemp / l.targetTempSum) * 100)}%）`,
+      href: `/lots/${l.id}`,
+    })),
+    ...lowSafetyStockTypes.map(t => ({
+      key: `safety-${t.type}`, tone: 'orange' as const, icon: 'stock' as const,
+      label: '安全在庫ライン割れ',
+      body: `${t.type} が ${Math.round(t.agedKg!).toLocaleString()} kg（ライン ${t.line.toLocaleString()} kg）を下回っています`,
+      href: '/planning',
+    })),
+    ...nearCompletionLots.map(l => ({
+      key: `near-${l.id}`, tone: 'amber' as const, icon: 'clock' as const,
+      label: '完成間近',
+      body: `${l.lotNumber}（${l.misoType}）はあと ${differenceInDays(new Date(l.estimatedCompletionISO!), today)} 日で完成予定です`,
+      href: `/lots/${l.id}`,
+    })),
+  ]
+  const toneCls = {
+    rose:   'border-rose-200 bg-rose-50/60 text-rose-800',
+    amber:  'border-amber-200 bg-amber-50/60 text-amber-800',
+    orange: 'border-orange-200 bg-orange-50/60 text-orange-800',
+  } as const
+
   return (
-    <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-4 sm:space-y-6">
+    <div className="max-w-[1400px] mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-4 sm:space-y-6">
       <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">ダッシュボード</h1>
 
-      {/* 品種別在庫サマリー */}
-      <StockSummary
-        misoTypes={misoTypes}
-        agedStockMap={agedStockMap}
-        fermentingKgByType={fermentingKgByType}
-        hasApiData={agedStockData != null}
-        hasApiError={agedStockData == null && !!process.env.STOCK_API_URL}
-        safetyStockMap={safetyStockMap}
-      />
+      {/* 上段：左＝今日やること（最初に目に入る位置）／右＝品種別在庫サマリー */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_760px] gap-4 items-start">
+        <section className="rounded-xl border bg-white p-3 sm:p-4">
+          <h2 className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-gray-900">
+            今日やること
+            {todos.length > 0 && (
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700">{todos.length} 件</span>
+            )}
+          </h2>
+          {todos.length === 0 ? (
+            <p className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-sm text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              対応が必要なロットはありません。
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {todos.map(t => (
+                <li key={t.key}>
+                  <Link
+                    href={t.href}
+                    className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition-colors hover:brightness-95 ${toneCls[t.tone]}`}
+                  >
+                    {t.icon === 'alert' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      : t.icon === 'stock' ? <PackageSearch className="mt-0.5 h-4 w-4 shrink-0" />
+                      : <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />}
+                    <span>
+                      <span className="font-semibold">{t.label}：</span>
+                      {t.body}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 品種別在庫サマリー */}
+        <StockSummary
+          misoTypes={misoTypes}
+          agedStockMap={agedStockMap}
+          fermentingKgByType={fermentingKgByType}
+          hasApiData={agedStockData != null}
+          hasApiError={agedStockData == null && !!process.env.STOCK_API_URL}
+          safetyStockMap={safetyStockMap}
+        />
+      </div>
 
       {/* 在庫推移グラフ */}
       <InventoryTrendChart snapshots={inventorySnapshots} misoTypes={misoTypes} />
-
-      {/* アラートバナー */}
-      {(dangerLots.length > 0 || nearCompletionLots.length > 0 || lowSafetyStockTypes.length > 0) && (
-        <div className="space-y-2">
-          {lowSafetyStockTypes.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-orange-200 bg-orange-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-orange-700">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <span className="font-semibold">安全在庫ライン割れ（熟成済＋小分け）：</span>
-                {lowSafetyStockTypes
-                  .map(t => `${t.type}（${Math.round(t.agedKg!).toLocaleString()}kg／ライン${t.line.toLocaleString()}kg）`)
-                  .join('、')}
-              </div>
-            </div>
-          )}
-          {dangerLots.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-rose-700">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <span className="font-semibold">着色リスク高（150%超）：</span>
-                {dangerLots.map(l => `${l.lotNumber}（${l.misoType}）`).join('、')}
-              </div>
-            </div>
-          )}
-          {nearCompletionLots.length > 0 && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm text-amber-700">
-              <Clock className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <span className="font-semibold">完成間近（7日以内）：</span>
-                {nearCompletionLots
-                  .map(l => {
-                    const days = differenceInDays(new Date(l.estimatedCompletionISO!), today)
-                    return `${l.lotNumber}（${l.misoType}・あと${days}日）`
-                  })
-                  .join('、')}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ロット一覧（グループ別） */}
       <DashboardLotGroups
