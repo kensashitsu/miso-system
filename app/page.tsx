@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { differenceInDays, format, startOfDay } from 'date-fns'
-import { AlertTriangle, Clock, CalendarClock, PackageSearch, CheckCircle2 } from 'lucide-react'
+import { AlertTriangle, Clock, CalendarClock, PackageSearch, CheckCircle2, Truck, FlaskConical } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import {
@@ -25,13 +25,19 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // weatherData は全期間取得（oldestBrewDate フィルタだと過去年の夏季データが欠落し
   // weatherAvg が空になるため、ロット積算計算・シミュレーター両方が正常に動作しない）
-  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots] = await Promise.all([
+  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans] = await Promise.all([
     getMoistureSettings(),
     fetchAgedStock(),
     getMisoRecipes(),
     prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
     prisma.monthlyInventorySnapshot.findMany({
       orderBy: [{ yearMonth: 'asc' }, { misoType: 'asc' }],
+    }),
+    // 仮登録の仕込み予定（本登録済＝ロット化されたものは熟成中ロットとして出るので除く）。
+    // ダッシュボードには熟成と在庫しか無く「仕込み」の予定が抜けていたため追加（2026-08-31）
+    prisma.brewPlan.findMany({
+      where: { status: '仮登録', lotId: null },
+      orderBy: { brewDate: 'asc' },
     }),
   ])
 
@@ -227,8 +233,25 @@ export default async function DashboardPage() {
     .map(l => ({ ...l, overdueDays: -differenceInDays(new Date(l.estimatedCompletionISO!), today) }))
     .sort((a, b) => b.overdueDays - a.overdueDays)
 
+  // 仮登録の仕込み予定から「原料手配の締切」と「今週の仕込み」を拾う。
+  // これまでダッシュボードは熟成と在庫しか映しておらず、毎週の仕込み判断が
+  // 仕込み計画ページを開かないと分からなかった（手配締切が17日超過していた実例あり）
+  const ORDER_ALERT_DAYS = 14   // 手配締切がこの日数以内なら出す
+  const BREW_ALERT_DAYS  = 7    // 仕込み予定日がこの日数以内なら出す
+  const DOW = ['日', '月', '火', '水', '木', '金', '土']
+  const planLabel = (p: { misoType: string; bucketNumbers: string | null }) =>
+    `${p.misoType}${p.bucketNumbers ? `（桶${p.bucketNumbers}）` : ''}`
+  const orderDeadlinePlans = brewPlans
+    .map(p => ({ p, days: differenceInDays(startOfDay(p.materialOrderDeadline), today) }))
+    .filter(x => x.days <= ORDER_ALERT_DAYS)
+    .sort((a, b) => a.days - b.days)
+  const upcomingBrewPlans = brewPlans
+    .map(p => ({ p, days: differenceInDays(startOfDay(p.brewDate), today) }))
+    .filter(x => x.days >= 0 && x.days <= BREW_ALERT_DAYS)
+    .sort((a, b) => a.days - b.days)
+
   // 「今日やること」に出す項目。緊急度の高い順に並べる
-  type Todo = { key: string; tone: 'rose' | 'amber' | 'orange'; icon: 'alert' | 'clock' | 'stock'; label: string; body: string; href: string }
+  type Todo = { key: string; tone: 'rose' | 'amber' | 'orange' | 'blue'; icon: 'alert' | 'clock' | 'stock' | 'order' | 'brew'; label: string; body: string; href: string }
   const todos: Todo[] = [
     ...overdueLots.map(l => ({
       key: `over-${l.id}`, tone: 'rose' as const, icon: 'clock' as const,
@@ -253,10 +276,29 @@ export default async function DashboardPage() {
           + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
         href: `/lots/${l.id}`,
       })),
+    ...orderDeadlinePlans.map(({ p, days }) => ({
+      key: `order-${p.id}`,
+      tone: (days < 0 ? 'rose' : 'amber') as 'rose' | 'amber',
+      icon: 'order' as const,
+      label: days < 0 ? '原料手配が締切超過' : '原料手配の締切',
+      body: `${planLabel(p)}（${format(p.brewDate, 'M/d')} 仕込み予定）の手配締切は ${format(p.materialOrderDeadline, 'M/d')}`
+        + (days < 0 ? `。${-days} 日超過しています` : `（あと ${days} 日）`),
+      href: '/planning',
+    })),
     ...lowSafetyStockTypes.map(t => ({
       key: `safety-${t.type}`, tone: 'orange' as const, icon: 'stock' as const,
       label: '安全在庫ライン割れ',
       body: `${t.type} が ${Math.round(t.agedKg!).toLocaleString()} kg（ライン ${t.line.toLocaleString()} kg）を下回っています`,
+      href: '/planning',
+    })),
+    ...upcomingBrewPlans.map(({ p, days }) => ({
+      key: `brew-${p.id}`,
+      tone: 'blue' as const,
+      icon: 'brew' as const,
+      label: days === 0 ? '今日の仕込み' : '今週の仕込み',
+      body: `${format(p.brewDate, 'M/d')}（${DOW[p.brewDate.getDay()]}）に ${planLabel(p)} を仕込む予定です`
+        + (days === 0 ? '' : `（あと ${days} 日）`)
+        + `。完成予定は ${format(p.completionDate, 'M/d')}`,
       href: '/planning',
     })),
     ...nearCompletionLots.map(l => ({
@@ -270,7 +312,37 @@ export default async function DashboardPage() {
     rose:   'border-rose-200 bg-rose-50/60 text-rose-800',
     amber:  'border-amber-200 bg-amber-50/60 text-amber-800',
     orange: 'border-orange-200 bg-orange-50/60 text-orange-800',
+    blue:   'border-sky-200 bg-sky-50/60 text-sky-800',
   } as const
+
+  // 件数が増えるほど一覧は効かなくなるので、緊急度で2つに割る。
+  // 「今すぐ」＝手遅れ／リスクが顕在化しているもの、「今週」＝予定として知っておくもの
+  const urgentTodos = todos.filter(t => t.tone === 'rose' || t.tone === 'orange')
+  const weekTodos   = todos.filter(t => t.tone === 'amber' || t.tone === 'blue')
+  const todoIcon = (icon: Todo['icon']) =>
+    icon === 'alert' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+    : icon === 'stock' ? <PackageSearch className="mt-0.5 h-4 w-4 shrink-0" />
+    : icon === 'order' ? <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+    : icon === 'brew'  ? <FlaskConical className="mt-0.5 h-4 w-4 shrink-0" />
+    : <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />
+  const todoList = (items: Todo[]) => (
+    <ul className="space-y-1.5">
+      {items.map(t => (
+        <li key={t.key}>
+          <Link
+            href={t.href}
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition-colors hover:brightness-95 ${toneCls[t.tone]}`}
+          >
+            {todoIcon(t.icon)}
+            <span>
+              <span className="font-semibold">{t.label}：</span>
+              {t.body}
+            </span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  )
 
   return (
     <div className="max-w-[1400px] mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-16 space-y-4 sm:space-y-6">
@@ -291,24 +363,20 @@ export default async function DashboardPage() {
               対応が必要なロットはありません。
             </p>
           ) : (
-            <ul className="space-y-1.5">
-              {todos.map(t => (
-                <li key={t.key}>
-                  <Link
-                    href={t.href}
-                    className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition-colors hover:brightness-95 ${toneCls[t.tone]}`}
-                  >
-                    {t.icon === 'alert' ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      : t.icon === 'stock' ? <PackageSearch className="mt-0.5 h-4 w-4 shrink-0" />
-                      : <CalendarClock className="mt-0.5 h-4 w-4 shrink-0" />}
-                    <span>
-                      <span className="font-semibold">{t.label}：</span>
-                      {t.body}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+            <div className="space-y-3">
+              {urgentTodos.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[11px] font-semibold text-rose-700">今すぐ（{urgentTodos.length}件）</p>
+                  {todoList(urgentTodos)}
+                </div>
+              )}
+              {weekTodos.length > 0 && (
+                <div>
+                  <p className="mb-1.5 text-[11px] font-semibold text-muted-foreground">今週（{weekTodos.length}件）</p>
+                  {todoList(weekTodos)}
+                </div>
+              )}
+            </div>
           )}
         </section>
 
