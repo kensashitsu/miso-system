@@ -455,6 +455,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [autoMethod,         setAutoMethod]         = useState(false)  // true=品種ごとにバックテスト最良方式を自動採用
   const [hoveredKey,      setHoveredKey]     = useState<string | null>(null)
   const [calendarOffsets, setCalendarOffsets] = useState<Record<string, number>>({})
+  // 品種ごとの詳細の開閉。全品種の1行サマリーを並べ、開いた品種だけ詳細を出す。
+  // 4品種ぶんの詳細（グラフ・提案表・根拠・カレンダー）を常時展開すると縦8,000px超になるため
+  const [openTypes,       setOpenTypes]      = useState<Record<string, boolean>>({})
+  const openTypesInitRef = useRef(false)
   const [useRawAsBase,    setUseRawAsBase]    = useState(false)
   // キーは manualDateKey(品種名, 回のインデックス0始まり) の形式
   const [manualBrewDates, setManualBrewDates] = useState<Record<string, string>>({})
@@ -1114,6 +1118,13 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     return { ...top, isUrgent }
   })()
 
+  // 初回だけ最優先品種の詳細を開いておく（以後はユーザーの開閉に任せる）
+  useEffect(() => {
+    if (openTypesInitRef.current || !topPriority) return
+    openTypesInitRef.current = true
+    setOpenTypes({ [topPriority.plan.name]: true })
+  }, [topPriority])
+
   function handleCSV() {
     const csv      = generateCSV(plans, maxBatches, today)
     const filename = `仕込み計画_${format(today, 'yyyyMMdd')}.csv`
@@ -1121,7 +1132,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   }
 
   function handlePrint() {
-    window.print()
+    // 閉じている品種は描画されていないので、印刷前に全品種を開く
+    setOpenTypes(Object.fromEntries(recipes.map(r => [r.name, true])))
+    setTimeout(() => window.print(), 150)
   }
 
   return (
@@ -1456,7 +1469,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         )
       })()}
 
-      <div className="grid grid-cols-1 gap-4">
+      {/* 全品種の1行サマリー＋開いた品種だけ詳細（アコーディオン） */}
+      <div className="rounded-lg border overflow-hidden divide-y">
+        <div className="grid grid-cols-[11rem_8rem_7rem_10rem_8rem_1fr_5rem] gap-x-3 bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <span>品種</span>
+          <span className="text-right">現在庫</span>
+          <span className="text-right">消費ペース</span>
+          <span>次の仕込み</span>
+          <span>原料手配締切</span>
+          <span>状態</span>
+          <span />
+        </div>
         {plans.map(plan => {
           const apiStock    = apiStockByType?.[plan.name] ?? null
           const isAutoFetch = apiStock != null
@@ -1572,8 +1595,52 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
             ok:     'border-emerald-200 bg-emerald-50/60 text-emerald-900',
           } as const
 
+          const isOpen  = openTypes[plan.name] ?? false
+          const nextNew = firstNew
+            ? `${format(pBrewOf(firstNew), 'M/d')}${firstNew.pairBrewDate ? `＋${format(firstNew.pairBrewDate, 'M/d')}` : ''}`
+            : '—'
+          // 状態バッジ：超過＞要手配（緊急度バッジ）＞余裕あり
+          const stateBadge = plan.isBrewDatePast
+            ? { label: `推奨日を ${plan.overdueDays} 日超過`, cls: 'bg-rose-100 text-rose-700 border border-rose-300' }
+            : urgencyBadge ?? { label: '余裕あり', cls: 'bg-emerald-100 text-emerald-700 border border-emerald-200' }
+
           return (
-            <Card key={plan.name}>
+            <div key={plan.name}>
+              {/* 1行サマリー（クリックで詳細を開閉） */}
+              <button
+                type="button"
+                onClick={() => setOpenTypes(prev => ({ ...prev, [plan.name]: !prev[plan.name] }))}
+                className={`grid w-full grid-cols-[11rem_8rem_7rem_10rem_8rem_1fr_5rem] items-center gap-x-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40 ${isOpen ? 'bg-muted/30' : ''}`}
+              >
+                <span>
+                  <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" style={getMisoTypeBadgeStyle(plan.name)}>
+                    {plan.name}
+                  </span>
+                </span>
+                <span className="text-right tabular-nums font-medium text-foreground">
+                  {plan.canCalc ? `${Math.round(plan.stockKg).toLocaleString()} kg` : '—'}
+                </span>
+                <span className="text-right tabular-nums text-muted-foreground">
+                  {plan.canCalc ? `${Math.round(plan.dailyRate).toLocaleString()} kg/日` : '—'}
+                </span>
+                <span className="tabular-nums font-medium text-foreground">{nextNew}</span>
+                <span className={`tabular-nums ${plan.isBrewDatePast || (firstDaysUntilOrder <= 14) ? 'font-medium text-rose-700' : 'text-muted-foreground'}`}>
+                  {firstPrimaryDeadline ? format(firstPrimaryDeadline, 'M/d') : '—'}
+                </span>
+                <span>
+                  {plan.canCalc && (
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${stateBadge.cls}`}>
+                      {stateBadge.label}
+                    </span>
+                  )}
+                </span>
+                <span className="flex items-center justify-end gap-1 text-[11px] text-muted-foreground">
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? '' : '-rotate-90'}`} />
+                  {isOpen ? '閉じる' : '開く'}
+                </span>
+              </button>
+              {isOpen && (
+            <Card className="rounded-none border-0 border-t shadow-none">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span
@@ -2550,6 +2617,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                 })()}
               </CardContent>
             </Card>
+              )}
+            </div>
           )
         })}
       </div>
