@@ -154,6 +154,7 @@ export default function LotSimulationModal({
   // ── シミュレーション（WeatherSimulator と同一関数） ──────────
   const {
     chartData,
+    labelIndices,
     maturityComplete,
     accumulatedComplete,
     todayStr,
@@ -198,12 +199,32 @@ export default function LotSimulationModal({
       return false
     })
 
+    // 線の上に出す日付ラベルの位置。以前は「1点おき（index % 2）」で、シミュレーション期間が
+    // 長い（＝冬をまたいで200%到達まで数ヶ月かかる）ロットだと20個以上が並んで重なっていた。
+    // 点数によらず最大 MAX_DATE_LABELS 個に間引く。今日・完成日は縦線側にラベルがあるので
+    // ここでは出さない（同じ位置に二重に出て潰れるため）
+    const MAX_DATE_LABELS = 8
+    const step = Math.max(1, Math.ceil(sampled.length / MAX_DATE_LABELS))
+    const labelIndices = new Set<number>()
+    for (let i = 0; i < sampled.length; i += step) labelIndices.add(i)
+    // 末尾は必ず出す（グラフの終端が何月か分からないと読めない）。
+    // 直前のラベルと近すぎる場合はそちらを消す
+    if (sampled.length > 1) {
+      const lastIdx = sampled.length - 1
+      if (!labelIndices.has(lastIdx)) {
+        const prev = Math.max(...labelIndices)
+        if (lastIdx - prev < step / 2) labelIndices.delete(prev)
+        labelIndices.add(lastIdx)
+      }
+    }
+
     // Y軸最大値: データの最大値を10%単位に切り上げ+10、最低110
     const dataMax = fullData.reduce((m, d) => Math.max(m, d.maturityPct, d.simplePct), 0)
     const yMax = Math.max(110, Math.ceil(dataMax / 10) * 10 + 10)
 
     return {
       chartData:              sampled,
+      labelIndices,
       maturityComplete:       matComplete,
       accumulatedComplete:    simpComplete,
       todayStr:               todStr,
@@ -511,7 +532,7 @@ export default function LotSimulationModal({
                       dataKey="date"
                       position="top"
                       content={({ x, y, value, index }) => {
-                        if (typeof index !== 'number' || index % 2 !== 0) return null
+                        if (typeof index !== 'number' || !labelIndices.has(index)) return null
                         const lbl = typeof value === 'string' ? value.slice(5).replace('-', '/') : ''
                         return (
                           <text
