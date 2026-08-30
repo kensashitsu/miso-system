@@ -910,6 +910,11 @@ export default function LotDetail({
         </div>
       </div>
 
+      {/* PC専用。1カラムで縦2,000pxあったので、
+          左＝熟成の経過（グラフ・場所履歴・桶・仕込み記録）／右＝記録と操作 に分ける */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 sm:gap-6 items-start">
+      <div className="space-y-4 sm:space-y-6 min-w-0">
+
       {/* ── 熟成シミュレーショングラフ ── */}
       <section>
         <h2 className="text-base font-semibold text-gray-900 mb-3">熟成シミュレーション</h2>
@@ -923,6 +928,8 @@ export default function LotDetail({
             fridgeTemp={fridgeTemp}
             locationPeriods={locationPeriods}
             completedAtISO={completedAtISO}
+            /* ヘッダーの「完成予定」と同じ較正をかける（渡さないと数日ズレる） */
+            actualAccumToday={status === '熟成中' ? accumulatedTemp : null}
           />
         </div>
       </section>
@@ -1637,6 +1644,10 @@ export default function LotDetail({
         </section>
       )}
 
+      </div>
+      {/* 右カラム：記録の追加とステータス操作 */}
+      <div className="space-y-4 sm:space-y-6 min-w-0">
+
       {/* ── 熟成メモ ── */}
       <section>
         <h2 className="text-base font-semibold text-gray-900 mb-3">熟成メモ</h2>
@@ -1964,6 +1975,9 @@ export default function LotDetail({
           </button>
         )}
       </section>
+
+      </div>
+      </div>
     </div>
   )
 }

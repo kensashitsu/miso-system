@@ -7,6 +7,7 @@ import {
   XAxis, YAxis, CartesianGrid,
   ReferenceLine, ReferenceArea, ResponsiveContainer, Tooltip,
 } from 'recharts'
+import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
 
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
 
@@ -31,6 +32,9 @@ interface Props {
   fridgeTemp:      number
   locationPeriods: LocationPeriodItem[]
   completedAtISO?: string | null
+  // 今日時点の実績積算温度（℃・日）。渡すと今日の点が実績と一致するよう較正する。
+  // これが無いと、同じ画面のヘッダー「完成予定」（較正あり）と数日ズレる
+  actualAccumToday?: number | null
 }
 
 // ── 縦線イベント ──────────────────────────────────────────────
@@ -189,8 +193,11 @@ function simulateWithHistory(
   q10Value:        number,
   heatingBaseTemp: number,
   fridgeTemp:      number,
+  actualAccumToday?: number | null,
 ): SimDay[] {
   if (!locationPeriods.length || targetTempSum <= 0) return []
+  const today = startOfDay(new Date())
+  let calibrated = false
 
   const periods = locationPeriods.map(p => ({
     location: p.location,
@@ -219,6 +226,9 @@ function simulateWithHistory(
     let isOutdoor = false
     if (fixedMatch) {
       eff = Math.max(Number(fixedMatch[1]) - 10, 0)
+      // 暖房は月別の実効レート補正を掛ける（lib/brewSimulation と同じ扱い。
+      // 冷房・温調室は対象外）。これが無いと暖房期の完成予定が他画面とズレる
+      if (loc.startsWith('暖房')) eff *= HEATING_MONTHLY_FACTOR[curr.getMonth() + 1] ?? 1
     } else if (loc === '冷蔵庫') {
       eff = Math.max(fridgeTemp - 10, 0)
     } else {
@@ -240,6 +250,22 @@ function simulateWithHistory(
       simplePct:   Math.round(totalSimple   / targetTempSum * 1000) / 10,
     })
 
+    // 今日の時点で実績積算に合わせて較正する（lib/brewSimulation.simulateLotForModal と同じ方式）。
+    // 過去も weatherAvg（月日平均）で積んだモデル値なので、実際の日別気温で積んだ実績とズレる。
+    // 今日が実績と一致するよう過去を比例で伸縮し、今日以降はそこからモデルの増分を積む
+    if (!calibrated && actualAccumToday != null && curr.getTime() === today.getTime()) {
+      calibrated = true
+      if (totalMaturity > 0) {
+        const k = actualAccumToday / totalMaturity
+        totalMaturity = actualAccumToday
+        totalSimple   = Math.round(totalSimple * k * 10) / 10
+        for (const r of result) {
+          r.maturityPct = Math.round(r.maturityPct * k * 10) / 10
+          r.simplePct   = Math.round(r.simplePct   * k * 10) / 10
+        }
+      }
+    }
+
     if (totalSimple >= targetTempSum * 2 && totalMaturity >= targetTempSum * 2) break
     curr = addDays(curr, 1)
   }
@@ -251,7 +277,7 @@ function simulateWithHistory(
 export default function LotSimChart({
   brewedAtISO, targetTempSum, weatherAvg,
   heatingBaseTemp, q10Value, fridgeTemp,
-  locationPeriods, completedAtISO,
+  locationPeriods, completedAtISO, actualAccumToday,
 }: Props) {
   const locationTransitions = useMemo(() =>
     locationPeriods.slice(1).map((p, i) => ({
@@ -279,7 +305,7 @@ export default function LotSimChart({
 
     const fullData = simulateWithHistory(
       brewDate, targetTempSum, weatherAvg,
-      locationPeriods, q10Value, heatingBaseTemp, fridgeTemp,
+      locationPeriods, q10Value, heatingBaseTemp, fridgeTemp, actualAccumToday,
     )
 
     const matCompleteIdx  = fullData.findIndex(d => d.maturityPct >= 100)
@@ -337,7 +363,7 @@ export default function LotSimChart({
       displayDays:             dispDays,
     }
   }, [brewedAtISO, targetTempSum, weatherAvg, locationPeriods,
-      q10Value, heatingBaseTemp, fridgeTemp, locationTransitions, completedAtISO])
+      q10Value, heatingBaseTemp, fridgeTemp, locationTransitions, completedAtISO, actualAccumToday])
 
   if (chartData.length === 0) {
     return (
