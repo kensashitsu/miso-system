@@ -1498,10 +1498,17 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               ? `（うち熟成中ロット ${fmtKg} kg を算入）` : ''
             const fermentLead = (plan.fermentingCount > 0 && !optimisticStock)
               ? `熟成中ロット ${fmtKg} kg（${plan.fermentingCount}件）が順次完成する分を見込んでも、` : ''
-            // 安全在庫ライン設定時は「在庫切れ」ではなく「ラインを割る」という言い回しにする
-            const outLabel   = plan.currentSafetyKg != null && plan.currentSafetyKg > 0 ? '安全在庫ラインを下回る見込み' : '在庫切れの見込み'
-            const safetyTxt  = plan.currentSafetyKg != null && plan.currentSafetyKg > 0
-              ? `（安全在庫ライン ${plan.currentSafetyKg.toLocaleString()} kg を割らないよう逆算）` : ''
+            // 安全在庫ライン設定時は「在庫切れ」ではなく「ラインを割る」という言い回しにする。
+            // ラインは季節で変わるので、今日のライン（currentSafetyKg）で言い回しを決めてはいけない。
+            // 例：無添加麦みそは夏季（5〜8月）が0kgなので、8月末に「9/1にラインが3,200kgへ戻り
+            // そこを割る日」を指しているのに「在庫切れまであと3日」と読めてしまう（2026-08-30指摘）。
+            // 判定に使った“その在庫切れ日のライン”で言い分ける。
+            const outDate    = plan.stockOutInDays != null ? addDays(today, plan.stockOutInDays) : null
+            const outLineKg  = outDate ? plan.dailyStockByDate.get(format(outDate, 'yyyy-MM-dd'))?.safety : undefined
+            const outSafetyKg = outLineKg !== undefined ? outLineKg : plan.currentSafetyKg
+            const outLabel   = outSafetyKg != null && outSafetyKg > 0 ? '安全在庫ラインを下回る見込み' : '在庫切れの見込み'
+            const safetyTxt  = outSafetyKg != null && outSafetyKg > 0
+              ? `（安全在庫ライン ${outSafetyKg.toLocaleString()} kg を割らないよう逆算）` : ''
 
             // 在庫切れ超過中：最優先で警告トーン
             // ※以前はこの下にもう1つ「在庫切れリスク」バナーを出していたが、同じことを
