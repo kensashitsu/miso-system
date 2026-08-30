@@ -187,14 +187,24 @@ export default async function DashboardPage() {
   // 完成後も置き場の温度に応じて着色は進むため（judgeは累計 total ベース）、
   // 完成ロットこそ「早めに出荷するか冷蔵庫へ移す」判断が要る
   const dangerLots          = agingLots.filter(l => l.coloringRisk === 'danger')
-  const dangerCompletedLots = completedLots.filter(l => l.coloringRisk === 'danger')
+  // 完成ロットは、桶が全部空＝使い切っていれば対象外（下の activeBuckets で判定）
+  const dangerCompletedLotsAll = completedLots.filter(l => l.coloringRisk === 'danger')
   // 表示用の累計%（完成ロットは完成後に進んだ分を足した値で判定している）
   const totalRiskPct = (l: LotCardProps) =>
     Math.round(((l.accumulatedTemp + (l.postCompletionTemp ?? 0)) / l.targetTempSum) * 100)
-  // 現場はロット番号より桶番号で覚えているため、「今日やること」に桶番号も出す
+  // 中身が残っている桶だけを対象にする。空の桶は既に使い切っているので
+  // 着色リスクの対象外（2026-08-30ユーザー指摘：25号は空で26号だけが対象）
+  const activeBuckets = (l: LotCardProps) =>
+    l.buckets.filter(b => b.status !== '空' && (b.remainingKg ?? b.initialKg) > 0)
+  const remainingKg = (l: LotCardProps) =>
+    activeBuckets(l).reduce((sum, b) => sum + (b.remainingKg ?? b.initialKg), 0)
+  // 現場はロット番号より桶番号で覚えているため、「今日やること」に桶番号も出す。
+  // 桶レコードがあるロットは残っている桶だけ、無い（古い）ロットは Lot.bucketNumbers をそのまま
   const lotLabel = (l: LotCardProps) => {
-    const buckets = l.bucketNumbers ?? (l.buckets.length > 0 ? l.buckets.map(b => b.bucketNumber).join('・') : null)
-    return `${l.lotNumber}（${l.misoType}${buckets ? `・桶${buckets}` : ''}）`
+    const nums = l.buckets.length > 0
+      ? activeBuckets(l).map(b => b.bucketNumber).join('・')
+      : (l.bucketNumbers ?? '')
+    return `${l.lotNumber}（${l.misoType}${nums ? `・桶${nums}` : ''}）`
   }
   const nearCompletionLots = agingLots.filter(l => {
     if (!l.estimatedCompletionISO) return false
@@ -232,13 +242,17 @@ export default async function DashboardPage() {
       body: `${lotLabel(l)}が目標の 150% を超えています（累計 ${totalRiskPct(l)}%）`,
       href: `/lots/${l.id}`,
     })),
-    ...dangerCompletedLots.map(l => ({
-      key: `color-done-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
-      label: '着色リスク高（完成済）',
-      body: `${lotLabel(l)}は完成後も熟成が進み累計 ${totalRiskPct(l)}%。`
-        + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
-      href: `/lots/${l.id}`,
-    })),
+    // 桶レコードがあるのに残っている桶が無い＝使い切ったロットは出さない
+    ...dangerCompletedLotsAll
+      .filter(l => l.buckets.length === 0 || activeBuckets(l).length > 0)
+      .map(l => ({
+        key: `color-done-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
+        label: '着色リスク高（完成済）',
+        body: `${lotLabel(l)}は完成後も熟成が進み累計 ${totalRiskPct(l)}%。`
+          + `${activeBuckets(l).length > 0 ? `残り ${Math.round(remainingKg(l)).toLocaleString()} kg。` : ''}`
+          + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
+        href: `/lots/${l.id}`,
+      })),
     ...lowSafetyStockTypes.map(t => ({
       key: `safety-${t.type}`, tone: 'orange' as const, icon: 'stock' as const,
       label: '安全在庫ライン割れ',
