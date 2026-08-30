@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus } from 'lucide-react'
@@ -25,9 +25,24 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // 固定ドロワーの実高さ（畳んでいるとき＝バーのみ／開いているとき＝バー＋一覧）。
+  // 同じ高さの余白を流し込み側に確保して、ページ末尾がドロワーに隠れないようにする
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const [drawerHeight, setDrawerHeight] = useState(48)
 
   // 本登録済（ロット化済み）は自動でリストから外れるため、ここに来るのは仮登録のみのはず
   const pending = plans.filter(p => p.status === '仮登録')
+
+  // 開閉・件数でドロワーの高さが変わるので、そのつど測り直して余白に反映する
+  useEffect(() => {
+    const el = drawerRef.current
+    if (!el) return
+    const update = () => setDrawerHeight(el.offsetHeight)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [isOpen, pending.length])
 
   if (pending.length === 0) return null
 
@@ -75,9 +90,11 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   return (
     <>
     {/* 固定ドロワーは position:fixed で流し込みから外れるため、そのままだと
-        ページ最下部のコンテンツに重なる。同じ高さの余白を流し込み側に確保する */}
-    <div className="h-12 no-print" aria-hidden />
-    <div className="fixed bottom-0 left-0 right-0 z-30 no-print">
+        ページ最下部のコンテンツに重なる。同じ高さの余白を流し込み側に確保する。
+        高さは固定値ではなく実測（開くと一覧の分だけ伸びるため。以前は畳んだ
+        バーの高さ h-12 決め打ちで、開くと画面下部が隠れていた・2026-08-30修正） */}
+    <div style={{ height: drawerHeight }} className="no-print" aria-hidden />
+    <div ref={drawerRef} className="fixed bottom-0 left-0 right-0 z-30 no-print">
       <div className="max-w-[1400px] mx-auto px-4">
       {/* 展開時のパネル */}
       {isOpen && (
