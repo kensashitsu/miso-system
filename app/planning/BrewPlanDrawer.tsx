@@ -73,6 +73,10 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   }
 
   return (
+    <>
+    {/* 固定ドロワーは position:fixed で流し込みから外れるため、そのままだと
+        ページ最下部のコンテンツに重なる。同じ高さの余白を流し込み側に確保する */}
+    <div className="h-12 no-print" aria-hidden />
     <div className="fixed bottom-0 left-0 right-0 z-30 no-print">
       <div className="max-w-[1400px] mx-auto px-4">
       {/* 展開時のパネル */}
@@ -226,5 +230,6 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       </button>
       </div>
     </div>
+    </>
   )
 }

@@ -10,6 +10,7 @@ import ApiStatusCard from './ApiStatusCard'
 import BulkTempUpdateCard, { type ActiveLot } from './BulkTempUpdateCard'
 import InventorySnapshotCard from './InventorySnapshotCard'
 import BucketUsageOptionsCard from './BucketUsageOptionsCard'
+import SettingsTabs from './SettingsTabs'
 
 export const metadata: Metadata = {
   title: '設定 | みそ熟成管理システム',
@@ -56,25 +57,35 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="max-w-[1280px] mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-6 sm:space-y-8 pb-24">
-      <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight">設定</h1>
-      <ApiStatusCard />
-      <RecipeSettings recipes={recipes} moisture={moisture} />
-      <MoistureSettingsForm moisture={moisture} />
-      <BulkTempUpdateCard
-        heatingLots={heatingLots}
-        coolingLots={coolingLots}
-        normalLots={normalLots}
-        heatingDefaultTemp={moisture.heatingDefaultTemp}
-        coolingDefaultTemp={moisture.coolingDefaultTemp}
+    <div className="max-w-[1280px] mx-auto px-3 sm:px-4 py-4 sm:py-6 pb-24">
+      <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight mb-4">設定</h1>
+      <SettingsTabs
+        recipe={<RecipeSettings recipes={recipes} moisture={moisture} />}
+        aging={<MoistureSettingsForm moisture={moisture} />}
+        place={
+          <>
+            <BulkTempUpdateCard
+              heatingLots={heatingLots}
+              coolingLots={coolingLots}
+              normalLots={normalLots}
+              heatingDefaultTemp={moisture.heatingDefaultTemp}
+              coolingDefaultTemp={moisture.coolingDefaultTemp}
+            />
+            <BucketUsageOptionsCard
+              misoTypes={recipes.map(r => r.name)}
+              initialProductNamesByType={usageOptions.productNamesByType}
+              initialOperatorNames={usageOptions.operatorNames}
+            />
+          </>
+        }
+        data={
+          <>
+            <WeatherImportCard initialStatus={weatherStatus} />
+            <InventorySnapshotCard snapshots={snapshots} />
+          </>
+        }
+        api={<ApiStatusCard />}
       />
-      <BucketUsageOptionsCard
-        misoTypes={recipes.map(r => r.name)}
-        initialProductNamesByType={usageOptions.productNamesByType}
-        initialOperatorNames={usageOptions.operatorNames}
-      />
-      <WeatherImportCard initialStatus={weatherStatus} />
-      <InventorySnapshotCard snapshots={snapshots} />
     </div>
   )
 }

@@ -178,7 +178,11 @@ export default function TraceClient({
                   onValueChange={(v: string | null) => set('misoType', v ?? 'all')}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="全品種" />
+                    {/* base-ui の Select.Value は値をそのまま出すため、'all' が生で表示される。
+                        表示用のラベルに置き換える */}
+                    <SelectValue placeholder="全品種">
+                      {(v: string) => (v === 'all' || !v ? '全品種' : v)}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全品種</SelectItem>
@@ -214,7 +218,9 @@ export default function TraceClient({
                   onValueChange={(v: string | null) => set('status', v ?? 'all')}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="全て" />
+                    <SelectValue placeholder="全て">
+                      {(v: string) => (v === 'all' || !v ? '全て' : v)}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全て</SelectItem>
@@ -316,17 +322,19 @@ export default function TraceClient({
         </div>
       )}
 
-      {/* 検索結果 */}
-      {hasSearched && (
+      {/* 検索結果。未検索のときは直近20件を出す（空白の画面にしない） */}
+      {(
         lots.length === 0 ? (
           <p className="text-muted-foreground text-sm py-8 text-center">
-            該当するロットが見つかりませんでした
+            {hasSearched ? '該当するロットが見つかりませんでした' : '登録されているロットがありません'}
           </p>
         ) : (
           <div className="rounded-xl border border-gray-100 overflow-hidden shadow-sm">
             <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50/60 border-b border-gray-100">
-              <span className="text-sm font-medium">検索結果</span>
-              <span className="text-xs text-muted-foreground">{lots.length}件</span>
+              <span className="text-sm font-medium">{hasSearched ? '検索結果' : '直近のロット'}</span>
+              <span className="text-xs text-muted-foreground">
+                {lots.length}件{!hasSearched && <span className="ml-1">（新しい順・上位20件）</span>}
+              </span>
             </div>
 
             {/* モバイル: カードビュー */}
@@ -540,11 +548,6 @@ export default function TraceClient({
         )
       )}
 
-      {!hasSearched && (
-        <p className="text-muted-foreground text-sm py-8 text-center">
-          検索条件を入力して「検索」ボタンを押してください
-        </p>
-      )}
     </div>
   )
 }

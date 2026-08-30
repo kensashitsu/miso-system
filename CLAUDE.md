@@ -571,6 +571,8 @@ SystemSettingキー: `moisture_` プレフィックス（例: `moisture_q10Value
 
 ## 設定画面（`/settings`）の構成
 
+**5タブ構成（2026-08-30）**: 無関係な8セクションが1本のスクロール（PC幅で約4,900px）に並んでいて目的の設定にたどり着けなかったため、`SettingsTabs.tsx`（client）で **品種・レシピ／熟成の条件／場所・桶／データ取込／外部連携** に分けた。中身はサーバーコンポーネントのまま props で渡している（`<SettingsTabs recipe={<RecipeSettings/>} … />`）。開いていたタブは localStorage（`settings_activeTab`）に保存。**表示していないタブはDOMから外れる**ので、フォーム入力途中でタブを移ると入力が失われる点に注意。
+
 ### 1. API接続状態（ApiStatusCard）
 STOCK_API・SALES_API それぞれの疎通確認・レイテンシ表示
 

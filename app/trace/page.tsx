@@ -61,7 +61,9 @@ export default async function TracePage({
   // 品種の選択肢はレシピから（ハードコードすると品種追加時に検索できなくなる）
   const misoTypes = (await getMisoRecipes()).map(r => r.name)
 
-  if (hasSearched) {
+  // 未検索でも直近のロットを出す（以前は空白の画面に「検索してください」だけだった）。
+  // 未検索時は values が全て空/'all' なので where は空になり、直近20件が返る
+  {
     // ── BrewRecord フィルタ ────────────────────────────────
     const brewRecordWhere: Record<string, unknown> = {}
     if (values.soybeanOrigin) brewRecordWhere.soybeanOrigin = { contains: values.soybeanOrigin }
@@ -117,6 +119,7 @@ export default async function TracePage({
           },
         },
         orderBy: { brewedAt: 'desc' },
+        ...(hasSearched ? {} : { take: 20 }),
       }),
       getMoistureSettings(),
       getMisoRecipes(),
