@@ -1,6 +1,7 @@
 'use server'
 
 import { z } from 'zod'
+import { startOfDay } from 'date-fns'
 import { revalidatePath } from 'next/cache'
 import { saveMoistureSettings, saveBucketUsageOptions } from '@/lib/settings'
 import { prisma } from '@/lib/prisma'
@@ -51,6 +52,10 @@ const COOLING_RE = /^冷房\d+(?:\.\d+)?℃$/
 export async function bulkMoveLocation(
   sourceType:  '暖房' | '冷房' | '常温',
   newLocation: string,
+  // 「この日から」新しい場所として扱う（省略時は今日）。冷房の故障のように
+  // 途中から実温度が変わっていた場合、今日で区切ると過去の期間が実態と合わない。
+  // 2026-07の冷房故障ではこの分割をスクリプトで手作業していた（2026-08-31にUI化）
+  effectiveDateISO?: string,
 ): Promise<BulkMoveResult> {
   // 移動先バリデーション
   const tempMatch = newLocation.match(/^(暖房|冷房)(\d+)℃$/)
@@ -66,44 +71,62 @@ export async function bulkMoveLocation(
                  : sourceType === '冷房' ? COOLING_RE
                  : null  // 常温は完全一致
 
-  const now = new Date()
+  const today = startOfDay(new Date())
+  // 日付だけを受け取り、時刻は0時に丸める（積算は日単位なので時刻を持つと境界がぶれる）
+  const effective = effectiveDateISO ? startOfDay(new Date(`${effectiveDateISO}T00:00:00`)) : today
+  if (isNaN(effective.getTime())) return { error: '日付が不正です。' }
+  if (effective > today) return { error: '未来の日付は指定できません。' }
 
   try {
     const lots = await prisma.lot.findMany({
-      where: { status: '熟成中' },
+      // 完成ロットも対象（完成後も置き場の温度で着色は進むため）。詳細は settings/page.tsx のコメント
+      where: { status: { in: ['熟成中', '完成'] } },
       select: {
         id: true,
         locationHistory: {
           where:  { endDate: null },
-          select: { location: true },
+          select: { id: true, location: true, startDate: true },
         },
       },
     })
 
-    const targets = lots.filter(lot =>
-      lot.locationHistory.some(h =>
-        sourceRe ? sourceRe.test(h.location) : h.location === '常温'
-      )
-    )
+    const targets = lots
+      .map(lot => ({
+        lot,
+        current: lot.locationHistory.find(h =>
+          sourceRe ? sourceRe.test(h.location) : h.location === '常温'
+        ),
+      }))
+      .filter((t): t is { lot: typeof t.lot; current: NonNullable<typeof t.current> } => t.current != null)
 
     if (targets.length === 0) return { success: true, count: 0 }
 
     // SQLite対応: トランザクション内でcreateを個別呼び出し
     await prisma.$transaction(async (tx) => {
-      for (const lot of targets) {
-        await tx.locationHistory.updateMany({
-          where: { lotId: lot.id, endDate: null },
-          data:  { endDate: now },
-        })
-        await tx.locationHistory.create({
-          data: { lotId: lot.id, location: newLocation, startDate: now, endDate: null },
-        })
+      for (const { lot, current } of targets) {
+        // 指定日が今の期間の開始日以前なら、その期間まるごとが新しい場所になる。
+        // 分割すると長さ0の記録ができてしまうので、場所を書き換えるだけにする
+        if (effective > startOfDay(current.startDate)) {
+          // 期間の途中 → 指定日で分割し、以降を新しい場所にする
+          await tx.locationHistory.update({
+            where: { id: current.id },
+            data:  { endDate: effective },
+          })
+          await tx.locationHistory.create({
+            data: { lotId: lot.id, location: newLocation, startDate: effective, endDate: null },
+          })
+        } else {
+          await tx.locationHistory.update({
+            where: { id: current.id },
+            data:  { location: newLocation },
+          })
+        }
       }
     })
 
     revalidatePath('/')
     revalidatePath('/settings')
-    for (const lot of targets) revalidatePath(`/lots/${lot.id}`)
+    for (const { lot } of targets) revalidatePath(`/lots/${lot.id}`)
 
     return { success: true, count: targets.length }
   } catch (e) {

@@ -24,12 +24,17 @@ export default async function SettingsPage() {
     getMoistureSettings(),
     getMisoRecipes(),
     getWeatherStatus(),
+    // 完成ロットも対象にする。完成後も置き場の温度で熟成（着色）は進むため、
+    // 実際に部屋にある物は同じように場所を直せる必要がある。
+    // 熟成中だけだと、冷房にいるのが完成ロットばかりのとき「対象ロットなし」に
+    // なって温度を直せなかった（2026-08-31ユーザー指摘）
     prisma.lot.findMany({
-      where: { status: '熟成中' },
+      where: { status: { in: ['熟成中', '完成'] } },
       select: {
         id:        true,
         lotNumber: true,
         misoType:  true,
+        status:    true,
         locationHistory: {
           where:  { endDate: null },
           select: { location: true },
@@ -50,7 +55,7 @@ export default async function SettingsPage() {
 
   for (const lot of fermentingLots) {
     const location = lot.locationHistory[0]?.location ?? ''
-    const entry = { id: lot.id, lotNumber: lot.lotNumber, misoType: lot.misoType, location }
+    const entry = { id: lot.id, lotNumber: lot.lotNumber, misoType: lot.misoType, location, status: lot.status }
     if (HEATING_RE.test(location))  heatingLots.push(entry)
     else if (COOLING_RE.test(location)) coolingLots.push(entry)
     else if (location === '常温')   normalLots.push(entry)

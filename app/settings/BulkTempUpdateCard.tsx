@@ -13,6 +13,7 @@ export interface ActiveLot {
   lotNumber: string
   misoType:  string
   location:  string
+  status:    string   // 熟成中 / 完成（完成も置き場の温度で着色が進むので対象）
 }
 
 type SourceType = '暖房' | '冷房' | '常温'
@@ -44,6 +45,10 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
   const [destTemp,    setDestTemp]    = useState(
     initDestType === '冷房' ? String(coolingDefaultTemp) : String(heatingDefaultTemp)
   )
+  // 「この日から」新しい場所として扱う。冷房の故障のように途中から実温度が
+  // 変わっていた場合、今日で区切ると過去の期間が実態と合わないため（2026-08-31追加）
+  const todayStr = new Date().toLocaleDateString('sv-SE')   // yyyy-MM-dd
+  const [effectiveDate, setEffectiveDate] = useState(todayStr)
   const [confirming,  setConfirming]  = useState(false)
   const [savedDest,   setSavedDest]   = useState('')   // 確定時の移動先を保存して結果表示に使う
   const [result,      setResult]      = useState<{ count?: number; error?: string } | null>(null)
@@ -62,6 +67,7 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
   })()
 
   const isValid = newLocation !== '' && lots.length > 0
+    && effectiveDate !== '' && effectiveDate <= todayStr
 
   function handleClickMove() {
     if (!isValid) return
@@ -72,7 +78,7 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
 
   function handleConfirm() {
     startTransition(async () => {
-      const res = await bulkMoveLocation(sourceType, savedDest)
+      const res = await bulkMoveLocation(sourceType, savedDest, effectiveDate)
       setConfirming(false)
       if (res.success) {
         setResult(res)
@@ -100,7 +106,7 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
 
       {lots.length === 0 ? (
         <p className="text-xs text-muted-foreground pl-1">
-          現在{SOURCE_LABEL[sourceType]}の熟成ロットはありません。
+          現在{SOURCE_LABEL[sourceType]}のロットはありません。
         </p>
       ) : (
         <>
@@ -119,6 +125,9 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
                 </span>
                 <span className="tabular-nums font-medium text-gray-800">{lot.lotNumber}</span>
                 <span className="text-muted-foreground">{lot.location}</span>
+                {lot.status === '完成' && (
+                  <span className="rounded bg-gray-200 px-1 text-[10px] text-gray-600">完成</span>
+                )}
               </div>
             ))}
           </div>
@@ -152,6 +161,14 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
                   <span className="text-sm text-muted-foreground shrink-0">℃</span>
                 </>
               )}
+              <span className="text-sm text-muted-foreground shrink-0">この日から：</span>
+              <Input
+                type="date"
+                max={todayStr}
+                value={effectiveDate}
+                onChange={e => setEffectiveDate(e.target.value)}
+                className="min-h-[40px] w-40"
+              />
               <Button
                 variant="outline"
                 size="sm"
@@ -160,12 +177,18 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
               >
                 一括移動する
               </Button>
+              <p className="w-full text-xs text-muted-foreground">
+                過去の日付を指定すると、その日で場所履歴を分割し、以降だけが新しい場所になります
+                （例：冷房が7/9から効かなくなっていた → 7/9を指定して冷房29℃へ）。
+              </p>
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2.5">
               <p className="text-sm text-amber-800 flex-1 min-w-0">
                 {SOURCE_LABEL[sourceType]}の <span className="font-semibold">{lots.length}</span> ロットを{' '}
-                <span className="font-semibold">{savedDest}</span> に移動します。よろしいですか？
+                <span className="font-semibold">{effectiveDate.replace(/^\d+-/, '').replace('-', '/')}</span> から{' '}
+                <span className="font-semibold">{savedDest}</span> に移動します
+                {effectiveDate !== todayStr && '（その日で場所履歴を分割します）'}。よろしいですか？
               </p>
               <div className="flex items-center gap-2 shrink-0">
                 <Button size="sm" onClick={handleConfirm} disabled={isPending}>
@@ -189,7 +212,7 @@ function BulkMoveSection({ sourceType, lots, heatingDefaultTemp, coolingDefaultT
               <p className="text-xs text-rose-600">{result.error}</p>
             ) : (
               <p className="text-xs text-emerald-600 font-medium">
-                {result.count}件のロットを {savedDest} に移動しました。
+                {result.count}件のロットを {effectiveDate.replace(/^\d+-/, '').replace('-', '/')} から {savedDest} に移動しました。
               </p>
             )
           )}
@@ -223,9 +246,10 @@ export default function BulkTempUpdateCard({
   return (
     <Card className="rounded-xl border border-gray-100 shadow-sm">
       <CardHeader>
-        <CardTitle className="text-base text-gray-900">熟成中ロットの場所一括変更</CardTitle>
+        <CardTitle className="text-base text-gray-900">ロットの場所一括変更</CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          現在暖房中・冷房中・常温中の熟成ロットをまとめて別の場所に移動します。
+          現在暖房中・冷房中・常温中のロット（熟成中・完成）をまとめて別の場所に移動します。
+          過去の日付を指定すれば、その日から温度が変わったものとして場所履歴を分割できます。
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
