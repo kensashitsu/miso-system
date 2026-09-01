@@ -52,7 +52,11 @@ function bucketLabel(label: string, sub: string | undefined, color: string, dy: 
   return (props: { viewBox?: { x?: number; y?: number } }) => {
     const { x = 0, y = 0 } = props.viewBox ?? {}
     return (
-      <text x={x} y={y + dy} textAnchor="middle" fill={color}>
+      // 安全在庫ラインや在庫の線と重なっても読めるよう、白い縁取り（ハロー）を敷く
+      <text
+        x={x} y={y + dy} textAnchor="middle" fill={color}
+        stroke="#fff" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
+      >
         <tspan x={x} dy={sub ? -14 : -6} fontSize={9}>{label}</tspan>
         {sub && <tspan x={x} dy={9} fontSize={8} fillOpacity={0.75}>{sub}</tspan>}
       </text>
