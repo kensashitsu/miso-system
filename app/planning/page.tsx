@@ -1,4 +1,4 @@
-import { format, startOfDay } from 'date-fns'
+import { differenceInDays, format, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import { getMisoRecipes } from '@/lib/recipes'
@@ -182,7 +182,7 @@ export default async function PlanningPage() {
   // 熟成中ロットの完成予定日スケジュール（品種別・仕込み計画の在庫補充タイミング用）
   const recipeTargetMap = Object.fromEntries(recipes.map(r => [r.name, r.targetTempSum]))
   const dailyRoomAccum  = moisture.heatingDefaultTemp - 10
-  const fermentingScheduleByType: Record<string, { completionDateStr: string; yieldKg: number; label?: string }[]> = {}
+  const fermentingScheduleByType: Record<string, { completionDateStr: string; yieldKg: number; label?: string; sub?: string }[]> = {}
   for (const lot of fermentingLotRows) {
     const yieldKg = fermentingKgOfLot(lot, moisture.yieldRate)
     if (yieldKg <= 0) continue
@@ -211,6 +211,8 @@ export default async function PlanningPage() {
       yieldKg,
       // 在庫推移グラフの補充ジャンプに表示するラベル（桶番号がなければロット番号）
       label: lot.bucketNumbers ? `桶${lot.bucketNumbers}` : lot.lotNumber,
+      // 桶番号だけでは「いつ仕込んだ分か」が分からないので仕込み日と熟成日数も出す
+      sub:   `${format(lot.brewedAt, 'M/d')}仕込 ${differenceInDays(startOfDay(completionDate), startOfDay(lot.brewedAt))}日`,
     })
   }
 

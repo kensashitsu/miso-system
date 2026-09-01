@@ -28,8 +28,9 @@ interface Props {
   points:   StockPoint[]
   markers:  BatchMarker[]
   todayStr: string
-  // 補充ジャンプ地点の桶番号ラベル（熟成中ロット=緑 / 仮登録=紫で色分け）
-  supplyMarkers?: { d: string; label: string; kind: 'fermenting' | 'registered' }[]
+  // 補充ジャンプ地点の桶番号ラベル（熟成中ロット=緑 / 仮登録=紫で色分け）。
+  // sub は2行目に小さく出す補足（仕込み日・熟成日数）
+  supplyMarkers?: { d: string; label: string; sub?: string; kind: 'fermenting' | 'registered' }[]
   // 安全在庫ライン（設定されている品種のみ）。「在庫切れ」の縦線はゼロではなくこのラインへの到達日
   safetyStockKg?: number | null
 }
@@ -43,6 +44,20 @@ const COLOR = {
   out:       '#e11d48',  // rose-600
   today:     '#9ca3af',  // gray-400
   safety:    '#d97706',  // amber-600（安全在庫ライン）
+}
+
+// 桶番号ラベル（1行目）と仕込み日・熟成日数（2行目）を積んで描く。
+// 1行に繋げると隣の補充点のラベルと重なって読めなくなるため2行に分ける
+function bucketLabel(label: string, sub: string | undefined, color: string, dy: number) {
+  return (props: { viewBox?: { x?: number; y?: number } }) => {
+    const { x = 0, y = 0 } = props.viewBox ?? {}
+    return (
+      <text x={x} y={y + dy} textAnchor="middle" fill={color}>
+        <tspan x={x} dy={sub ? -14 : -6} fontSize={9}>{label}</tspan>
+        {sub && <tspan x={x} dy={9} fontSize={8} fillOpacity={0.75}>{sub}</tspan>}
+      </text>
+    )
+  }
 }
 
 function fmtMd(d: string): string {
@@ -82,7 +97,8 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
     <div className="space-y-1">
       <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={points} margin={{ top: 18, right: 8, bottom: 0, left: 0 }}>
+          {/* top余白は桶番号ラベルが2行になったぶん広げている */}
+          <ComposedChart data={points} margin={{ top: 30, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis
               dataKey="d"
@@ -148,7 +164,8 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
             )}
             {buckets.map(m => {
               const color = m.kind === 'registered' ? COLOR.regBucket : COLOR.comp
-              const dy = m.kind === 'registered' && dupDays.has(m.d) ? -12 : 0
+              // 同じ日に熟成中と仮登録が重なる日は、2行分（約20px）上へ逃がす
+              const dy = m.kind === 'registered' && dupDays.has(m.d) ? -21 : 0
               return (
                 <ReferenceDot
                   key={`bucket-${m.kind}-${m.d}`}
@@ -158,7 +175,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
                   fill={color}
                   stroke="#fff"
                   strokeWidth={1.5}
-                  label={{ value: m.label, position: 'top', fontSize: 9, fill: color, dy }}
+                  label={bucketLabel(m.label, m.sub, color, dy)}
                 />
               )
             })}

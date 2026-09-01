@@ -60,6 +60,7 @@ interface FermentingLotSchedule {
   completionDateStr: string  // 'yyyy-MM-dd'
   yieldKg:           number
   label?:            string  // 在庫推移グラフに表示する桶番号（例: 桶12・13）
+  sub?:              string  // 同ラベルの2行目（例: 8/5仕込 40日）
 }
 
 // SARIMAX予測データの型（品種ごと）
@@ -160,7 +161,7 @@ interface RecipePlan {
   // 日次の在庫見込み（間引き前・'yyyy-MM-dd' → 在庫kgとその日の安全在庫ライン）。
   // 各回の「完成前日の在庫見込み」に使う。ラインは季節で変わるためその日の値を持たせる
   dailyStockByDate: Map<string, { kg: number; safety?: number }>
-  supplyMarkers:    { d: string; label: string; kind: 'fermenting' | 'registered' }[]  // 補充ジャンプの桶番号ラベル（熟成中=緑/仮登録=紫）
+  supplyMarkers:    { d: string; label: string; sub?: string; kind: 'fermenting' | 'registered' }[]  // 補充ジャンプの桶番号ラベル（熟成中=緑/仮登録=紫）
 }
 
 const BATCH_OPTIONS = [1, 3, 5] as const
@@ -730,19 +731,31 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 在庫推移グラフ用：補充ジャンプ地点の桶番号ラベル（同日・同種は結合。種別で色分け）。
     // 熟成中ロットは悲観モードのみ（楽観モードは即時在庫扱いでジャンプが無い）、
     // 仮登録の完成分は常に供給算入されるためモードに関わらず表示する
-    const supplyMarkers: { d: string; label: string; kind: 'fermenting' | 'registered' }[] = (() => {
-      const collect = (entries: { d: string; label: string }[], kind: 'fermenting' | 'registered') => {
-        const byDay = new Map<string, string[]>()
-        for (const e of entries) byDay.set(e.d, [...(byDay.get(e.d) ?? []), e.label])
-        return [...byDay.entries()].map(([d, labels]) => ({ d, label: labels.join(' / '), kind }))
+    const supplyMarkers: { d: string; label: string; sub?: string; kind: 'fermenting' | 'registered' }[] = (() => {
+      const collect = (entries: { d: string; label: string; sub?: string }[], kind: 'fermenting' | 'registered') => {
+        const byDay = new Map<string, { labels: string[]; subs: string[] }>()
+        for (const e of entries) {
+          const cur = byDay.get(e.d) ?? { labels: [], subs: [] }
+          cur.labels.push(e.label)
+          if (e.sub) cur.subs.push(e.sub)
+          byDay.set(e.d, cur)
+        }
+        return [...byDay.entries()].map(([d, { labels, subs }]) => ({
+          d, label: labels.join(' / '), sub: subs.length ? subs.join(' / ') : undefined, kind,
+        }))
       }
       const todayStr = format(today, 'yyyy-MM-dd')
       const fermenting = optimisticStock ? [] : rawSchedule
         .filter(s => s.label && s.completionDateStr > todayStr)
-        .map(s => ({ d: s.completionDateStr, label: s.label! }))
+        .map(s => ({ d: s.completionDateStr, label: s.label!, sub: s.sub }))
       const registered = regPlans
         .filter(p => p.bucketNumbers)
-        .map(p => ({ d: format(p.completionDate, 'yyyy-MM-dd'), label: `桶${p.bucketNumbers}` }))
+        .map(p => ({
+          d:     format(p.completionDate, 'yyyy-MM-dd'),
+          label: `桶${p.bucketNumbers}`,
+          // 熟成中ロットと同じく、いつ仕込んだ分かが分かるように仕込み日と熟成日数を添える
+          sub:   `${format(p.brewDate, 'M/d')}仕込 ${differenceInDays(p.completionDate, p.brewDate)}日`,
+        }))
       return [...collect(fermenting, 'fermenting'), ...collect(registered, 'registered')]
     })()
     // 熟成中ロット補充＋仮登録の確定生産（予定出荷を除く供給）
