@@ -164,6 +164,7 @@ export default function LotSimulationModal({
     maturityCompleteDateStr,
     hasQ10Effect,
     yAxisMax,
+    assumedTransitions,
   } = useMemo(() => {
     const today    = startOfDay(new Date())
     const brewDate = startOfDay(new Date(brewedAtISO))
@@ -193,12 +194,29 @@ export default function LotSimulationModal({
 
     // 週次サンプリング（先頭・末尾・今日・100%到達日・場所移動日は必ず含む）
     const transitionDates = new Set(locationTransitions.map(t => t.date))
+
+    // 常温は10月に入ったら暖房室へ移す前提で積算している（simulateLotForModal）。
+    // どこで切り替わったのかグラフから読めるよう、その日を縦線として出す。
+    // X軸が日付カテゴリなので、縦線を引く日は間引かれないよう必ず残す
+    const assumed: { date: string; label: string }[] = []
+    if (locType === '常温' && fullData.length > 0) {
+      const firstStr = fullData[0].date
+      const lastStr  = fullData[fullData.length - 1].date
+      for (let y = Number(firstStr.slice(0, 4)); y <= Number(lastStr.slice(0, 4)); y++) {
+        for (const [md, label] of [['10-01', '→暖房室'], ['06-01', '→常温']] as const) {
+          const d = `${y}-${md}`
+          if (d >= firstStr && d <= lastStr) assumed.push({ date: d, label })
+        }
+      }
+    }
+    const assumedDates = new Set(assumed.map(a => a.date))
     const sampled = fullData.filter((d, i) => {
       if (i === 0 || i === fullData.length - 1) return true
       if ((i + 1) % 7 === 0) return true
       if (i === matCompleteIdx || i === simpCompleteIdx) return true
       if (d.date === todStr) return true
       if (transitionDates.has(d.date)) return true
+      if (assumedDates.has(d.date)) return true
       return false
     })
 
@@ -234,6 +252,7 @@ export default function LotSimulationModal({
       maturityCompleteDateStr: matCompStr,
       hasQ10Effect:           fullData.some(d => d.simplePct !== d.maturityPct),
       yAxisMax:               yMax,
+      assumedTransitions:     assumed,
     }
   }, [locType, locTemp, brewedAtISO, targetTempSum, room1Temp, fridgeTemp, accumulatedTemp,
       dailyRoomAccum, weatherAvg, q10Value, heatingBaseTemp, locationTransitions])
@@ -463,6 +482,26 @@ export default function LotSimulationModal({
                         return (
                           <text x={vb.x + 3} y={vb.y + 22} textAnchor="start" fontSize={9} fill="#d97706">
                             →{getShortLoc(t.to)}
+                          </text>
+                        )
+                      }}
+                    />
+                  ))}
+
+                  {/* 常温→暖房室の切り替わり（実際の移動記録ではなく前提なので細く薄い破線） */}
+                  {assumedTransitions.map(t => (
+                    <ReferenceLine
+                      key={`assumed-${t.date}`}
+                      x={t.date}
+                      stroke="#f59e0b"
+                      strokeDasharray="2 5"
+                      strokeWidth={1.2}
+                      label={({ viewBox }) => {
+                        const vb = viewBox as { x?: number; y?: number }
+                        if (vb.x == null || vb.y == null) return <g />
+                        return (
+                          <text x={vb.x + 3} y={vb.y + 34} textAnchor="start" fontSize={9} fill="#f59e0b">
+                            {t.label}
                           </text>
                         )
                       }}
