@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { format, addDays, differenceInDays } from 'date-fns'
 import { ChevronLeft, ChevronDown } from 'lucide-react'
@@ -193,7 +193,17 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
   const [isPending, startTransition] = useTransition()
   type PreviewState = { data: unknown; items: StockChangeItem[] }
   const [previewState, setPreviewState]   = useState<PreviewState | null>(null)
+  // 確認欄は長いフォームの一番下に出るため、開いたときに自分でスクロールしないと
+  // 見えなかった（ボタンの上に差し込まれるぶんボタンも画面外へ押し出される）。
+  // 出たら先頭が見える位置までスクロールする
+  const previewRef = useRef<HTMLDivElement>(null)
   const [isPreviewPending, startPreviewTransition] = useTransition()
+
+  useEffect(() => {
+    // block:'start'＋scroll-mt（下の scroll-mt-24）で、上部の固定ヘッダーに
+    // 隠れず、かつ下部の仮登録ドロワーにも重ならない位置に出す
+    if (previewState) previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [previewState])
   const [skipStockUpdate, setSkipStockUpdate] = useState(false)
 
   const set = (key: keyof FormState) =>
@@ -971,7 +981,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       {/* 送信ボタン */}
       <div className="pb-8 space-y-4">
         {previewState ? (
-          <>
+          <div ref={previewRef} className="space-y-4 scroll-mt-24">
             <div className="rounded-xl border border-blue-200 bg-blue-50/50 px-4 py-3 space-y-2">
               <p className="text-sm font-medium text-gray-800">在庫システムへの反映内容を確認してください</p>
               <div className={skipStockUpdate ? 'opacity-40 pointer-events-none' : ''}>
@@ -1005,7 +1015,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
                 {isPending ? '登録中...' : '確認して登録する'}
               </Button>
             </div>
-          </>
+          </div>
         ) : (
           <Button
             onClick={handlePreviewClick}
