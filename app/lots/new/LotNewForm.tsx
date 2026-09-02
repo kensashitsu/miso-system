@@ -22,6 +22,9 @@ import {
 import type { MisoRecipe } from '@/lib/recipes'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 
+// 種水の単位換算。現場は一斗缶（18ℓ）で数えるため 1斗 = 18ℓ とする
+const LITERS_PER_TO = 18
+
 // 温調室の熟成完了予定日を計算
 function calcCompletion(
   brewedAt: string,
@@ -387,6 +390,15 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
     ? calcCompletionKaijo(form.brewedAt, form.targetTempSum, weatherAvg)
     : null
 
+  // 種水の「斗」欄。入力中だけ生テキストを持ち（"1." のような途中の値を潰さないため）、
+  // 入力していないときは ℓ 側から換算して表示する
+  const [seedWaterToDraft, setSeedWaterToDraft] = useState<string | null>(null)
+  const seedWaterToValue = seedWaterToDraft ?? (() => {
+    const l = Number(form.seedWaterL)
+    if (!form.seedWaterL || Number.isNaN(l) || l === 0) return ''
+    return String(Math.round((l / LITERS_PER_TO) * 100) / 100)
+  })()
+
   // 数値 input 共通 className
   const numCls = 'min-h-[44px]'
   const numProps = { type: 'number' as const, inputMode: 'decimal' as const, className: numCls }
@@ -709,11 +721,36 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
               <FieldError msg={e('saltKg')} />
             </div>
 
-            {/* 種水 */}
+            {/* 種水。現場は斗で数えるため、ℓ と斗の両方で入力できるようにする
+                （どちらかに入れると反対側が自動計算される。保存するのは ℓ のみ） */}
             <div className="space-y-1.5">
               <Label htmlFor="seedWaterL">種水 (ℓ)<Opt /></Label>
-              <Input id="seedWaterL" {...numProps} step="0.1" min="0"
-                value={form.seedWaterL} onChange={set('seedWaterL')} />
+              <div className="flex items-center gap-2">
+                <Input id="seedWaterL" {...numProps} step="0.1" min="0"
+                  value={form.seedWaterL}
+                  onChange={e => {
+                    setSeedWaterToDraft(null)   // ℓ側を触ったら斗はℓから換算し直す
+                    set('seedWaterL')(e)
+                  }} />
+                <span className="text-xs text-muted-foreground shrink-0">≒</span>
+                <Input id="seedWaterTo" {...numProps} step="0.1" min="0"
+                  aria-label="種水（斗）"
+                  value={seedWaterToValue}
+                  onChange={e => {
+                    const v = e.target.value
+                    setSeedWaterToDraft(v)
+                    const to = Number(v)
+                    setForm(prev => ({
+                      ...prev,
+                      seedWaterL: v === '' || Number.isNaN(to)
+                        ? ''
+                        : String(Math.round(to * LITERS_PER_TO * 10) / 10),
+                    }))
+                  }}
+                  onBlur={() => setSeedWaterToDraft(null)} />
+                <span className="text-sm text-muted-foreground shrink-0">斗</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">1斗 = 18ℓ（どちらに入れても反対側が計算されます）</p>
             </div>
 
             {/* 水飴（田舎みそ・山吹みそのみ） */}
