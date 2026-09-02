@@ -67,6 +67,23 @@ function bucketLabel(label: string, sub: string | undefined, color: string, dy: 
   }
 }
 
+// 月の境目に出す需要見込みラベル。在庫の線や桶ラベルと重なっても読めるよう
+// 白い縁取り（ハロー）を敷き、色は薄すぎない灰色にする
+function monthLabel(text: string) {
+  return (props: { viewBox?: { x?: number; y?: number } }) => {
+    const { x = 0, y = 0 } = props.viewBox ?? {}
+    return (
+      <text
+        x={x + 4} y={y + 13} textAnchor="start"
+        fontSize={10} fontWeight={500} fill="#64748b"
+        stroke="#fff" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
+      >
+        {text}
+      </text>
+    )
+  }
+}
+
 function fmtMd(d: string): string {
   const [, m, day] = d.split('-')
   return `${Number(m)}/${Number(day)}`
@@ -219,7 +236,7 @@ export default function StockProjectionChart({ points: allPoints, markers, today
                 stroke="#e5e7eb"
                 strokeWidth={1}
                 // 「今日」のラベルと同じ高さに来ると重なるので一段下げる
-                label={{ value: m.label, position: 'insideTopLeft', fontSize: 9, fill: '#94a3b8', dy: 12 }}
+                label={monthLabel(m.label)}
               />
             ))}
             <ReferenceLine
