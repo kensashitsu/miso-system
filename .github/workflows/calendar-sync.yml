@@ -1,0 +1,29 @@
+name: Googleカレンダー同期
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # 毎日 6:00 JST（= 前日 21:00 UTC）
+  workflow_dispatch:       # GitHub画面から手動実行も可能
+
+jobs:
+  sync-calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Sync calendar
+        env:
+          DATABASE_URL:                 ${{ secrets.FORECAST_DATABASE_URL }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_PRIVATE_KEY:           ${{ secrets.GOOGLE_PRIVATE_KEY }}
+        run: npx tsx scripts/sync-calendar.mts

@@ -1,8 +1,8 @@
 import { differenceInDays, format } from 'date-fns'
 
 // カレンダー（Google Calendar）のID。完成予定日と仕込み予定日でカレンダーを分けている
-const AGING_CALENDAR_ID = '1734b91d3702c0f7c7d08184672490495ec6ab8c74ffac171de070f577610d88@group.calendar.google.com'  // 「熟成完了日」
-const BREW_CALENDAR_ID  = '9933b20e587eccf0c47ee15c5eb2598d4700e3b7c0375692e1ee446f037ddd97@group.calendar.google.com'  // 「仕込予定日」
+export const AGING_CALENDAR_ID = '1734b91d3702c0f7c7d08184672490495ec6ab8c74ffac171de070f577610d88@group.calendar.google.com'  // 「熟成完了日」
+export const BREW_CALENDAR_ID  = '9933b20e587eccf0c47ee15c5eb2598d4700e3b7c0375692e1ee446f037ddd97@group.calendar.google.com'  // 「仕込予定日」
 
 export const MISO_ABBR: Record<string, string> = {
   '無添加麦みそ': '無添加',

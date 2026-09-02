@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart } from 'lucide-react'
+import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart, RefreshCw } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import {
   brewEventTitle, buildBrewPlanCalendarUrl, buildGoogleCalendarUrl, completionEventTitle,
 } from '@/lib/googleCalendarLink'
 import { buildIcs, downloadIcs } from '@/lib/ics'
+import { syncCalendarNow } from '@/app/planning/calendar-sync-action'
 import { deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered } from '@/app/planning/brew-plan-actions'
 import { getPlanSimConfig } from '@/app/planning/plan-sim-action'
 import LotSimulationModal, { type LotSimConfig } from '@/components/dashboard/LotSimulationModal'
@@ -74,6 +75,22 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
         + `仕込み予定日：${format(p.brewDate, 'yyyy/MM/dd')}（熟成${p.fermentationDays}日）`,
     })), '熟成完了日')
     downloadIcs(`熟成完了日_${format(new Date(), 'yyyyMMdd')}.ics`, ics)
+  }
+
+  // Googleカレンダーへの自動同期（毎日GitHub Actionsでも走るが、仮登録した直後に
+  // 反映を確かめたいことがあるのでボタンからも叩けるようにしている）
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+
+  const handleSync = async () => {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const r = await syncCalendarNow()
+      setSyncMsg(r.ok ? `同期しました（${r.message}）` : r.message)
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const openSim = async (plan: BrewPlanItem) => {
@@ -203,6 +220,16 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                   </button>
                   <button
                     type="button"
+                    disabled={syncing}
+                    onClick={() => void handleSync()}
+                    className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded border border-primary/30 text-primary hover:bg-primary/5 transition-colors whitespace-nowrap disabled:opacity-40"
+                    title="Googleカレンダーへ今すぐ同期する（毎朝6時にも自動で同期されます）"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? '同期中...' : 'カレンダーに同期'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={exportCompletionIcs}
                     className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap"
                     title="完成予定日のICSファイルを書き出す（Googleカレンダーの設定→インポートで読み込む）"
@@ -211,6 +238,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                     熟成完了日.ics
                   </button>
                 </div>
+                {syncMsg && <span className="text-[11px] text-muted-foreground">{syncMsg}</span>}
                 {selectedIds.size > 0 && (
                   <button
                     type="button"
