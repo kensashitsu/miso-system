@@ -51,7 +51,7 @@ const isOutdoor = (m: number) => m >= 6 && m <= 9
  *   - futureFixedRate=undefined（常温）: 6〜9月は weatherAvg、10〜5月は暖房室
  *     （dailyRoomAccum・月別補正あり）。実際に10月から暖房室へ移す運用のため
  *   - futureFixedRate=数値（暖房/冷房）: 過去は屋内(dailyRoomAccum)/屋外(weatherAvg)モデル
- *   - Q10補正は全期間に適用（WeatherSimulator 準拠）
+ *   - Q10補正は常温（外気）の日のみ。暖房室の日は月別補正係数と二重になるため掛けない
  *
  * 今日以降に "もしも" 場所を適用する場合は futureFixedRate を指定。
  *   - undefined   → 常温として扱う（6〜9月は weatherAvg、10〜5月は暖房室）
@@ -101,8 +101,14 @@ export function simulateLotForModal(
     // 単純積算（Q10補正なし）
     totalSimple = Math.round((totalSimple + eff) * 10) / 10
 
-    // Q10補正熟成値（全期間に適用 — WeatherSimulator 準拠）
-    const corrected = (eff > 0 && q10Value !== 1)
+    // Q10補正は常温（外気）の日だけに掛ける。暖房室の日は HEATING_MONTHLY_FACTOR が
+    // 実績から較正済みの係数なので、その上にQ10を重ねると二重に効いてしまう
+    // （仕込み計画の simulateFermentationDays・ロット詳細の LotSimChart と同じ扱い。
+    //  以前は全期間に掛けており、同じ仕込み日でも画面によって完成予定が4日ズレていた）
+    const isOutdoorDay = futureFixedRate === undefined
+      ? isOutdoor(month)
+      : (!isAfterToday && isOutdoor(month))
+    const corrected = (isOutdoorDay && eff > 0 && q10Value !== 1)
       ? eff * Math.pow(q10Value, (eff + 10 - heatingBaseTemp) / 10)
       : eff
     totalMaturity = Math.round((totalMaturity + corrected) * 10) / 10

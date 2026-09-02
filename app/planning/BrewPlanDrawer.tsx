@@ -3,10 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus } from 'lucide-react'
+import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { buildBrewPlanCalendarUrl, buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
 import { deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered } from '@/app/planning/brew-plan-actions'
+import { getPlanSimConfig } from '@/app/planning/plan-sim-action'
+import LotSimulationModal, { type LotSimConfig } from '@/components/dashboard/LotSimulationModal'
 
 export interface BrewPlanItem {
   id:                    string
@@ -33,6 +35,22 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   // 同じ高さの余白を流し込み側に確保して、ページ末尾がドロワーに隠れないようにする
   const drawerRef = useRef<HTMLDivElement>(null)
   const [drawerHeight, setDrawerHeight] = useState(48)
+  // 熟成シミュレーション。設定と気象データの集計は重いので、
+  // ボタンを押したときに一度だけ取りに行って以後は使い回す
+  const [simPlan, setSimPlan] = useState<BrewPlanItem | null>(null)
+  const [simData, setSimData] = useState<{ simConfig: LotSimConfig; targetByType: Record<string, number> } | null>(null)
+  const [simLoading, setSimLoading] = useState(false)
+
+  const openSim = async (plan: BrewPlanItem) => {
+    setSimPlan(plan)
+    if (simData) return
+    setSimLoading(true)
+    try {
+      setSimData(await getPlanSimConfig())
+    } finally {
+      setSimLoading(false)
+    }
+  }
 
   // 本登録済（ロット化済み）は自動でリストから外れるため、ここに来るのは仮登録のみのはず
   const pending = plans.filter(p => p.status === '仮登録')
@@ -113,6 +131,21 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
         高さは固定値ではなく実測（開くと一覧の分だけ伸びるため。以前は畳んだ
         バーの高さ h-12 決め打ちで、開くと画面下部が隠れていた・2026-08-30修正） */}
     <div style={{ height: drawerHeight }} className="no-print" aria-hidden />
+    {simPlan && simData && (
+      <LotSimulationModal
+        isOpen
+        onClose={() => setSimPlan(null)}
+        lotNumber={`仮登録 ${format(simPlan.brewDate, 'M/d')}仕込み予定`}
+        misoType={simPlan.misoType}
+        brewedAtISO={simPlan.brewDate.toISOString()}
+        elapsedDays={0}
+        accumulatedTemp={0}
+        targetTempSum={simData.targetByType[simPlan.misoType] ?? 600}
+        currentLocation={simPlan.location}
+        simConfig={simData.simConfig}
+        isPlan
+      />
+    )}
     <div ref={drawerRef} className="fixed bottom-0 left-0 right-0 z-30 no-print">
       <div className="max-w-[1400px] mx-auto px-4">
       {/* 展開時のパネル */}
@@ -282,6 +315,17 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                             ロット登録へ
                             <ArrowRight className="h-3 w-3" />
                           </Link>
+                          {/* 仕込む前に「この日に仕込むといつ完成するか／置き場を変えるとどうなるか」を試せるように */}
+                          <button
+                            type="button"
+                            disabled={simLoading}
+                            onClick={() => void openSim(plan)}
+                            className="p-1 rounded text-muted-foreground/60 hover:text-primary hover:bg-primary/5 transition-colors disabled:opacity-40"
+                            title="熟成シミュレーション"
+                            aria-label="熟成シミュレーション"
+                          >
+                            <LineChart className="h-3.5 w-3.5" />
+                          </button>
                           <button
                             type="button"
                             disabled={isPending}

@@ -49,6 +49,9 @@ interface Props {
   simConfig:            LotSimConfig
   locationTransitions?: LocationTransition[]
   completedAtISO?:      string | null
+  // 仮登録（まだ仕込んでいない予定）から開いた場合。積算・経過日数は無いので
+  // 「現在の状況」の代わりに仕込み予定日を出す
+  isPlan?:              boolean
 }
 
 function getShortLoc(loc: string): string {
@@ -131,7 +134,7 @@ function ModalTooltip({ active, payload, label }: {
 export default function LotSimulationModal({
   isOpen, onClose,
   lotNumber, misoType, brewedAtISO, elapsedDays,
-  accumulatedTemp, targetTempSum, currentLocation,
+  accumulatedTemp, targetTempSum, currentLocation, isPlan,
   simConfig, locationTransitions = [], completedAtISO,
 }: Props) {
   const {
@@ -277,12 +280,22 @@ export default function LotSimulationModal({
             </button>
           </div>
 
-          {/* 現在の状況 */}
+          {/* 現在の状況（仮登録はまだ仕込んでいないので予定日を出す） */}
           <div className="bg-muted/30 rounded-lg px-3 py-2 text-sm flex flex-wrap gap-4">
-            <span>進捗 <span className="font-semibold">{Math.round(currentPct)}%</span></span>
-            <span>積算 <span className="font-semibold tabular-nums">{Math.round(accumulatedTemp)} / {targetTempSum} ℃・日</span></span>
-            <span>経過 <span className="font-semibold tabular-nums">{elapsedDays} 日</span></span>
-            <span>現在地 <span className="font-semibold">{currentLocation}</span></span>
+            {isPlan ? (
+              <>
+                <span>仕込み予定 <span className="font-semibold tabular-nums">{format(new Date(brewedAtISO), 'M月d日')}</span></span>
+                <span>目標 <span className="font-semibold tabular-nums">{targetTempSum} ℃・日</span></span>
+                <span>置き場 <span className="font-semibold">{currentLocation}</span></span>
+              </>
+            ) : (
+              <>
+                <span>進捗 <span className="font-semibold">{Math.round(currentPct)}%</span></span>
+                <span>積算 <span className="font-semibold tabular-nums">{Math.round(accumulatedTemp)} / {targetTempSum} ℃・日</span></span>
+                <span>経過 <span className="font-semibold tabular-nums">{elapsedDays} 日</span></span>
+                <span>現在地 <span className="font-semibold">{currentLocation}</span></span>
+              </>
+            )}
           </div>
 
           {/* 完成予定サマリー */}
