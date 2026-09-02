@@ -222,6 +222,24 @@ export default async function DashboardPage() {
       : (l.bucketNumbers ?? '')
     return `${l.lotNumber}（${l.misoType}${nums ? `・桶${nums}` : ''}）`
   }
+  // 着色リスクのアラートはロット番号では現場が分からない（桶と日付で覚えている）。
+  // 品種＋桶番号と、仕込み日・仕込みからの経過日数・完成からの経過日数で書く
+  const lotLabelNoNumber = (l: LotCardProps) => {
+    const nums = l.buckets.length > 0
+      ? activeBuckets(l).map(b => b.bucketNumber).join('・')
+      : (l.bucketNumbers ?? '')
+    return `${l.misoType}${nums ? `（桶${nums}）` : ''}`
+  }
+  const brewAgeText = (l: LotCardProps) => {
+    const brewedAt = startOfDay(new Date(l.brewedAtISO))
+    const parts = [`${format(brewedAt, 'M/d')}仕込み（${differenceInDays(today, brewedAt)}日経過）`]
+    if (l.completedAtISO) {
+      const completedAt = startOfDay(new Date(l.completedAtISO))
+      parts.push(`完成${format(completedAt, 'M/d')}（${differenceInDays(today, completedAt)}日経過）`)
+    }
+    return parts.join('・')
+  }
+
   const nearCompletionLots = agingLots.filter(l => {
     if (!l.estimatedCompletionISO) return false
     const days = differenceInDays(new Date(l.estimatedCompletionISO), today)
@@ -277,7 +295,7 @@ export default async function DashboardPage() {
     ...dangerLots.map(l => ({
       key: `color-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
       label: '着色リスク高',
-      body: `${lotLabel(l)}が目標の 150% を超えています（累計 ${totalRiskPct(l)}%）`,
+      body: `${lotLabelNoNumber(l)}が目標の 150% を超えています（累計 ${totalRiskPct(l)}%）。${brewAgeText(l)}`,
       href: `/lots/${l.id}`,
     })),
     // 桶レコードがあるのに残っている桶が無い＝使い切ったロットは出さない
@@ -286,7 +304,7 @@ export default async function DashboardPage() {
       .map(l => ({
         key: `color-done-${l.id}`, tone: 'rose' as const, icon: 'alert' as const,
         label: '着色リスク高（完成済）',
-        body: `${lotLabel(l)}は完成後も熟成が進み累計 ${totalRiskPct(l)}%。`
+        body: `${lotLabelNoNumber(l)}は完成後も熟成が進み累計 ${totalRiskPct(l)}%。${brewAgeText(l)}。`
           + `${activeBuckets(l).length > 0 ? `残り ${Math.round(remainingKg(l)).toLocaleString()} kg。` : ''}`
           + `${l.currentLocation ? `現在地は${l.currentLocation}。` : ''}早めの出荷か冷蔵庫への移動を検討してください`,
         href: `/lots/${l.id}`,
