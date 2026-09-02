@@ -21,9 +21,7 @@ import {
 } from '@/lib/settings'
 import type { MisoRecipe } from '@/lib/recipes'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
-
-// 種水の単位換算。現場は一斗缶（18ℓ）で数えるため 1斗 = 18ℓ とする
-const LITERS_PER_TO = 18
+import { litersToToText, toToLitersText } from '@/lib/units'
 
 // 温調室の熟成完了予定日を計算
 function calcCompletion(
@@ -393,11 +391,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
   // 種水の「斗」欄。入力中だけ生テキストを持ち（"1." のような途中の値を潰さないため）、
   // 入力していないときは ℓ 側から換算して表示する
   const [seedWaterToDraft, setSeedWaterToDraft] = useState<string | null>(null)
-  const seedWaterToValue = seedWaterToDraft ?? (() => {
-    const l = Number(form.seedWaterL)
-    if (!form.seedWaterL || Number.isNaN(l) || l === 0) return ''
-    return String(Math.round((l / LITERS_PER_TO) * 100) / 100)
-  })()
+  const seedWaterToValue = seedWaterToDraft ?? litersToToText(form.seedWaterL)
 
   // 数値 input 共通 className
   const numCls = 'min-h-[44px]'
@@ -739,13 +733,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
                   onChange={e => {
                     const v = e.target.value
                     setSeedWaterToDraft(v)
-                    const to = Number(v)
-                    setForm(prev => ({
-                      ...prev,
-                      seedWaterL: v === '' || Number.isNaN(to)
-                        ? ''
-                        : String(Math.round(to * LITERS_PER_TO * 10) / 10),
-                    }))
+                    setForm(prev => ({ ...prev, seedWaterL: toToLitersText(v) }))
                   }}
                   onBlur={() => setSeedWaterToDraft(null)} />
                 <span className="text-sm text-muted-foreground shrink-0">斗</span>

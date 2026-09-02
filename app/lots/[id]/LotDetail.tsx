@@ -11,6 +11,7 @@ import { addAgingNote, changeLotStatus, revertLotStatus, deleteLot, updateBucket
 import { getStockPreview, type StockChangeItem } from '@/app/lots/stock-preview-action'
 import StockPreviewPanel from '@/components/StockPreviewPanel'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
+import { litersToToText, toToLitersText } from '@/lib/units'
 
 const BUCKET_PAIRS = Array.from({ length: 15 }, (_, i) => `${i * 2 + 1}・${i * 2 + 2}`)
 
@@ -405,6 +406,8 @@ export default function LotDetail({
   const [localBrewRecord, setLocalBrewRecord] = useState<BrewRecordData | null>(brewRecord)
   const [editingBrew, setEditingBrew] = useState(false)
   const [brewDraft, setBrewDraft] = useState<BrewRecordDraft | null>(null)
+  // 種水の「斗」欄。入力中だけ生テキストを持ち、それ以外は ℓ から換算して表示する
+  const [seedWaterToDraft, setSeedWaterToDraft] = useState<string | null>(null)
   const [isSavingBrew, startBrewTransition] = useTransition()
   const [brewSaveError, setBrewSaveError] = useState<string | null>(null)
 
@@ -1444,7 +1447,9 @@ export default function LotDetail({
                 <Row label="大豆" value={`${localBrewRecord.soybeanKg} kg`} />
                 <Row label="塩" value={`${localBrewRecord.saltKg} kg`} />
                 {localBrewRecord.mizuameKg > 0 && <Row label="水飴" value={`${localBrewRecord.mizuameKg} kg`} />}
-                {localBrewRecord.seedWaterL > 0 && <Row label="種水" value={`${localBrewRecord.seedWaterL} ℓ`} />}
+                {localBrewRecord.seedWaterL > 0 && (
+                  <Row label="種水" value={`${localBrewRecord.seedWaterL} ℓ（${litersToToText(String(localBrewRecord.seedWaterL))} 斗）`} />
+                )}
                 {localBrewRecord.seedMisoKg > 0 && <Row label="種味噌" value={`${localBrewRecord.seedMisoKg} kg`} />}
                 <Row label="仕立量" value={`${localBrewRecord.shikomiKg} kg`} />
                 {localBrewRecord.taneKojiG > 0 && <Row label="種麹" value={`${localBrewRecord.taneKojiG} g`} />}
@@ -1496,12 +1501,42 @@ export default function LotDetail({
                   ] as [string, keyof BrewRecordDraft][]).map(([label, key]) => (
                     <div key={key} className="space-y-0.5">
                       <label className="text-xs text-muted-foreground">{label}</label>
-                      <input
-                        type="number" step="0.1"
-                        value={brewDraft[key]}
-                        onChange={e => setBrewDraft(d => d ? { ...d, [key]: e.target.value } : d)}
-                        className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
-                      />
+                      {key === 'seedWaterL' ? (
+                        // 種水は現場が斗で数えるため、ℓと斗のどちらでも入れられるようにする
+                        // （保存するのは ℓ のみ。ロット登録フォームと同じ換算 lib/units.ts）
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number" step="0.1"
+                            value={brewDraft[key]}
+                            onChange={e => {
+                              setSeedWaterToDraft(null)
+                              setBrewDraft(d => d ? { ...d, seedWaterL: e.target.value } : d)
+                            }}
+                            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                          />
+                          <span className="text-[11px] text-muted-foreground shrink-0">≒</span>
+                          <input
+                            type="number" step="0.1"
+                            aria-label="種水（斗）"
+                            value={seedWaterToDraft ?? litersToToText(brewDraft.seedWaterL)}
+                            onChange={e => {
+                              const v = e.target.value
+                              setSeedWaterToDraft(v)
+                              setBrewDraft(d => d ? { ...d, seedWaterL: toToLitersText(v) } : d)
+                            }}
+                            onBlur={() => setSeedWaterToDraft(null)}
+                            className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                          />
+                          <span className="text-xs text-muted-foreground shrink-0">斗</span>
+                        </div>
+                      ) : (
+                        <input
+                          type="number" step="0.1"
+                          value={brewDraft[key]}
+                          onChange={e => setBrewDraft(d => d ? { ...d, [key]: e.target.value } : d)}
+                          className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                        />
+                      )}
                     </div>
                   ))}
                 </div>
