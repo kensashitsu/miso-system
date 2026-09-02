@@ -41,7 +41,6 @@ interface Props {
 const COLOR = {
   stock:     '#0284c7',  // sky-600
   deadline:  '#f59e0b',  // amber-500
-  brew:      '#2563eb',  // blue-600
   comp:      '#059669',  // emerald-600
   regBucket: '#8b5cf6',  // violet-500（仮登録の桶番号）
   out:       '#e11d48',  // rose-600
@@ -284,17 +283,9 @@ export default function StockProjectionChart({ points: allPoints, markers, today
                 />
               )
             })}
-            {/* 仕込み日：ラベルを外し細い薄線だけにする（正確な日付は上の表を参照）。
-                ラベル付きの縦線を回数分出すと重なって読めなくなるため */}
-            {markers.filter(m => has(m.brew)).map(m => (
-              <ReferenceLine
-                key={`brew-${m.n}`}
-                x={m.brew}
-                stroke={COLOR.brew}
-                strokeOpacity={0.35}
-                strokeWidth={1}
-              />
-            ))}
+            {/* 仕込み日の縦線は出さない。ラベルが無いので何の線か分からないうえ、
+                仮登録を先まで入れると本数分だけ並んで他の線が埋もれる（2026-09-02ユーザー指摘）。
+                仕込み日は各補充点のラベル2行目（例「9/17仕込 41日」）に出している */}
             {/* 完成日：在庫が跳ね上がる点に打つ。確定分は桶番号ラベルが別途出るので新規提案のみ。
                 桶のラベルと同じく、2行目に仕込み日と熟成日数を添える */}
             {markers.filter(m => !m.isFixed && has(m.completion)).map(m => (
@@ -329,7 +320,6 @@ export default function StockProjectionChart({ points: allPoints, markers, today
       </div>
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-1">
         <span><span className="inline-block w-2.5 h-2.5 rounded-sm align-[-1px] mr-1" style={{ background: COLOR.stock, opacity: 0.5 }} />在庫見込み（熟成済＋小分け）</span>
-        <span style={{ color: COLOR.brew }}>│ 仕込み日</span>
         <span style={{ color: COLOR.comp }}>● 完成（補充）</span>
         {hasFermenting && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶）</span>}
         {hasRegistered && <span style={{ color: COLOR.regBucket }}>● 仮登録の完成（桶）</span>}
