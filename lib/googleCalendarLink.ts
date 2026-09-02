@@ -30,6 +30,22 @@ export function circledBucketNumbers(bucketNumbers: string | null): string {
     .join('')
 }
 
+// 予定名。カレンダーのリンクでもICSの一括書き出しでも同じ書式を使う
+// 完成予定日：「無添加⑨⑩（9/16仕込 熟成41日）」
+export function completionEventTitle(
+  misoType: string, bucketNumbers: string | null, brewDate: Date, targetDate: Date,
+): string {
+  const abbr = MISO_ABBR[misoType] ?? misoType.replace('みそ', '')
+  return `${abbr}${circledBucketNumbers(bucketNumbers)}`
+    + `（${format(brewDate, 'M/d')}仕込 熟成${differenceInDays(targetDate, brewDate)}日）`
+}
+
+// 仕込み予定日：「田舎⑤⑥仕込」
+export function brewEventTitle(misoType: string, bucketNumbers: string | null): string {
+  const abbr = MISO_ABBR[misoType] ?? misoType.replace('みそ', '')
+  return `${abbr}${circledBucketNumbers(bucketNumbers)}仕込`
+}
+
 // Googleカレンダーへの予定追加リンクを作る（終日イベント。end は翌日を指定する仕様）
 export function buildGoogleCalendarUrl(opts: {
   misoType:      string
@@ -43,12 +59,11 @@ export function buildGoogleCalendarUrl(opts: {
   const endDate = new Date(targetDate)
   endDate.setDate(endDate.getDate() + 1)
   const toYmd = (d: Date) => format(d, 'yyyyMMdd')
-  const agingDays = differenceInDays(targetDate, brewDate)
   const label = isActual ? '完成日' : '完成予定日'
   const details = `${label}：${format(targetDate, 'yyyy/MM/dd')}` + (detailsExtra ? `\n${detailsExtra}` : '')
   const params = new URLSearchParams({
     action: 'TEMPLATE',
-    text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBucketNumbers(bucketNumbers)}（${format(brewDate, 'M/d')}仕込 熟成${agingDays}日）`,
+    text: completionEventTitle(misoType, bucketNumbers, brewDate, targetDate),
     dates: `${toYmd(targetDate)}/${toYmd(endDate)}`,
     details,
     src: AGING_CALENDAR_ID,
@@ -77,7 +92,7 @@ export function buildBrewPlanCalendarUrl(opts: {
   const params = new URLSearchParams({
     action: 'TEMPLATE',
     // 予定名の規則は「田舎⑤⑥仕込」（品種略称＋桶番号の丸数字＋仕込）
-    text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBucketNumbers(bucketNumbers)}仕込`,
+    text: brewEventTitle(misoType, bucketNumbers),
     dates: `${toYmd(brewDate)}/${toYmd(endDate)}`,
     details,
     src: BREW_CALENDAR_ID,

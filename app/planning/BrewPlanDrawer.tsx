@@ -5,7 +5,10 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
-import { buildBrewPlanCalendarUrl, buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
+import {
+  brewEventTitle, buildBrewPlanCalendarUrl, buildGoogleCalendarUrl, completionEventTitle,
+} from '@/lib/googleCalendarLink'
+import { buildIcs, downloadIcs } from '@/lib/ics'
 import { deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered } from '@/app/planning/brew-plan-actions'
 import { getPlanSimConfig } from '@/app/planning/plan-sim-action'
 import LotSimulationModal, { type LotSimConfig } from '@/components/dashboard/LotSimulationModal'
@@ -40,6 +43,38 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   const [simPlan, setSimPlan] = useState<BrewPlanItem | null>(null)
   const [simData, setSimData] = useState<{ simConfig: LotSimConfig; targetByType: Record<string, number> } | null>(null)
   const [simLoading, setSimLoading] = useState(false)
+
+  // カレンダーへの一括登録用ICS。1件ずつカレンダー画面で保存するのが煩わしいため、
+  // まとめて1ファイルに出して「設定 → インポート」で読み込んでもらう。
+  // UIDを仮登録IDから作っているので、日付を直して入れ直しても重複せず上書きされる。
+  // カレンダーを仕込み用・完成用に分けているのでファイルも2つに分ける
+  const icsTargets = () => (selectedIds.size > 0 ? pending.filter(p => selectedIds.has(p.id)) : pending)
+
+  const exportBrewIcs = () => {
+    const targets = icsTargets()
+    if (targets.length === 0) return
+    const ics = buildIcs(targets.map(p => ({
+      uid:     `brew-${p.id}@miso-system`,
+      date:    p.brewDate,
+      summary: brewEventTitle(p.misoType, p.bucketNumbers),
+      description: `仕込み予定日：${format(p.brewDate, 'yyyy/MM/dd')}\n`
+        + `完成予定日：${format(p.completionDate, 'yyyy/MM/dd')}（熟成${p.fermentationDays}日）`,
+    })), '仕込予定日')
+    downloadIcs(`仕込予定日_${format(new Date(), 'yyyyMMdd')}.ics`, ics)
+  }
+
+  const exportCompletionIcs = () => {
+    const targets = icsTargets()
+    if (targets.length === 0) return
+    const ics = buildIcs(targets.map(p => ({
+      uid:     `completion-${p.id}@miso-system`,
+      date:    p.completionDate,
+      summary: completionEventTitle(p.misoType, p.bucketNumbers, p.brewDate, p.completionDate),
+      description: `完成予定日：${format(p.completionDate, 'yyyy/MM/dd')}\n`
+        + `仕込み予定日：${format(p.brewDate, 'yyyy/MM/dd')}（熟成${p.fermentationDays}日）`,
+    })), '熟成完了日')
+    downloadIcs(`熟成完了日_${format(new Date(), 'yyyyMMdd')}.ics`, ics)
+  }
 
   const openSim = async (plan: BrewPlanItem) => {
     setSimPlan(plan)
@@ -151,17 +186,42 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       {/* 展開時のパネル */}
       {isOpen && (
         <div className="bg-white border-t border-x border-gray-200 rounded-t-xl shadow-lg overflow-hidden max-h-[55vh] flex flex-col">
-            {selectedIds.size > 0 && (
-              <div className="flex items-center justify-end px-3 py-2 border-b bg-white shrink-0">
-                <button
-                  type="button"
-                  disabled={isPending}
-                  onClick={handleBulkDelete}
-                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors disabled:opacity-40"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  選択した{selectedIds.size}件を削除
-                </button>
+            {pending.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b bg-white shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground">
+                    カレンダーに一括登録{selectedIds.size > 0 ? `（選択した${selectedIds.size}件）` : `（${pending.length}件すべて）`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={exportBrewIcs}
+                    className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                    title="仕込み予定日のICSファイルを書き出す（Googleカレンダーの設定→インポートで読み込む）"
+                  >
+                    <CalendarPlus className="h-3 w-3" />
+                    仕込予定日.ics
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportCompletionIcs}
+                    className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                    title="完成予定日のICSファイルを書き出す（Googleカレンダーの設定→インポートで読み込む）"
+                  >
+                    <CalendarPlus className="h-3 w-3" />
+                    熟成完了日.ics
+                  </button>
+                </div>
+                {selectedIds.size > 0 && (
+                  <button
+                    type="button"
+                    disabled={isPending}
+                    onClick={handleBulkDelete}
+                    className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 transition-colors disabled:opacity-40"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    選択した{selectedIds.size}件を削除
+                  </button>
+                )}
               </div>
             )}
           <div className="overflow-y-auto overflow-x-auto flex-1 min-h-0">
