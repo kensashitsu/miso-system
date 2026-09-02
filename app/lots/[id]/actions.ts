@@ -6,6 +6,7 @@ import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import { adjustStock } from '@/lib/externalApi'
+import { stockSendKg } from '@/lib/stockQty'
 
 // ── 熟成メモ追加 ──────────────────────────────────────────
 const noteSchema = z.object({
@@ -79,7 +80,7 @@ export async function changeLotStatus(
       ])
       if (brewRecord) {
         const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
-        const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+        const yieldKg = stockSendKg(lot.misoType, Math.floor(brewRecord.shikomiKg * effectiveYieldRate))
         const noteParts: string[] = []
         if (lot.bucketNumbers) noteParts.push(`桶: ${lot.bucketNumbers}`)
         noteParts.push(`仕込み: ${format(lot.brewedAt, 'yyyy/MM/dd')}`)
@@ -353,7 +354,7 @@ export async function deleteLot(lotId: string, skipStockUpdate?: boolean): Promi
     // 外部在庫システムから削除分を減算（試作品・スキップ指定・情報取得失敗時はスキップ）
     if (lot && !lot.isPrototype && !skipStockUpdate && brewRecord) {
       const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
-      const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+      const yieldKg = stockSendKg(lot.misoType, Math.floor(brewRecord.shikomiKg * effectiveYieldRate))
       if (lot.status === '完成') {
         // 完成済みなら aged から引く（白みそは aged = 西京みそ バラ）
         await adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber }).catch(e => console.error('aged在庫削除エラー:', e))
@@ -553,7 +554,7 @@ export async function revertLotStatus(lotId: string, skipStockUpdate?: boolean):
     // 熟成済→熟成中の在庫移動（試作品・スキップ指定・情報取得失敗時はスキップ）
     if (lot && !lot.isPrototype && !skipStockUpdate && brewRecord) {
       const effectiveYieldRate = lot.yieldRate ?? settings.yieldRate
-      const yieldKg = Math.floor(brewRecord.shikomiKg * effectiveYieldRate)
+      const yieldKg = stockSendKg(lot.misoType, Math.floor(brewRecord.shikomiKg * effectiveYieldRate))
       const calls = [
         adjustStock({ misoType: lot.misoType, category: 'aged', deltaKg: -yieldKg, lotNumber: lot.lotNumber })
           .catch(e => console.error('aged在庫戻しエラー:', e)),

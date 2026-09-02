@@ -12,6 +12,7 @@ import { getStockPreview, type StockChangeItem } from '@/app/lots/stock-preview-
 import StockPreviewPanel from '@/components/StockPreviewPanel'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { litersToToText, toToLitersText } from '@/lib/units'
+import { stockSendKg } from '@/lib/stockQty'
 
 const BUCKET_PAIRS = Array.from({ length: 15 }, (_, i) => `${i * 2 + 1}・${i * 2 + 2}`)
 
@@ -322,7 +323,8 @@ export default function LotDetail({
 
   useEffect(() => {
     if (isPrototype) return
-    const yieldKg = Math.floor(totalWeightKg * yieldRate)
+    // 在庫システムへ送る量は品種ごとの固定量（actions.ts の送信と同じ）
+    const yieldKg = stockSendKg(misoType, Math.floor(totalWeightKg * yieldRate))
     if (confirmStatus === '完成') {
       setStockPreview('loading')
       setSkipStockUpdate(false)

@@ -22,6 +22,7 @@ import {
 import type { MisoRecipe } from '@/lib/recipes'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { litersToToText, toToLitersText } from '@/lib/units'
+import { stockSendKg } from '@/lib/stockQty'
 
 // 温調室の熟成完了予定日を計算
 function calcCompletion(
@@ -281,7 +282,8 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       return
     }
 
-    const yieldKg = Math.floor(shikomiCalc * moisture.yieldRate)
+    // 在庫システムへ送る量は品種ごとの固定量（actions.ts の送信と同じ）
+    const yieldKg = stockSendKg(form.misoType, Math.floor(shikomiCalc * moisture.yieldRate))
     startPreviewTransition(async () => {
       const items = await getStockPreview(form.misoType, 'register', yieldKg)
       setPreviewState({ data, items })

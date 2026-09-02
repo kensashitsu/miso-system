@@ -7,6 +7,7 @@ import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
 import { adjustStock } from '@/lib/externalApi'
+import { stockSendKg } from '@/lib/stockQty'
 
 // 既存品種（非試作品の場合のバリデーション用）
 const MISO_TYPES = ['無添加麦みそ', '田舎みそ', '山吹みそ', '白みそ'] as const
@@ -205,7 +206,8 @@ export async function createLot(input: unknown): Promise<ActionResult> {
   // 外部在庫システムへ熟成中在庫を通知（試作品・白みそ・スキップ指定時は除外）
   // 白みそは在庫システムに熟成中品目がないためスキップ（完成時に直接 aged へ計上）
   if (!d.isPrototype && !d.skipStockUpdate && d.misoType !== '白みそ') {
-    const yieldKg = Math.floor(d.shikomiKg * yieldRate)
+    // zaikoへ送る量は品種ごとの固定量（原材料のマイナスが半端にならないように）
+    const yieldKg = stockSendKg(d.misoType, Math.floor(d.shikomiKg * yieldRate))
     const noteParts: string[] = []
     if (d.bucketNumbers) noteParts.push(`桶: ${d.bucketNumbers}`)
     noteParts.push(`仕込み: ${format(brewDate, 'yyyy/MM/dd')}`)
