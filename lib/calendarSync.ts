@@ -19,9 +19,10 @@ import { syncCalendar, type CalendarEvent } from './googleCalendar'
 // SHA-1のhex（0-9a-f）に変換して使う
 const eventId = (key: string) => createHash('sha1').update(key).digest('hex')
 
+type SyncCounts = { total: number; created: number; updated: number; deleted: number }
 export type SyncResult = {
-  brew:  { created: number; updated: number; deleted: number }
-  aging: { created: number; updated: number; deleted: number }
+  brew:  SyncCounts
+  aging: SyncCounts
 }
 
 export async function syncPlansToCalendar(): Promise<SyncResult> {

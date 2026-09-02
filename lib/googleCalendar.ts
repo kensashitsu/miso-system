@@ -151,7 +151,7 @@ export async function syncCalendar(
   calendarId: string,
   tag:        string,
   desired:    CalendarEvent[],
-): Promise<{ created: number; updated: number; deleted: number }> {
+): Promise<{ total: number; created: number; updated: number; deleted: number }> {
   const client   = new CalendarClient()
   const existing = await client.listOwned(calendarId, tag)
   const byId     = new Map(existing.map(e => [e.id, e]))
@@ -177,5 +177,7 @@ export async function syncCalendar(
     await client.remove(calendarId, id)
     deleted++
   }
-  return { created, updated, deleted }
+  // total は同期後にカレンダーへ入っているシステム作成の予定数（＝desiredの件数）。
+  // 差分だけだと「全部0」で何も起きなかったように見えるため、結果として何件あるかを返す
+  return { total: desired.length, created, updated, deleted }
 }

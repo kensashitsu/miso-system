@@ -87,7 +87,9 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
     setSyncMsg(null)
     try {
       const r = await syncCalendarNow()
-      setSyncMsg(r.ok ? `同期しました（${r.message}）` : r.message)
+      // 押したことが分かるよう時刻を添える（同じ結果でも押すたびに時刻が変わる）
+      const time = format(new Date(), 'HH:mm')
+      setSyncMsg(r.ok ? `${time} 同期しました：${r.message}` : `${time} ${r.message}`)
     } finally {
       setSyncing(false)
     }
@@ -238,7 +240,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                     熟成完了日.ics
                   </button>
                 </div>
-                {syncMsg && <span className="text-[11px] text-muted-foreground">{syncMsg}</span>}
+                {syncMsg && <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-0.5">{syncMsg}</span>}
                 {selectedIds.size > 0 && (
                   <button
                     type="button"
