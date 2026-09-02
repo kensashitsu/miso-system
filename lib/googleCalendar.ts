@@ -9,7 +9,8 @@
 import { createSign } from 'crypto'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
-const SCOPE     = 'https://www.googleapis.com/auth/calendar.events'
+// カレンダー一覧の確認（共有が効いているかの診断）にも使うため、events だけでなく calendar を要求する
+const SCOPE     = 'https://www.googleapis.com/auth/calendar'
 const API_BASE  = 'https://www.googleapis.com/calendar/v3'
 
 export type CalendarEvent = {
