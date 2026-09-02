@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { format } from 'date-fns'
 import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
-import { buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
+import { buildBrewPlanCalendarUrl, buildGoogleCalendarUrl } from '@/lib/googleCalendarLink'
 import { deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered } from '@/app/planning/brew-plan-actions'
 
 export interface BrewPlanItem {
@@ -177,10 +177,28 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums font-medium">
-                        {(() => {
-                          const dow = ['日','月','火','水','木','金','土'][plan.brewDate.getDay()]
-                          return `${format(plan.brewDate, 'M/d')}（${dow}）`
-                        })()}
+                        <span className="inline-flex items-center gap-1">
+                          {(() => {
+                            const dow = ['日','月','火','水','木','金','土'][plan.brewDate.getDay()]
+                            return `${format(plan.brewDate, 'M/d')}（${dow}）`
+                          })()}
+                          {/* 完成予定日と同じく、仕込み予定日も1件ずつカレンダーに入れられるようにする */}
+                          <a
+                            href={buildBrewPlanCalendarUrl({
+                              misoType:       plan.misoType,
+                              bucketNumbers:  plan.bucketNumbers,
+                              brewDate:       plan.brewDate,
+                              completionDate: plan.completionDate,
+                            })}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                            aria-label="仕込み予定日をGoogleカレンダーに追加"
+                            title="仕込み予定日をGoogleカレンダーに追加"
+                          >
+                            <CalendarPlus className="h-3.5 w-3.5" />
+                          </a>
+                        </span>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
                         <span className="inline-flex items-center gap-1">

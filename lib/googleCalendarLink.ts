@@ -54,3 +54,31 @@ export function buildGoogleCalendarUrl(opts: {
   })
   return `https://calendar.google.com/calendar/render?${params.toString()}`
 }
+
+// 仕込み予定日をGoogleカレンダーに入れるリンクを作る（終日イベント）。
+// 完成予定日のリンク（buildGoogleCalendarUrl）と対になるもので、
+// 仮登録リストから「その日に何を仕込むか」を先に押さえるために使う
+export function buildBrewPlanCalendarUrl(opts: {
+  misoType:        string
+  bucketNumbers:   string | null
+  brewDate:        Date
+  completionDate?: Date | null   // 分かっていれば詳細欄に完成予定日を添える
+}): string {
+  const { misoType, bucketNumbers, brewDate, completionDate } = opts
+  const endDate = new Date(brewDate)
+  endDate.setDate(endDate.getDate() + 1)
+  const toYmd = (d: Date) => format(d, 'yyyyMMdd')
+  const details = `仕込み予定日：${format(brewDate, 'yyyy/MM/dd')}`
+    + (completionDate
+        ? `
+完成予定日：${format(completionDate, 'yyyy/MM/dd')}（熟成${differenceInDays(completionDate, brewDate)}日）`
+        : '')
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBucketNumbers(bucketNumbers)}を仕込み`,
+    dates: `${toYmd(brewDate)}/${toYmd(endDate)}`,
+    details,
+    src: AGING_CALENDAR_ID,
+  })
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
+}
