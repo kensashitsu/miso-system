@@ -111,14 +111,32 @@ export default function LotCard({
   }, [forceSignal])
 
   const rawPct      = targetTempSum > 0 ? (accumulatedTemp / targetTempSum) * 100 : 0
-  // バー幅は常に 100% 上限。完成済みは実際の値（例: 120.3%）をテキストで表示
-  const barWidth    = Math.min(100, rawPct)
   const progressPercent = Math.round(rawPct * 10) / 10
   // 完成後も置き場の温度に応じて熟成は進む。完成時点の熟成度と分けて表示する
   const postTemp    = postCompletionTemp ?? 0
   const hasPost     = postTemp > 0
   const totalPct    = targetTempSum > 0 ? ((accumulatedTemp + postTemp) / targetTempSum) * 100 : 0
-  const postBarWidth = Math.max(0, Math.min(100 - barWidth, totalPct - rawPct))
+
+  // バーの目盛り。100%を満杯にすると、完成後も熟成が進んで累計218%といったロットが
+  // 「満杯」としか描けず、完成後の分が1ピクセルも出ない（2026-09-02修正）。
+  // 目標を超えている（＝着色リスクを見たい）ロットだけ物差しを200%まで広げ、
+  // 100%（完成）・120%（要注意）・150%（リスク高）に目盛りを立てる。
+  // 熟成中で目標未達のロットは従来どおり100%＝満杯（完成までの進捗が読みやすいため）
+  const RISK_SCALE_MAX = 200
+  const useRiskScale = hasPost || rawPct > 100
+  const scaleMax     = useRiskScale ? RISK_SCALE_MAX : 100
+  const toWidth      = (pct: number) => Math.max(0, Math.min(100, (pct / scaleMax) * 100))
+  const barWidth     = toWidth(rawPct)
+  const postBarWidth = Math.max(0, toWidth(totalPct) - barWidth)
+  const isOverScale  = totalPct > scaleMax
+  // 目盛りの位置（%）。物差しが100%のときは出さない
+  const scaleTicks   = useRiskScale
+    ? [
+        { pct: 100, label: '完成' },
+        { pct: 120, label: '要注意' },
+        { pct: 150, label: 'リスク高' },
+      ].filter(t => t.pct < scaleMax)
+    : []
   const brewDate        = new Date(brewedAtISO)
   const completionDate  = estimatedCompletionISO ? new Date(estimatedCompletionISO) : null
   const completedAt     = completedAtISO ? new Date(completedAtISO) : null
@@ -195,21 +213,49 @@ export default function LotCard({
               <span className="text-muted-foreground">{hasPost ? '熟成度（完成時）' : '熟成度'}</span>
               <span className="font-medium tabular-nums">{progressPercent}%</span>
             </div>
-            <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden flex">
-              {/* 完成までの分。色は完成時点の熟成度で決める（完成後の上乗せは次のセグメント） */}
-              <div
-                className={`h-full transition-all ${PROGRESS_COLOR[riskOfPct(rawPct)]}`}
-                style={{ width: `${barWidth}%` }}
-              />
-              {/* 完成後に進んだ分（斜線色を変えて区別） */}
-              {postBarWidth > 0 && (
+            <div className="relative w-full">
+              <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden flex">
+                {/* 完成までの分。色は完成時点の熟成度で決める（完成後の上乗せは次のセグメント） */}
                 <div
-                  className={`h-full transition-all ${coloringRisk === 'danger' ? 'bg-rose-300' : 'bg-amber-300'}`}
-                  style={{ width: `${postBarWidth}%` }}
-                  title="完成後に進んだ熟成"
+                  className={`h-full transition-all ${PROGRESS_COLOR[riskOfPct(rawPct)]}`}
+                  style={{ width: `${barWidth}%` }}
                 />
+                {/* 完成後に進んだ分（色を変えて区別） */}
+                {postBarWidth > 0 && (
+                  <div
+                    className={`h-full transition-all ${coloringRisk === 'danger' ? 'bg-rose-400' : 'bg-amber-400'}`}
+                    style={{ width: `${postBarWidth}%` }}
+                    title="完成後に進んだ熟成"
+                  />
+                )}
+              </div>
+              {/* 目盛り（完成100% / 要注意120% / リスク高150%） */}
+              {scaleTicks.map(t => (
+                <span
+                  key={t.pct}
+                  className="absolute top-0 h-2 w-px bg-white/80"
+                  style={{ left: `${(t.pct / scaleMax) * 100}%` }}
+                  title={`${t.label} ${t.pct}%`}
+                  aria-hidden
+                />
+              ))}
+              {/* 目盛りを振り切れた分（青天井に伸ばすと他のロットと比べられなくなるため印だけ） */}
+              {isOverScale && (
+                <span className="absolute -top-0.5 -right-1 text-[10px] leading-none text-rose-500" title={`目盛り${scaleMax}%を超過`}>
+                  ▶
+                </span>
               )}
             </div>
+            {useRiskScale && (
+              <div className="relative h-3 mt-0.5 text-[9px] text-gray-400 select-none" aria-hidden>
+                {scaleTicks.map(t => (
+                  <span key={t.pct} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${(t.pct / scaleMax) * 100}%` }}>
+                    {t.pct}
+                  </span>
+                ))}
+                <span className="absolute right-0 whitespace-nowrap">{scaleMax}%</span>
+              </div>
+            )}
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
               <span className="tabular-nums">
                 {Math.round(accumulatedTemp)} / {targetTempSum} ℃・日
