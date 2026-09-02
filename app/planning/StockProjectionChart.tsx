@@ -34,6 +34,8 @@ interface Props {
   supplyMarkers?: { d: string; label: string; sub?: string; kind: 'fermenting' | 'registered' }[]
   // 安全在庫ライン（設定されている品種のみ）。「在庫切れ」の縦線はゼロではなくこのラインへの到達日
   safetyStockKg?: number | null
+  // 'yyyy-MM' → その月の需要見込み(kg)。月の境目に薄い縦線とラベルで出す
+  monthlyDemand?: Record<string, number>
 }
 
 const COLOR = {
@@ -94,7 +96,7 @@ function addMonthsStr(dateStr: string, months: number): string {
   return dt.toISOString().slice(0, 10)
 }
 
-export default function StockProjectionChart({ points: allPoints, markers, todayStr, supplyMarkers, safetyStockKg }: Props) {
+export default function StockProjectionChart({ points: allPoints, markers, todayStr, supplyMarkers, safetyStockKg, monthlyDemand }: Props) {
   const [rangeKey, setRangeKey] = useState<RangeKey>(DEFAULT_RANGE)
   const range   = RANGE_OPTIONS.find(r => r.key === rangeKey) ?? RANGE_OPTIONS[1]
   const lastStr = allPoints.length > 0 ? allPoints[allPoints.length - 1].d : todayStr
@@ -114,6 +116,26 @@ export default function StockProjectionChart({ points: allPoints, markers, today
   const dupDays = new Set(
     buckets.filter(m => m.kind === 'registered' && buckets.some(o => o.kind === 'fermenting' && o.d === m.d)).map(m => m.d)
   )
+  // 月の境目（表示範囲に入っている各月の初日。先頭月は最初の点）に需要見込みを出す。
+  // 線の傾き＝その月の消費ペースなので、傾きが変わる理由がその場で読める
+  const monthMarks = (() => {
+    if (!monthlyDemand) return []
+    const seen = new Set<string>()
+    const out: { d: string; label: string }[] = []
+    // 右端に寄りすぎるとラベルが切れるので、残り日数が少ない月は出さない
+    const lastIdx = points.length - 1
+    for (let i = 0; i < points.length; i++) {
+      const ym = points[i].d.slice(0, 7)
+      if (seen.has(ym)) continue
+      seen.add(ym)
+      if (lastIdx - i < 12) continue
+      const kg = monthlyDemand[ym]
+      if (kg == null) continue
+      out.push({ d: points[i].d, label: `${Number(ym.slice(5))}月 ${kg.toLocaleString()}kg` })
+    }
+    return out
+  })()
+
   const hasFermenting = buckets.some(m => m.kind === 'fermenting')
   const hasRegistered = buckets.some(m => m.kind === 'registered')
   // 季節でラインが変わるか（変わるなら階段線で描く）
@@ -189,6 +211,17 @@ export default function StockProjectionChart({ points: allPoints, markers, today
               fillOpacity={0.12}
               isAnimationActive={false}
             />
+            {/* 月の境目と需要見込み（他の線より先に描いて背面に置く） */}
+            {monthMarks.map(m => (
+              <ReferenceLine
+                key={`month-${m.d}`}
+                x={m.d}
+                stroke="#e5e7eb"
+                strokeWidth={1}
+                // 「今日」のラベルと同じ高さに来ると重なるので一段下げる
+                label={{ value: m.label, position: 'insideTopLeft', fontSize: 9, fill: '#94a3b8', dy: 12 }}
+              />
+            ))}
             <ReferenceLine
               x={todayStr}
               stroke={COLOR.today}
@@ -284,6 +317,7 @@ export default function StockProjectionChart({ points: allPoints, markers, today
         {hasFermenting && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶）</span>}
         {hasRegistered && <span style={{ color: COLOR.regBucket }}>● 仮登録の完成（桶）</span>}
         <span style={{ color: COLOR.out }}>┆ 直近の在庫切れ</span>
+        {monthMarks.length > 0 && <span className="text-gray-400">│ 月の境目＝その月の需要見込み</span>}
         {isClipped && <span>（{fmtMd(points[points.length - 1].d)} 以降は表示範囲外）</span>}
       </div>
     </div>

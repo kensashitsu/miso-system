@@ -162,6 +162,7 @@ interface RecipePlan {
   // 各回の「完成前日の在庫見込み」に使う。ラインは季節で変わるためその日の値を持たせる
   dailyStockByDate: Map<string, { kg: number; safety?: number }>
   supplyMarkers:    { d: string; label: string; sub?: string; kind: 'fermenting' | 'registered' }[]  // 補充ジャンプの桶番号ラベル（熟成中=緑/仮登録=紫）
+  monthlyDemand:    Record<string, number>  // 'yyyy-MM' → その月の需要見込み(kg)。グラフの月境界に出す
 }
 
 const BATCH_OPTIONS = [1, 3, 5] as const
@@ -1062,6 +1063,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     // 縦線マーカーと整合するようQ10補正あり（メイン）チェーンの完成日を使う。
     // 間引き前の日次在庫。完成前日の在庫見込み（＝補充が入る直前の底）を引くのに使う
     const dailyStockByDate = new Map<string, { kg: number; safety?: number }>()
+    const monthlyDemand: Record<string, number> = {}   // 'yyyy-MM' → その月の需要見込み(kg)
     const stockPoints: StockPoint[] | null = (() => {
       if (!canCalc || batches.length === 0) return null
       const endTime = Math.max(...batches.map(b => (b.isFixed ? b.completionDate : b.stockOutDate).getTime()))
@@ -1098,6 +1100,18 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         d = addDays(d, 1)
       }
       for (const p of daily) dailyStockByDate.set(p.d, { kg: p.kg, safety: p.safety })
+      // 月別の需要見込み（グラフに出す）。線の傾きと同じ getDailyRateFn を積み上げるので
+      // 表示値と計算が必ず一致する。
+      // ※期間の端の月（今月・最終月）は日数が欠けるため、暦月まるごとで積む
+      //   （今日が9/2なら9月は1〜30日の合計。欠けた合計を出すと予測値と食い違って見える）
+      for (const ym of new Set(daily.map(p => p.d.slice(0, 7)))) {
+        const [y, m] = ym.split('-').map(Number)
+        let sum = 0
+        for (let day = 1; day <= getDaysInMonth(new Date(y, m - 1, 1)); day++) {
+          sum += getDailyRateFn(new Date(y, m - 1, day))
+        }
+        monthlyDemand[ym] = Math.round(sum)
+      }
       // 描画点を間引く（補充ジャンプの前後の点は形が崩れないよう必ず残す）
       const step = Math.max(1, Math.ceil(daily.length / 180))
       if (step === 1) return daily
@@ -1116,7 +1130,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       isBrewDatePast, overdueDays, unreachableStockOut, earliestCompletion0,
       fixedKg: regPlans.length * recipe.totalWeightKg, fixedCount: regPlans.length,
       manualPinIndices: Object.keys(manualBrewDateRaw).map(Number),
-      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, dailyStockByDate, supplyMarkers,
+      idealBrewDate0, stockOutInDays, orderImpact, whatIf, stockPoints, dailyStockByDate, supplyMarkers, monthlyDemand,
     }
   })
 
@@ -2321,6 +2335,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   todayStr={format(today, 'yyyy-MM-dd')}
                                   supplyMarkers={plan.supplyMarkers}
                                   safetyStockKg={plan.safetyStockKg}
+                                  monthlyDemand={plan.monthlyDemand}
                                 />
                                 <p className="text-[10px] text-muted-foreground/70 mt-1">
                                   在庫見込み＝<span className="font-medium">熟成済バラ＋小分け製品</span>（完成の補充を織り込み）。
