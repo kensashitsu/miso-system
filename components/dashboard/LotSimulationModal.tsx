@@ -260,6 +260,11 @@ export default function LotSimulationModal({
   const today           = startOfDay(new Date())
   const maturityDays    = maturityComplete    ? differenceInDays(maturityComplete,    today) : null
   const accumulatedDays = accumulatedComplete ? differenceInDays(accumulatedComplete, today) : null
+  // 仮登録はまだ仕込んでいないので「今日から何日後」では長さが分からない。
+  // 仕込み予定日からの熟成日数で出す（2026-09-02ユーザー指摘）
+  const brewDateForLabel = startOfDay(new Date(brewedAtISO))
+  const agingDaysLabel = (completion: Date) =>
+    `（熟成 ${differenceInDays(startOfDay(completion), brewDateForLabel)} 日）`
 
   const completedAtDate    = completedAtISO ? startOfDay(new Date(completedAtISO)) : null
   const completedAtDateStr = completedAtDate ? format(completedAtDate, 'yyyy-MM-dd') : null
@@ -328,11 +333,13 @@ export default function LotSimulationModal({
                 </span>
                 <span className="font-semibold ml-1 text-primary">
                   {format(maturityComplete, 'M月d日')}
-                  {maturityDays === 0
-                    ? '（本日）'
-                    : maturityDays < 0
-                      ? `（${Math.abs(maturityDays)} 日前）`
-                      : `（約 ${maturityDays} 日後）`}
+                  {isPlan
+                    ? agingDaysLabel(maturityComplete)
+                    : maturityDays === 0
+                      ? '（本日）'
+                      : maturityDays < 0
+                        ? `（${Math.abs(maturityDays)} 日前）`
+                        : `（約 ${maturityDays} 日後）`}
                 </span>
               </p>
               {hasQ10Effect && accumulatedComplete && accumulatedDays !== null && (
@@ -342,11 +349,13 @@ export default function LotSimulationModal({
                   </span>
                   <span className="font-semibold ml-1 text-muted-foreground">
                     {format(accumulatedComplete, 'M月d日')}
-                    {accumulatedDays === 0
-                      ? '（本日）'
-                      : accumulatedDays < 0
-                        ? `（${Math.abs(accumulatedDays)} 日前）`
-                        : `（約 ${accumulatedDays} 日後）`}
+                    {isPlan
+                      ? agingDaysLabel(accumulatedComplete)
+                      : accumulatedDays === 0
+                        ? '（本日）'
+                        : accumulatedDays < 0
+                          ? `（${Math.abs(accumulatedDays)} 日前）`
+                          : `（約 ${accumulatedDays} 日後）`}
                   </span>
                   {accumulatedDays !== maturityDays && (
                     <span className="ml-1 text-xs text-muted-foreground">
