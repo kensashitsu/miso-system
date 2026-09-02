@@ -69,6 +69,12 @@ function fmtMd(d: string): string {
   return `${Number(m)}/${Number(day)}`
 }
 
+// 'yyyy-MM-dd' 同士の日数差（熟成日数の表示用）
+function daysBetween(from: string, to: string): number {
+  const ms = Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)
+  return Math.round(ms / 86400000)
+}
+
 export default function StockProjectionChart({ points, markers, todayStr, supplyMarkers, safetyStockKg }: Props) {
   if (points.length < 2) return null
   const dateSet = new Set(points.map(p => p.d))
@@ -194,7 +200,8 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
                 strokeWidth={1}
               />
             ))}
-            {/* 完成日：在庫が跳ね上がる点に打つ。確定分は桶番号ラベルが別途出るので新規提案のみ */}
+            {/* 完成日：在庫が跳ね上がる点に打つ。確定分は桶番号ラベルが別途出るので新規提案のみ。
+                桶のラベルと同じく、2行目に仕込み日と熟成日数を添える */}
             {markers.filter(m => !m.isFixed && has(m.completion)).map(m => (
               <ReferenceDot
                 key={`comp-${m.n}`}
@@ -204,7 +211,12 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
                 fill={COLOR.comp}
                 stroke="#fff"
                 strokeWidth={1.5}
-                label={{ value: lbl('完成', m.n), position: 'top', fontSize: 9, fill: COLOR.comp }}
+                label={bucketLabel(
+                  lbl('完成', m.n),
+                  `${fmtMd(m.brew)}仕込 ${daysBetween(m.brew, m.completion)}日`,
+                  COLOR.comp,
+                  0,
+                )}
               />
             ))}
             {/* 在庫切れは直近の1本だけ縦線で出す（全回分出すと線だらけで読めない）。
