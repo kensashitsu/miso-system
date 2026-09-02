@@ -47,14 +47,14 @@ const isOutdoor = (m: number) => m >= 6 && m <= 9
 
 /**
  * 仕込み日から完成日まで両線をシミュレーション。
- * WeatherSimulator.tsx の simulate() と同一のロジック：
  *   - 6〜9月: weatherAvg を使用（常温・外気温）
- *   - futureFixedRate=undefined（常温）: 全期間 weatherAvg を使用
+ *   - futureFixedRate=undefined（常温）: 6〜9月は weatherAvg、10〜5月は暖房室
+ *     （dailyRoomAccum・月別補正あり）。実際に10月から暖房室へ移す運用のため
  *   - futureFixedRate=数値（暖房/冷房）: 過去は屋内(dailyRoomAccum)/屋外(weatherAvg)モデル
  *   - Q10補正は全期間に適用（WeatherSimulator 準拠）
  *
  * 今日以降に "もしも" 場所を適用する場合は futureFixedRate を指定。
- *   - undefined   → 常温として扱う（全期間 weatherAvg を継続使用）
+ *   - undefined   → 常温として扱う（6〜9月は weatherAvg、10〜5月は暖房室）
  *   - 数値（≥0） → 暖房/冷房/冷蔵庫の固定有効積算温度（℃/日）
  */
 export function simulateLotForModal(
@@ -87,11 +87,12 @@ export function simulateLotForModal(
     if (isAfterToday && futureFixedRate !== undefined) {
       // 今日以降・固定レート（暖房/冷房/冷蔵庫）。暖房のみ月別補正係数を適用
       eff = futureIsHeating ? futureFixedRate * heatFactor : futureFixedRate
-    } else if (futureFixedRate === undefined) {
-      // 常温: 全期間でweatherAvgを使用（月による屋内/屋外区分なし）
-      eff = weatherAvg[format(curr, 'MM-dd')] ?? 0
     } else {
-      // 固定レートあり（暖房/冷房）: 過去は屋内/屋外モデル。屋内期間は暖房想定のため月別補正係数を適用
+      // 6〜9月は外気（weatherAvg）、10〜5月は暖房室（dailyRoomAccum・月別補正あり）。
+      // 常温のロットも10月に入ったら暖房室へ移して熟成させる運用のためこの扱いにする
+      // （2026-09-02。以前は常温だけ全期間weatherAvgで、冬に線が寝たまま完成予定が
+      //  実際より遅く出ていた）。仕込み計画のAI提案（simulateFermentationDays の
+      //  outdoorToIndoorRate）と同じ考え方で、画面ごとの完成予定日のズレも無くなる
       eff = isOutdoor(month)
         ? (weatherAvg[format(curr, 'MM-dd')] ?? 0)
         : dailyRoomAccum * heatFactor

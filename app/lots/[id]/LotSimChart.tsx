@@ -232,8 +232,16 @@ function simulateWithHistory(
     } else if (loc === '冷蔵庫') {
       eff = Math.max(fridgeTemp - 10, 0)
     } else {
-      eff = weatherAvg[mmdd] ?? 0
-      isOutdoor = true
+      // 常温。今日以降の10〜5月は暖房室へ移して熟成させる運用のため、暖房デフォルト温度で積む
+      // （月別補正あり）。過去は実際に常温にいた期間なので気象データのまま（2026-09-02）
+      const month = curr.getMonth() + 1
+      const movedToHeating = curr.getTime() > today.getTime() && !(month >= 6 && month <= 9)
+      if (movedToHeating) {
+        eff = Math.max(heatingBaseTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+      } else {
+        eff = weatherAvg[mmdd] ?? 0
+        isOutdoor = true
+      }
     }
 
     totalSimple = Math.round((totalSimple + eff) * 10) / 10
@@ -608,6 +616,7 @@ export default function LotSimChart({
       {/* 注釈 */}
       <p className="text-xs text-muted-foreground leading-relaxed">
         ※ 場所履歴に基づき各期間の温度で積算（暖房・冷房は設定温度固定、常温は気象データ月日平均）。
+        常温のまま今日以降が10〜5月にかかる分は、暖房室（{heatingBaseTemp}℃）へ移す前提で積算しています。
         {hasQ10Effect
           ? `常温期間にQ10係数 ${q10Value} で酵素反応速度を補正（青線 vs 点線の差が補正効果）。`
           : '常温期間がないためQ10補正の差異なし。'}
