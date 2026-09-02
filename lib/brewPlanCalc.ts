@@ -457,7 +457,16 @@ export function calcBatches(
       : addDays(minBrewDate, fermentationDays))
     const shortfall    = findStockOutDateAfter(stock, refDate, getDailyRateFn, earliestCompletion, supplyEvents, getSafetyDelta, getSafetyLine)
     const stockOutDate = shortfall.date          // 逆算の基準（谷の入口）
-    const criticalDate = shortfall.criticalDate  // ずらしの上限（実際に薄くなる日）
+    const criticalDate = shortfall.criticalDate  // 実際に薄くなる日
+    // 団子防止のずらし（spacing）の上限。
+    // 「実際に薄くなる日（criticalDate）」まで許すと、安全在庫ラインを1ヶ月以上割ったままの
+    // 深い谷ができる（2026-09-02：田舎みそで11/11〜12/26の45日間ラインを割り、谷底は
+    // 冬季ライン2,000kgに対し370kgだった）。ラインを割る期間は SHORTFALL_TOLERANCE_DAYS
+    // （＝そもそも新規提案の対象にしない浅い谷の長さ）までに収める
+    const spacingLimit = new Date(Math.min(
+      criticalDate.getTime(),
+      addDays(stockOutDate, SHORTFALL_TOLERANCE_DAYS).getTime(),
+    ))
     // Q10補正なし専用の在庫切れ予測日（独立チェーン）
     const rawStockOutDate = getCompletionRaw
       ? findStockOutDateAfter(rawStock, rawRefDate, getDailyRateFn, getCompletionRaw(minBrewDate).completionDate, supplyEvents, getSafetyDelta, getSafetyLine).date
@@ -531,7 +540,7 @@ export function calcBatches(
     }
     // ただし手動固定されている回は、現場の都合（水木連続仕込みなど）を優先しそのまま採用する。
     if (completionDate < minNextCompletion && !manualBrewDateByIndex?.[i]) {
-      // 元の日から1回ずつ後ろへ動かし、「criticalDate（実際に在庫が薄くなる日）に間に合う範囲で
+      // 元の日から1回ずつ後ろへ動かし、「spacingLimit（ラインを割る期間が許容内に収まる範囲）で
       // 最も遅い日」を採用する。間隔（minNextCompletion）に届いた時点で打ち切る。
       // ※以前は「ずらした結果が criticalDate を超えたらずらし自体を取り消す」実装だったため、
       //   1日超えただけで元の（早すぎる）日に戻り、確定分の翌日に仕込む提案が出ていた。
@@ -540,7 +549,7 @@ export function calcBatches(
       for (let guard = 0; guard < 120; guard++) {
         const next = nextAllowedBrewDay(snapBrewDate ? snapBrewDate(addDays(cur, 1)) : addDays(cur, 1))
         const rr   = computeCompletion(next)
-        if (rr.completionDate > criticalDate) break   // これ以上は在庫が薄くなる日に間に合わない
+        if (rr.completionDate > spacingLimit) break   // これ以上ずらすと谷が深く・長くなる
         bestBrew = next; bestComp = rr.completionDate; bestDays = rr.days
         cur = next
         if (rr.completionDate >= minNextCompletion) break   // 目標の間隔に達した
