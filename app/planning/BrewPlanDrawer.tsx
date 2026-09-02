@@ -315,16 +315,17 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                             ロット登録へ
                             <ArrowRight className="h-3 w-3" />
                           </Link>
-                          {/* 仕込む前に「この日に仕込むといつ完成するか／置き場を変えるとどうなるか」を試せるように */}
+                          {/* 仕込む前に「この日に仕込むといつ完成するか／置き場を変えるとどうなるか」を試せるように。
+                              アイコンだけだと気づかれなかったので文字を付ける（2026-09-02ユーザー指摘） */}
                           <button
                             type="button"
                             disabled={simLoading}
                             onClick={() => void openSim(plan)}
-                            className="p-1 rounded text-muted-foreground/60 hover:text-primary hover:bg-primary/5 transition-colors disabled:opacity-40"
-                            title="熟成シミュレーション"
-                            aria-label="熟成シミュレーション"
+                            className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded border border-primary/30 text-primary hover:bg-primary/5 transition-colors whitespace-nowrap disabled:opacity-40"
+                            title="この予定で仕込んだ場合の熟成をシミュレーションする"
                           >
-                            <LineChart className="h-3.5 w-3.5" />
+                            <LineChart className="h-3 w-3" />
+                            {simLoading && simPlan?.id === plan.id ? '読込中...' : '熟成シミュレーション'}
                           </button>
                           <button
                             type="button"
