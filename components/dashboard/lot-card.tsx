@@ -129,6 +129,10 @@ export default function LotCard({
   const daysUntilCompletion = completionDate
     ? differenceInDays(startOfDay(completionDate), startOfDay(today))
     : null
+  // 予定の熟成日数（仕込み日→完成予定日）。完成ロットの「熟成日数」と対になる
+  const plannedAgingDays = completionDate
+    ? differenceInDays(startOfDay(completionDate), startOfDay(brewDate))
+    : null
 
   // Googleカレンダーへの予定追加リンク
   const detailsExtra = `目標積算温度：${targetTempSum}℃・日`
@@ -336,6 +340,13 @@ export default function LotCard({
                           <CalendarPlus className="h-3.5 w-3.5" />
                         </a>
                       </span>
+                    </div>
+                  )}
+                  {plannedAgingDays !== null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">熟成日数（予定）</span>
+                      {/* 残り日数は上の「完成予定」行に出ているので、ここは日数だけ */}
+                      <span className="font-medium tabular-nums">{plannedAgingDays}日</span>
                     </div>
                   )}
                 </div>
