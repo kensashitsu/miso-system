@@ -3,6 +3,7 @@
 // 計算の根拠の可視化：在庫推移グラフ
 // 有効在庫が消費ペースで減り、完成補充でジャンプし、在庫切れに向かう様子を
 // 手配締切・仕込み日・完成日・在庫切れ日の縦線とともに時間軸で表示する。
+import { useState } from 'react'
 import {
   ComposedChart, Area, Line, XAxis, YAxis, Tooltip, ReferenceLine, ReferenceDot,
   ResponsiveContainer, CartesianGrid,
@@ -75,7 +76,34 @@ function daysBetween(from: string, to: string): number {
   return Math.round(ms / 86400000)
 }
 
-export default function StockProjectionChart({ points, markers, todayStr, supplyMarkers, safetyStockKg }: Props) {
+// 表示期間の選択肢。仮登録を先の方まで入れると1年半分の系列になり、
+// 直近の数週間が潰れて読めなくなるため既定は6ヶ月にする（2026-09-02ユーザー指摘）
+const RANGE_OPTIONS = [
+  { key: '3m',  label: '3ヶ月', months: 3 },
+  { key: '6m',  label: '6ヶ月', months: 6 },
+  { key: '1y',  label: '1年',   months: 12 },
+  { key: 'all', label: '全期間', months: null },
+] as const
+type RangeKey = typeof RANGE_OPTIONS[number]['key']
+const DEFAULT_RANGE: RangeKey = '6m'
+
+// todayStr から months ヶ月後の 'yyyy-MM-dd'
+function addMonthsStr(dateStr: string, months: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1 + months, d))
+  return dt.toISOString().slice(0, 10)
+}
+
+export default function StockProjectionChart({ points: allPoints, markers, todayStr, supplyMarkers, safetyStockKg }: Props) {
+  const [rangeKey, setRangeKey] = useState<RangeKey>(DEFAULT_RANGE)
+  const range   = RANGE_OPTIONS.find(r => r.key === rangeKey) ?? RANGE_OPTIONS[1]
+  const lastStr = allPoints.length > 0 ? allPoints[allPoints.length - 1].d : todayStr
+  // 期間を絞ってもデータが残らない場合（先の方しか無い等）は全期間にフォールバック
+  const endStr  = range.months == null ? lastStr : addMonthsStr(todayStr, range.months)
+  const clipped = allPoints.filter(p => p.d <= endStr)
+  const points  = clipped.length >= 2 ? clipped : allPoints
+  const isClipped = points.length < allPoints.length
+
   if (points.length < 2) return null
   const dateSet = new Set(points.map(p => p.d))
   const has = (d: string | null): d is string => d !== null && dateSet.has(d)
@@ -105,6 +133,23 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
 
   return (
     <div className="space-y-1">
+      <div className="flex items-center justify-end gap-1 text-[11px]">
+        <span className="text-muted-foreground mr-1">表示期間</span>
+        {RANGE_OPTIONS.map(o => (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => setRangeKey(o.key)}
+            className={`px-2 py-0.5 rounded border transition-colors ${
+              o.key === rangeKey
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'border-gray-200 text-muted-foreground hover:bg-gray-50'
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
       <div className="h-56 w-full">
         <ResponsiveContainer width="100%" height="100%">
           {/* top余白は桶番号ラベルが2行になったぶん広げている */}
@@ -239,6 +284,7 @@ export default function StockProjectionChart({ points, markers, todayStr, supply
         {hasFermenting && <span style={{ color: COLOR.comp }}>● 熟成中ロット完成（桶）</span>}
         {hasRegistered && <span style={{ color: COLOR.regBucket }}>● 仮登録の完成（桶）</span>}
         <span style={{ color: COLOR.out }}>┆ 直近の在庫切れ</span>
+        {isClipped && <span>（{fmtMd(points[points.length - 1].d)} 以降は表示範囲外）</span>}
       </div>
     </div>
   )
