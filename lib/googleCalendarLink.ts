@@ -76,7 +76,8 @@ export function buildBrewPlanCalendarUrl(opts: {
         : '')
   const params = new URLSearchParams({
     action: 'TEMPLATE',
-    text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBucketNumbers(bucketNumbers)}を仕込み`,
+    // 予定名の規則は「田舎⑤⑥仕込」（品種略称＋桶番号の丸数字＋仕込）
+    text: `${MISO_ABBR[misoType] ?? misoType.replace('みそ', '')}${circledBucketNumbers(bucketNumbers)}仕込`,
     dates: `${toYmd(brewDate)}/${toYmd(endDate)}`,
     details,
     src: BREW_CALENDAR_ID,
