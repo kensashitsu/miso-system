@@ -10,6 +10,8 @@ type StockSummaryProps = {
   fermentingKgByType: Record<string, number>
   hasApiData:         boolean
   hasApiError:        boolean
+  // 完成ロットの桶残量（本システム側の熟成済在庫）。在庫APIの値と突き合わせるため併記する
+  systemAgedKgByType?: Record<string, number>
   safetyStockMap?:    Record<string, number>  // 品種ごとの安全在庫ライン（熟成済バラ＋小分け製品の合算、kg）
 }
 
@@ -24,7 +26,27 @@ function KgCell({ value, warn }: { value: number | null; warn?: boolean }) {
   )
 }
 
-export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByType, hasApiData, hasApiError, safetyStockMap }: StockSummaryProps) {
+// 熟成済在庫セルの下段：本システム（完成ロットの桶残量）と在庫APIとの差分。
+// 差分は「本システム − API」。棚卸しのズレに気づけるように符号付きで出す
+function SystemAgedNote({ apiKg, systemKg }: { apiKg: number | null; systemKg: number | null }) {
+  if (systemKg == null) return null
+  const diff = apiKg != null ? Math.round(systemKg - apiKg) : null
+  return (
+    <div
+      className="text-[10px] leading-tight text-gray-400 font-normal mt-0.5"
+      title={`本システムの完成ロット桶残量 ${systemKg.toLocaleString()}kg${diff != null ? `（在庫APIとの差 ${diff > 0 ? '+' : ''}${diff.toLocaleString()}kg）` : ''}`}
+    >
+      本{systemKg.toLocaleString()}
+      {diff != null && (
+        <span className={diff === 0 ? 'ml-1 text-gray-400' : `ml-1 ${Math.abs(diff) >= 100 ? 'text-orange-500' : 'text-gray-400'}`}>
+          {diff === 0 ? '(一致)' : `(${diff > 0 ? '+' : ''}${diff.toLocaleString()})`}
+        </span>
+      )}
+    </div>
+  )
+}
+
+export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByType, hasApiData, hasApiError, safetyStockMap, systemAgedKgByType }: StockSummaryProps) {
   // レシピに無い品種でも在庫APIや熟成中ロットに出てきたら行を作る（取りこぼし防止）
   const types = [
     ...misoTypes,
@@ -44,6 +66,10 @@ export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByTy
   const hasAnyPackaged = rows.some(r => r.packaged != null)
   const sumFermenting  = rows.reduce((s, r) => s + r.fermenting, 0)
   const sumAged        = hasAnyAged     ? rows.reduce((s, r) => s + (r.aged     ?? 0), 0) : null
+  const hasAnySystemAged = types.some(t => systemAgedKgByType?.[t] != null)
+  const sumSystemAged    = hasAnySystemAged
+    ? types.reduce((s, t) => s + Math.round(systemAgedKgByType?.[t] ?? 0), 0)
+    : null
   const sumPackaged    = hasAnyPackaged ? rows.reduce((s, r) => s + (r.packaged ?? 0), 0) : null
   const sumTotal       = sumAged != null ? sumAged + (sumPackaged ?? 0) + sumFermenting : null
 
@@ -109,6 +135,11 @@ export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByTy
                   const aged       = stock?.agedKg ?? null
                   const packaged   = stock?.packagedKg ?? null
                   const fermenting = Math.round(fermentingKgByType[type] ?? 0)
+                  // 完成ロットが1件も無い品種でも、APIに在庫がある間は 0 として出す
+                  // （「登録されていない」こと自体が差分として見たいもの）
+                  const systemAged = (aged != null || systemAgedKgByType?.[type] != null)
+                    ? Math.round(systemAgedKgByType?.[type] ?? 0)
+                    : null
                   const total      = aged != null ? aged + (packaged ?? 0) + fermenting : null
                   const safetyLine = safetyStockMap?.[type]
                   // 判定は「熟成済バラ＋小分け製品」の合算（熟成中ロットは含めない）
@@ -120,7 +151,10 @@ export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByTy
                       <td className="py-2.5 px-2 text-right tabular-nums">
                         <KgCell value={fermenting > 0 ? fermenting : null} />
                       </td>
-                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={aged} /></td>
+                      <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell">
+                        <KgCell value={aged} />
+                        <SystemAgedNote apiKg={aged} systemKg={systemAged} />
+                      </td>
                       <td className="py-2.5 px-2 text-right tabular-nums hidden sm:table-cell"><KgCell value={packaged} warn={belowSafety} /></td>
                       <td className="py-2.5 pl-2 pr-4 text-right tabular-nums"><KgCell value={total} /></td>
                     </tr>
@@ -133,13 +167,23 @@ export default function StockSummary({ misoTypes, agedStockMap, fermentingKgByTy
                   <td className="py-2.5 px-2 text-right tabular-nums text-sm">
                     <KgCell value={sumFermenting > 0 ? sumFermenting : null} />
                   </td>
-                  <td className="py-2.5 px-2 text-right tabular-nums text-sm hidden sm:table-cell"><KgCell value={sumAged} /></td>
+                  <td className="py-2.5 px-2 text-right tabular-nums text-sm hidden sm:table-cell">
+                    <KgCell value={sumAged} />
+                    <SystemAgedNote apiKg={sumAged} systemKg={sumSystemAged} />
+                  </td>
                   <td className="py-2.5 px-2 text-right tabular-nums text-sm hidden sm:table-cell"><KgCell value={sumPackaged} /></td>
                   <td className="py-2.5 pl-2 pr-4 text-right tabular-nums text-sm"><KgCell value={sumTotal} /></td>
                 </tr>
               </tfoot>
             </table>
           </div>
+
+          {/* 「本」の意味は列名からは分からないので凡例を出す（列幅を広げずに済ませる） */}
+          {sumSystemAged != null && (
+            <p className="px-4 pb-3 pt-2 text-[10px] leading-relaxed text-gray-400">
+              熟成済在庫の下段「本」＝本システムの完成ロット桶残量。カッコ内は在庫APIとの差（本システム − API）
+            </p>
+          )}
         </div>
       )}
     </section>

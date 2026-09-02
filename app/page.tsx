@@ -189,6 +189,16 @@ export default async function DashboardPage() {
     fermentingKgByType[lot.misoType] = (fermentingKgByType[lot.misoType] ?? 0) + kg
   }
 
+  // 完成ロットの桶残量を品種別に集計（数え方は熟成中と同じ lib/lotStock.ts）。
+  // 熟成済在庫は在庫API（zaiko）の値を正としているが、本システム側の残量と
+  // ズレていないかをサマリーで突き合わせられるように併記する
+  const systemAgedKgByType: Record<string, number> = {}
+  for (const lot of lots) {
+    if (lot.status !== '完成') continue
+    const kg = fermentingKgOfLot(lot, moisture.yieldRate)
+    systemAgedKgByType[lot.misoType] = (systemAgedKgByType[lot.misoType] ?? 0) + kg
+  }
+
   // 着色リスク高は熟成中・完成の両方を対象にする（2026-08-30ユーザー判断）。
   // 完成後も置き場の温度に応じて着色は進むため（judgeは累計 total ベース）、
   // 完成ロットこそ「早めに出荷するか冷蔵庫へ移す」判断が要る
@@ -406,6 +416,7 @@ export default async function DashboardPage() {
           misoTypes={misoTypes}
           agedStockMap={agedStockMap}
           fermentingKgByType={fermentingKgByType}
+          systemAgedKgByType={systemAgedKgByType}
           hasApiData={agedStockData != null}
           hasApiError={agedStockData == null && !!process.env.STOCK_API_URL}
           safetyStockMap={safetyStockMap}
