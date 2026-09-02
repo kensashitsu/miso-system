@@ -211,7 +211,16 @@ export default function LotCard({
           <div>
             <div className="flex justify-between text-sm mb-1">
               <span className="text-muted-foreground">{hasPost ? '熟成度（完成時）' : '熟成度'}</span>
-              <span className="font-medium tabular-nums">{progressPercent}%</span>
+              {/* バーが2色（完成まで／完成後）なので、数字も両方出さないと
+                  どちらの色がどの値か読めない（2026-09-02ユーザー指摘） */}
+              <span className="font-medium tabular-nums">
+                {progressPercent}%
+                {hasPost && (
+                  <span className={`ml-1 ${coloringRisk === 'danger' ? 'text-rose-600' : 'text-amber-600'}`}>
+                    → 累計 {Math.round(totalPct * 10) / 10}%
+                  </span>
+                )}
+              </span>
             </div>
             <div className="relative w-full">
               <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden flex">

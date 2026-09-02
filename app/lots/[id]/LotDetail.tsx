@@ -414,12 +414,28 @@ export default function LotDetail({
   const [brewSaveError, setBrewSaveError] = useState<string | null>(null)
 
   const rawProgressPct  = targetTempSum > 0 ? (accumulatedTemp / targetTempSum) * 100 : 0
-  const progressPercent = Math.min(100, rawProgressPct)
   // 完成後も置き場の温度に応じて熟成は進む（冷蔵庫ならほぼ停止）。分けて表示する
   const postTemp     = postCompletionTemp ?? 0
   const hasPost      = postTemp > 0
   const totalPct     = targetTempSum > 0 ? ((accumulatedTemp + postTemp) / targetTempSum) * 100 : 0
-  const postBarWidth = Math.max(0, Math.min(100 - progressPercent, totalPct - rawProgressPct))
+
+  // バーの目盛り（ダッシュボードのロットカードと同じ扱い・components/dashboard/lot-card.tsx）。
+  // 100%＝満杯だと、完成時点で100%を超えているロットは完成後に進んだ分を描けない。
+  // 目標を超えているロットだけ物差しを200%まで広げ、100/120/150%に目盛りを立てる
+  const RISK_SCALE_MAX = 200
+  const useRiskScale   = hasPost || rawProgressPct > 100
+  const scaleMax       = useRiskScale ? RISK_SCALE_MAX : 100
+  const toWidth        = (pct: number) => Math.max(0, Math.min(100, (pct / scaleMax) * 100))
+  const barWidth       = toWidth(rawProgressPct)
+  const postBarWidth   = Math.max(0, toWidth(totalPct) - barWidth)
+  const isOverScale    = totalPct > scaleMax
+  const scaleTicks     = useRiskScale
+    ? [
+        { pct: 100, label: '完成' },
+        { pct: 120, label: '要注意' },
+        { pct: 150, label: 'リスク高' },
+      ].filter(t => t.pct < scaleMax)
+    : []
   const brewedAt = new Date(brewedAtISO)
   const estimatedCompletion = estimatedCompletionISO ? new Date(estimatedCompletionISO) : null
 
@@ -855,25 +871,58 @@ export default function LotDetail({
             <span className="text-muted-foreground">{hasPost ? '積算温度（完成まで）' : '積算温度'}</span>
             <span className="font-medium tabular-nums">
               {Math.round(accumulatedTemp)} / {targetTempSum} ℃・日
-              <span className="text-muted-foreground ml-2">({Math.round(progressPercent)}%)</span>
+              <span className="text-muted-foreground ml-2">({Math.round(rawProgressPct)}%)</span>
+              {/* バーが2色なので数字も両方出す */}
+              {hasPost && (
+                <span className={`ml-1 ${coloringRisk === 'danger' ? 'text-rose-600' : 'text-amber-600'}`}>
+                  → 累計 {Math.round(totalPct)}%
+                </span>
+              )}
             </span>
           </div>
-          <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden flex">
-            {/* 完成までの分。色は完成時点の熟成度で決める */}
-            <div
-              className={`h-full ${PROGRESS_COLOR[
-                rawProgressPct >= 150 ? 'danger' : rawProgressPct >= 120 ? 'warning' : 'normal'
-              ]}`}
-              style={{ width: `${progressPercent}%` }}
-            />
-            {postBarWidth > 0 && (
+          <div className="relative w-full">
+            <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden flex">
+              {/* 完成までの分。色は完成時点の熟成度で決める */}
               <div
-                className={`h-full ${coloringRisk === 'danger' ? 'bg-rose-300' : 'bg-amber-300'}`}
-                style={{ width: `${postBarWidth}%` }}
-                title="完成後に進んだ熟成"
+                className={`h-full ${PROGRESS_COLOR[
+                  rawProgressPct >= 150 ? 'danger' : rawProgressPct >= 120 ? 'warning' : 'normal'
+                ]}`}
+                style={{ width: `${barWidth}%` }}
               />
+              {postBarWidth > 0 && (
+                <div
+                  className={`h-full ${coloringRisk === 'danger' ? 'bg-rose-400' : 'bg-amber-400'}`}
+                  style={{ width: `${postBarWidth}%` }}
+                  title="完成後に進んだ熟成"
+                />
+              )}
+            </div>
+            {/* 目盛り（完成100% / 要注意120% / リスク高150%） */}
+            {scaleTicks.map(t => (
+              <span
+                key={t.pct}
+                className="absolute top-0 h-2 w-px bg-white/80"
+                style={{ left: `${(t.pct / scaleMax) * 100}%` }}
+                title={`${t.label} ${t.pct}%`}
+                aria-hidden
+              />
+            ))}
+            {isOverScale && (
+              <span className="absolute -top-0.5 -right-1 text-[10px] leading-none text-rose-500" title={`目盛り${scaleMax}%を超過`}>
+                ▶
+              </span>
             )}
           </div>
+          {useRiskScale && (
+            <div className="relative h-3 text-[9px] text-gray-400 select-none" aria-hidden>
+              {scaleTicks.map(t => (
+                <span key={t.pct} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${(t.pct / scaleMax) * 100}%` }}>
+                  {t.pct}
+                </span>
+              ))}
+              <span className="absolute right-0 whitespace-nowrap">{scaleMax}%</span>
+            </div>
+          )}
           {hasPost && (
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">
