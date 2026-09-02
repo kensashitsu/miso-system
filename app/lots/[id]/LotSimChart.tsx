@@ -38,7 +38,7 @@ interface Props {
 }
 
 // ── 縦線イベント ──────────────────────────────────────────────
-type LineEventKind = 'completed' | 'transition' | 'today' | 'prediction'
+type LineEventKind = 'completed' | 'transition' | 'assumed' | 'today' | 'prediction'
 
 interface EventStyle {
   stroke:           string
@@ -49,13 +49,16 @@ interface EventStyle {
 const EVENT_PRIORITY: Record<LineEventKind, number> = {
   completed:  1,
   transition: 2,
-  today:      3,
-  prediction: 4,
+  assumed:    3,
+  today:      4,
+  prediction: 5,
 }
 
 const EVENT_STYLE: Record<LineEventKind, EventStyle> = {
   completed:  { stroke: '#059669', strokeWidth: 2 },
   transition: { stroke: '#d97706', strokeDasharray: '3 3', strokeWidth: 1.5 },
+  // 実際の移動記録ではなく「これから移す予定」の目安なので、同じ橙でより細く薄い破線にする
+  assumed:    { stroke: '#f59e0b', strokeDasharray: '2 5', strokeWidth: 1.2 },
   today:      { stroke: '#94a3b8', strokeDasharray: '3 4', strokeWidth: 1 },
   prediction: { stroke: '#2563eb', strokeDasharray: '3 3', strokeWidth: 1.5 },
 }
@@ -305,6 +308,7 @@ export default function LotSimChart({
     yAxisMax,
     completedAtAccumKg,
     displayDays,
+    assumedTransitions,
   } = useMemo(() => {
     const today    = startOfDay(new Date())
     const brewDate = startOfDay(new Date(brewedAtISO))
@@ -335,6 +339,24 @@ export default function LotSimChart({
     const samplingStep = dispDays <= 10 ? 1 : dispDays <= 30 ? 2 : 7
 
     const transitionDates = new Set(locationTransitions.map(t => t.date))
+
+    // 常温のままのロットは10〜5月を暖房室として積算している（simulateWithHistory 参照）。
+    // 傾きが変わるだけでは何が起きたのか読み取れないため、「これから移す予定」の
+    // 縦線として出す（実際の移動記録とは別スタイル）。X軸が日付カテゴリのため、
+    // 縦線を引く日はサンプリングで間引かれないよう必ず残す
+    const lastLoc  = locationPeriods[locationPeriods.length - 1]?.location ?? ''
+    const isOutdoorLot = lastLoc !== '' && !TEMP_LOCATION_RE.test(lastLoc) && lastLoc !== '冷蔵庫'
+    const assumed: { date: string; label: string }[] = []
+    if (isOutdoorLot) {
+      const firstStr = format(brewDate, 'yyyy-MM-dd')
+      for (let y = brewDate.getFullYear(); y <= displayEnd.getFullYear(); y++) {
+        for (const [md, label] of [['10-01', '→暖房（予定）'], ['06-01', '→常温（予定）']] as const) {
+          const d = `${y}-${md}`
+          if (d > todStr && d >= firstStr && d <= displayEndStr) assumed.push({ date: d, label })
+        }
+      }
+    }
+    const assumedDates = new Set(assumed.map(a => a.date))
     const completedAtDateStr = completedAtDateLocal ? format(completedAtDateLocal, 'yyyy-MM-dd') : null
 
     const completedAtPoint = completedAtDateStr
@@ -351,6 +373,7 @@ export default function LotSimChart({
       if (i === matCompleteIdx || i === simpCompleteIdx) return true
       if (d.date === todStr) return true
       if (transitionDates.has(d.date)) return true
+      if (assumedDates.has(d.date)) return true
       if (completedAtDateStr && d.date === completedAtDateStr) return true
       return false
     })
@@ -369,6 +392,7 @@ export default function LotSimChart({
       yAxisMax:                yMax,
       completedAtAccumKg,
       displayDays:             dispDays,
+      assumedTransitions:      assumed,
     }
   }, [brewedAtISO, targetTempSum, weatherAvg, locationPeriods,
       q10Value, heatingBaseTemp, fridgeTemp, locationTransitions, completedAtISO, actualAccumToday])
@@ -399,6 +423,11 @@ export default function LotSimChart({
       date:  t.date,
       kind:  'transition' as LineEventKind,
       label: `→${getShortLoc(t.to)}`,
+    })),
+    ...assumedTransitions.map(t => ({
+      date:  t.date,
+      kind:  'assumed' as LineEventKind,
+      label: t.label,
     })),
     ...(maturityCompleteDateStr && maturityComplete
       ? [{ date: maturityCompleteDateStr, kind: 'prediction' as LineEventKind, label: `${format(maturityComplete, 'M/d')}予測` }]
