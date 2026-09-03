@@ -10,8 +10,6 @@ import {
 } from '@/lib/tempCalc'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import { fetchAgedStock } from '@/lib/externalApi'
-import { getMaterialStock } from '@/lib/materialStock'
-import { fetchIncomingOrders } from '@/lib/purchaseOrders'
 import { getMisoRecipes } from '@/lib/recipes'
 import { makeSafetyLineFn } from '@/lib/brewPlanCalc'
 import { fermentingKgOfLot } from '@/lib/lotStock'
@@ -19,7 +17,6 @@ import DashboardLotGroups from '@/components/dashboard/DashboardLotGroups'
 import { type LotCardProps, type LotSimConfig } from '@/components/dashboard/lot-card'
 import StockSummary from '@/components/dashboard/StockSummary'
 import InventoryTrendChart from '@/components/dashboard/InventoryTrendChart'
-import MaterialStock from '@/components/dashboard/MaterialStock'
 
 // 常にサーバー側で最新データを取得する
 export const dynamic = 'force-dynamic'
@@ -28,7 +25,7 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // weatherData は全期間取得（oldestBrewDate フィルタだと過去年の夏季データが欠落し
   // weatherAvg が空になるため、ロット積算計算・シミュレーター両方が正常に動作しない）
-  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans, materialStock, incomingOrders] = await Promise.all([
+  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans] = await Promise.all([
     getMoistureSettings(),
     fetchAgedStock(),
     getMisoRecipes(),
@@ -42,10 +39,6 @@ export default async function DashboardPage() {
       where: { status: '仮登録', lotId: null },
       orderBy: { brewDate: 'asc' },
     }),
-    // 原材料在庫（zaiko）。専用APIが無いため在庫調整のプレビュー（読み取り専用）から得る
-    getMaterialStock(),
-    // 発注中の原材料（入荷予定日）。factory-planner の発注リストから読む
-    fetchIncomingOrders(),
   ])
 
   // レシピの現在の目標積算温度を品種名でルックアップ
@@ -290,18 +283,6 @@ export default async function DashboardPage() {
     .filter(x => x.days >= 0 && x.days <= BREW_ALERT_DAYS)
     .sort((a, b) => a.days - b.days)
 
-  // 原材料の「あと何回分」の基準にする品種。次に仕込む予定のもの、
-  // 予定が無ければ直近に仕込んだ品種を使う（画面の見出しに何基準かを出す）
-  const nextPlan   = brewPlans.find(p => startOfDay(p.brewDate) >= today) ?? null
-  const latestLot  = lots.filter(l => !l.isPrototype).sort((a, b) => b.brewedAt.getTime() - a.brewedAt.getTime())[0] ?? null
-  const materialBaseType  = nextPlan?.misoType ?? latestLot?.misoType ?? null
-  // 原材料ごとに基準品種が変わる（麦みそは裸麦、山吹みそは砕米…）ので、
-  // これから仕込む予定の品種を順に渡し、その原材料を使う最初の品種で回数を出す
-  const materialBasisOrder = [
-    ...brewPlans.filter(p => startOfDay(p.brewDate) >= today).map(p => p.misoType),
-    ...(latestLot ? [latestLot.misoType] : []),
-  ].filter((t, i, arr) => arr.indexOf(t) === i)
-
   // 「今日やること」に出す項目。緊急度の高い順に並べる
   type Todo = { key: string; tone: 'rose' | 'amber' | 'orange' | 'blue'; icon: 'alert' | 'clock' | 'stock' | 'order' | 'brew'; label: string; body: string; href: string }
   const todos: Todo[] = [
@@ -419,7 +400,6 @@ export default async function DashboardPage() {
 
       {/* 上段：左＝今日やること（最初に目に入る位置）／右＝品種別在庫サマリー */}
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_760px] gap-4 items-start">
-        <div className="space-y-4">
         <section className="rounded-xl border bg-white p-3 sm:p-4">
           <h2 className="mb-2 flex items-baseline gap-2 text-sm font-semibold text-gray-900">
             今日やること
@@ -449,18 +429,6 @@ export default async function DashboardPage() {
             </div>
           )}
         </section>
-
-        {/* 原材料の在庫（zaiko）。仕込みに使う袋数と「あと何回分」を出す */}
-        {materialStock && materialStock.length > 0 && (
-          <MaterialStock
-            materials={materialStock}
-            basisOrder={materialBasisOrder}
-            primaryType={materialBaseType}
-            incoming={incomingOrders.orders}
-            incomingError={incomingOrders.error}
-          />
-        )}
-        </div>
 
         {/* 品種別在庫サマリー */}
         <StockSummary
