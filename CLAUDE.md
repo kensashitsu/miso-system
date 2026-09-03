@@ -852,6 +852,7 @@ URLパラメータでサーバーサイドフィルタ:
 - 折りたたみバー: 件数バッジ（仮登録/本登録済）を常時表示
 - 展開時: テーブルを上方向に表示（最大55vh・スクロール対応）
 - ロット登録リンク・削除ボタンを含む
+- **仕込み予定日の後編集**（2026-09-03）: 鉛筆アイコンで日付を直せる（`updateBrewPlanBrewDate`）。現場の都合で日がずれるたびに消して登録し直す必要があった。日付だけ書き換えると完成予定日・熟成日数・原料手配締切が古いまま残るため、**提案時と同じ計算で引き直す**（常温はその日の季節で`simulateFermentationDays`／それ以外は`getDailyAccum`の固定レート。締切は`ORDER_LEAD_DAYS`）。桶番号も`resequencePendingPlans`で仕込み日順に採番し直す。本登録済みは変更不可。※`getDailyAccum`は`BrewSuggestions.tsx`のローカル関数から`lib/brewPlanCalc.ts`へ移して共有している（提案とズレないように）
 
 ### `components/dashboard/LotSimulationModal.tsx`
 将来の場所を選択してインタラクティブに熟成完了日を予測するモーダル。

@@ -15,7 +15,7 @@ import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
 import {
   type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
   snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
-  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, makeSafetyLineFn,
+  PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, makeSafetyLineFn, getDailyAccum,
   weekStartOf, expandBlockedWeeks,
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
@@ -166,34 +166,6 @@ interface RecipePlan {
 }
 
 const BATCH_OPTIONS = [1, 3, 5] as const
-
-// 場所名から温度を抽出するパターン
-const TEMP_RE = /^(?:温調室|暖房|冷房)(\d+(?:\.\d+)?)℃$/
-
-// 場所名から1日あたりの有効積算温度を計算（常温はQ10補正済み年間平均）
-function getDailyAccum(
-  location:         string,
-  fridgeTemp:       number,
-  weatherAvgValues: number[],
-  q10Value?:        number,
-  heatingBaseTemp?: number,
-): number {
-  const m = location.match(TEMP_RE)
-  if (m) return Math.max(Number(m[1]) - 10, 0)
-  if (location === '冷蔵庫') return Math.max(fridgeTemp - 10, 0)
-  // 常温: 気象データの年間平均にQ10補正を適用
-  if (weatherAvgValues.length === 0) return 14
-  const q10  = q10Value      ?? 1
-  const base = heatingBaseTemp ?? 25
-  return weatherAvgValues
-    .map(v => {
-      if (v <= 0 || q10 === 1) return v
-      const avgTempC = v + 10
-      return v * Math.pow(q10, (avgTempC - base) / 10)
-    })
-    .reduce((a, b) => a + b, 0) / weatherAvgValues.length
-}
-
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
 

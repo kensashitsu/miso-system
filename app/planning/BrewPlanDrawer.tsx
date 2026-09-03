@@ -3,14 +3,16 @@
 import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart, RefreshCw } from 'lucide-react'
+import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart, RefreshCw, Pencil, Check, X } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import {
   brewEventTitle, buildBrewPlanCalendarUrl, buildGoogleCalendarUrl, completionEventTitle,
 } from '@/lib/googleCalendarLink'
 import { buildIcs, downloadIcs } from '@/lib/ics'
 import { syncCalendarNow } from '@/app/planning/calendar-sync-action'
-import { deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered } from '@/app/planning/brew-plan-actions'
+import {
+  deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered, updateBrewPlanBrewDate,
+} from '@/app/planning/brew-plan-actions'
 import { getPlanSimConfig } from '@/app/planning/plan-sim-action'
 import LotSimulationModal, { type LotSimConfig } from '@/components/dashboard/LotSimulationModal'
 
@@ -44,6 +46,29 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
   const [simPlan, setSimPlan] = useState<BrewPlanItem | null>(null)
   const [simData, setSimData] = useState<{ simConfig: LotSimConfig; targetByType: Record<string, number> } | null>(null)
   const [simLoading, setSimLoading] = useState(false)
+  // 仕込み予定日の編集。現場の都合で日がずれることは普通にあるので、
+  // 消して登録し直さずにその場で直せるようにする。完成予定日・熟成日数・
+  // 原料手配締切はサーバー側で引き直されるため、ここでは日付だけ持つ
+  const [editingId, setEditingId]     = useState<string | null>(null)
+  const [editDate, setEditDate]       = useState('')
+  const [editError, setEditError]     = useState<string | null>(null)
+
+  const startEdit = (plan: BrewPlanItem) => {
+    setEditingId(plan.id)
+    setEditDate(format(plan.brewDate, 'yyyy-MM-dd'))
+    setEditError(null)
+  }
+  const cancelEdit = () => { setEditingId(null); setEditError(null) }
+  const saveEdit = (plan: BrewPlanItem) => {
+    if (!editDate) return
+    if (editDate === format(plan.brewDate, 'yyyy-MM-dd')) { cancelEdit(); return }
+    startTransition(async () => {
+      // JST午前0時はUTCで前日になるため、日付文字列からUTC midnightに正規化する
+      const res = await updateBrewPlanBrewDate(plan.id, `${editDate}T00:00:00Z`)
+      if (res.ok) cancelEdit()
+      else setEditError(res.error)
+    })
+  }
 
   // カレンダーへの一括登録用ICS。1件ずつカレンダー画面で保存するのが煩わしいため、
   // まとめて1ファイルに出して「設定 → インポート」で読み込んでもらう。
@@ -300,11 +325,53 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 tabular-nums font-medium">
+                        {editingId === plan.id ? (
+                          <span className="inline-flex items-center gap-1">
+                            <input
+                              type="date"
+                              value={editDate}
+                              onChange={e => setEditDate(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveEdit(plan)
+                                if (e.key === 'Escape') cancelEdit()
+                              }}
+                              autoFocus
+                              className="h-7 rounded border px-1.5 text-xs"
+                            />
+                            <button
+                              onClick={() => saveEdit(plan)}
+                              disabled={isPending}
+                              className="p-1 rounded text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
+                              aria-label="保存"
+                              title="保存"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="p-1 rounded text-muted-foreground hover:bg-muted"
+                              aria-label="取り消し"
+                              title="取り消し"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                            {editError && <span className="text-[10px] text-red-600">{editError}</span>}
+                          </span>
+                        ) : (
                         <span className="inline-flex items-center gap-1">
                           {(() => {
                             const dow = ['日','月','火','水','木','金','土'][plan.brewDate.getDay()]
                             return `${format(plan.brewDate, 'M/d')}（${dow}）`
                           })()}
+                          {/* 日をずらしたら完成予定日・熟成日数・手配締切も引き直される */}
+                          <button
+                            onClick={() => startEdit(plan)}
+                            className="p-0.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors"
+                            aria-label="仕込み予定日を変更"
+                            title="仕込み予定日を変更"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
                           {/* 完成予定日と同じく、仕込み予定日も1件ずつカレンダーに入れられるようにする */}
                           <a
                             href={buildBrewPlanCalendarUrl({
@@ -322,6 +389,7 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                             <CalendarPlus className="h-3.5 w-3.5" />
                           </a>
                         </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 tabular-nums text-muted-foreground">
                         <span className="inline-flex items-center gap-1">

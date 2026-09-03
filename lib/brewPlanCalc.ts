@@ -36,6 +36,33 @@ export interface BatchPlan {
 
 // 常温：仕込み日から気象データを日ごとに積み上げて完成日を推計（Q10補正あり）
 // lib/tempCalc.ts の applyQ10 と同ロジック（effectiveTemp > 0 のとき avgTempC = eff + 10 で逆算）
+// 場所ごとの日次有効積算温度（℃・日）。仕込み計画の熟成日数の初期推定と、
+// 仮登録の仕込み日を後から動かしたときの再計算で共通に使う
+export const LOCATION_TEMP_RE = /^(?:温調室|暖房|冷房)(\d+(?:\.\d+)?)℃$/
+
+export function getDailyAccum(
+  location:         string,
+  fridgeTemp:       number,
+  weatherAvgValues: number[],
+  q10Value?:        number,
+  heatingBaseTemp?: number,
+): number {
+  const m = location.match(LOCATION_TEMP_RE)
+  if (m) return Math.max(Number(m[1]) - 10, 0)
+  if (location === '冷蔵庫') return Math.max(fridgeTemp - 10, 0)
+  // 常温: 気象データの年間平均にQ10補正を適用
+  if (weatherAvgValues.length === 0) return 14
+  const q10  = q10Value      ?? 1
+  const base = heatingBaseTemp ?? 25
+  return weatherAvgValues
+    .map(v => {
+      if (v <= 0 || q10 === 1) return v
+      const avgTempC = v + 10
+      return v * Math.pow(q10, (avgTempC - base) / 10)
+    })
+    .reduce((a, b) => a + b, 0) / weatherAvgValues.length
+}
+
 export function simulateFermentationDays(
   brewDate:         Date,
   targetTempSum:    number,
