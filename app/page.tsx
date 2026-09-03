@@ -11,6 +11,7 @@ import {
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
 import { fetchAgedStock } from '@/lib/externalApi'
 import { getMaterialStock } from '@/lib/materialStock'
+import { fetchIncomingOrders } from '@/lib/purchaseOrders'
 import { getMisoRecipes } from '@/lib/recipes'
 import { makeSafetyLineFn } from '@/lib/brewPlanCalc'
 import { fermentingKgOfLot } from '@/lib/lotStock'
@@ -27,7 +28,7 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // weatherData は全期間取得（oldestBrewDate フィルタだと過去年の夏季データが欠落し
   // weatherAvg が空になるため、ロット積算計算・シミュレーター両方が正常に動作しない）
-  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans, materialStock] = await Promise.all([
+  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans, materialStock, incomingOrders] = await Promise.all([
     getMoistureSettings(),
     fetchAgedStock(),
     getMisoRecipes(),
@@ -43,6 +44,8 @@ export default async function DashboardPage() {
     }),
     // 原材料在庫（zaiko）。専用APIが無いため在庫調整のプレビュー（読み取り専用）から得る
     getMaterialStock(),
+    // 発注中の原材料（入荷予定日）。factory-planner の発注リストから読む
+    fetchIncomingOrders(),
   ])
 
   // レシピの現在の目標積算温度を品種名でルックアップ
@@ -453,6 +456,7 @@ export default async function DashboardPage() {
             materials={materialStock}
             basisOrder={materialBasisOrder}
             primaryType={materialBaseType}
+            incoming={incomingOrders ?? []}
           />
         )}
         </div>

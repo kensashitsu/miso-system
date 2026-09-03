@@ -50,6 +50,8 @@ next start を社内PC1台で常時起動
 | `SALES_API_URL` | 月別出荷実績取得エンドポイント |
 | `EXTERNAL_API_KEY` | 上記APIの認証キー（`X-API-Key`ヘッダー） |
 | `PYTHON_PATH` | SARIMAXスクリプト実行用Python3パス（省略時はシステムデフォルト） |
+| `PURCHASE_ORDER_API_URL` | factory-planner の発注リスト取得（`GET /api/purchase-orders`）。原材料の入荷予定日をダッシュボードに出すのに使う。未設定なら入荷予定は出ない |
+| `PURCHASE_ORDER_API_KEY` | 上記の認証キー（`X-API-Key`ヘッダー）。factory-planner 側の同名の環境変数と同じ値にする |
 
 ---
 
