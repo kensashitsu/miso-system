@@ -169,6 +169,8 @@ for (const name of CALC_ORDER) {
       orderLeadDays: ORDER_LEAD_DAYS[name] ?? DEFAULT_ORDER_LEAD_DAYS,
       isFixed: false,
       getCompletion,
+      decidedBy: b.decidedBy,
+      solvedBrewDate: b.solvedBrewDate,
     })
     // 2本立ての相方も候補に入れる
     if (b.pairBrewDate && b.pairCompletionDate && b.pairFermentationDays !== undefined) {
@@ -190,7 +192,8 @@ for (const name of CALC_ORDER) {
 console.log('\n=== 品種ごとの提案（仮登録なしで再計算・置き直す前） ===')
 for (const c of [...candidates].sort((a, b) => +a.brewDate - +b.brewDate)) {
   console.log(` ${dw(c.brewDate)} ${c.misoType.padEnd(6, '　')} 完成${format(c.completionDate, 'M/d')}(${c.fermentationDays}日)`
-    + ` 狙う在庫切れ${format(c.stockOutDate, 'M/d')} 余裕${differenceInDays(c.stockOutDate, c.completionDate)}日`)
+    + ` 狙う在庫切れ${format(c.stockOutDate, 'M/d')} 余裕${differenceInDays(c.stockOutDate, c.completionDate)}日`
+    + ` 決め手=${c.decidedBy ?? '-'}${c.solvedBrewDate ? ` 逆算値${format(c.solvedBrewDate, 'M/d')}` : ''}`)
 }
 
 // ── 現場ルールで週の枠へ置き直す ──────────────────────────
