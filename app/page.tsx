@@ -347,7 +347,7 @@ export default async function DashboardPage() {
       label: days === 0 ? '今日の仕込み' : '今週の仕込み',
       body: `${format(p.brewDate, 'M/d')}（${DOW[p.brewDate.getDay()]}）に ${planLabel(p)} を仕込む予定です`
         + (days === 0 ? '' : `（あと ${days} 日）`)
-        + `。完成予定は ${format(p.completionDate, 'M/d')}`,
+        + `。熟成 ${p.fermentationDays} 日で、完成予定は ${format(p.completionDate, 'M/d')}`,
       href: '/planning',
     })),
     ...nearCompletionLots.map(l => ({
