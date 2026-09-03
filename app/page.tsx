@@ -380,6 +380,7 @@ export default async function DashboardPage() {
         <li key={t.key}>
           <Link
             href={t.href}
+            draggable={false}
             className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition-colors hover:brightness-95 ${toneCls[t.tone]}`}
           >
             {todoIcon(t.icon)}

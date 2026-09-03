@@ -137,3 +137,11 @@
   .no-print { display: none !important; }
   .print-only { display: inline !important; }
 }
+/* リンク内のテキストをドラッグ選択できるようにする。
+   a 要素はドラッグするとリンクのドラッグ＆ドロップが始まり、範囲選択できない。
+   ダッシュボードの「今日やること」など、行ごとリンクにしている箇所の文言を
+   コピーしたいという要望があったため無効化する（クリック遷移はそのまま） */
+a {
+  -webkit-user-drag: none;
+  user-select: text;
+}
