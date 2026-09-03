@@ -105,7 +105,18 @@ export function combineBrewPlans(
 
   // 仮登録済み（確定）を先に置く。新規提案はその空きを埋める形になる
   const fixed = candidates.filter(c => c.isFixed).sort((a, b) => +a.brewDate - +b.brewDate)
-  const fresh = candidates.filter(c => !c.isFixed).sort((a, b) => +a.brewDate - +b.brewDate)
+  // 同じ週を2品種が欲しがったとき、どちらに枠を渡すかは**余裕の少ない方**で決める。
+  // 余裕＝狙う在庫切れ日まで完成が何日間に合うか。マイナスなら既に遅れている。
+  // 品種の並び順で決めると、実際には52日遅れている品種を押しのけて、
+  // 1日しか余裕の差がない品種に枠を渡してしまう（2026-09の実データで確認）。
+  const slackOf = (c: CombineCandidate) => differenceInDays(c.stockOutDate, c.completionDate)
+  const fresh = candidates.filter(c => !c.isFixed).sort((a, b) => {
+    const wa = +mondayOf(a.brewDate), wb = +mondayOf(b.brewDate)
+    if (wa !== wb) return wa - wb
+    const sa = slackOf(a), sb = slackOf(b)
+    if (sa !== sb) return sa - sb
+    return +a.brewDate - +b.brewDate
+  })
 
   for (const c of fixed) {
     const monday = mondayOf(c.brewDate)
