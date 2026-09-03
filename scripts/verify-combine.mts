@@ -142,7 +142,11 @@ for (const name of CALC_ORDER) {
     ? (dt: Date) => mugiInakaBrewDateStrs.includes(d(addDays(dt, -1)))
     : undefined
 
-  const isDoubleBatch = name === '無添加麦みそ'
+  // 出荷ピーク期の2本立ては「完成が10〜12月なら2本」と月で決め打ちしている。
+  // 実際には2本まとめるか田舎と組むかは**その時の在庫**で決まる（2026-09-04 ユーザー確認）。
+  // まとめモードでは2本立てを使わず1本ずつ候補にして、空いた枠は在庫のきつい品種が取る。
+  // DOUBLE=1 を付けて実行すると従来どおり2本立てで計算する（比較用）
+  const isDoubleBatch = (process.env.DOUBLE === '1' && name === '無添加麦みそ')
     ? (c: Date) => PEAK_COMPLETION_MONTHS.includes(c.getMonth() + 1)
     : undefined
 
