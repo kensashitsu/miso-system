@@ -19,6 +19,7 @@ import {
   weekStartOf, expandBlockedWeeks,
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
+import CombinedBrewPlan, { type CombinedPlanInput } from './CombinedBrewPlan'
 import { addBlockedWeek, removeBlockedWeek } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
@@ -127,6 +128,9 @@ interface RecipePlan {
   dailyAccum:       number
   location:         string
   orderLeadDays:    number
+  // 仕込み日を動かしたときに完成日を引き直す関数（常温のみ。それ以外は熟成日数固定）。
+  // 3品種まとめての提案で、週の枠に合わせて日をずらしたときに使う
+  getCompletion:    ((brewDate: Date) => { days: number; completionDate: Date }) | undefined
   batches:          BatchPlan[]
   hasData:          boolean
   canCalc:          boolean
@@ -437,6 +441,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   const [calendarOffsets, setCalendarOffsets] = useState<Record<string, number>>({})
   // 品種ごとの詳細の開閉。全品種の1行サマリーを並べ、開いた品種だけ詳細を出す。
   // 4品種ぶんの詳細（グラフ・提案表・根拠・カレンダー）を常時展開すると縦8,000px超になるため
+  // 提案の見せ方。品種ごと（従来）と、3品種を週の枠にまとめたものを切り替える。
+  // 田舎と無添加の組み合わせ方は品種ごとの計算では出せないため（lib/brewCombine.ts）
+  const [viewMode, setViewMode] = useState<'byType' | 'combined'>('byType')
   const [openTypes,       setOpenTypes]      = useState<Record<string, boolean>>({})
   const openTypesInitRef = useRef(false)
   const [useRawAsBase,    setUseRawAsBase]    = useState(false)
@@ -1098,6 +1105,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       effectiveStock, stockKg, fermentingKg, fermentingCount, safetyStockKg,
       currentSafetyKg: safetyLineAt ? safetyLineAt(today) : null,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
+      getCompletion,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, unreachableStockOut, earliestCompletion0,
       fixedKg: regPlans.length * recipe.totalWeightKg, fixedCount: regPlans.length,
@@ -1446,8 +1454,57 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         </div>
       )}
 
+      {/* 提案の見せ方の切り替え */}
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">提案の出し方</span>
+        <div className="inline-flex rounded-lg border p-0.5">
+          {([['byType', '品種ごと'], ['combined', '3品種まとめて']] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              className={`rounded-md px-2.5 py-1 transition-colors ${
+                viewMode === mode ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {viewMode === 'combined' && (
+          <span className="text-[11px] text-muted-foreground">
+            無添加・田舎・山吹を水木の枠に組んだ案（白みそは対象外）
+          </span>
+        )}
+      </div>
+
+      {viewMode === 'combined' && (
+        <CombinedBrewPlan
+          inputs={plans
+            .filter(p => p.canCalc)
+            .map((p): CombinedPlanInput => ({
+              misoType:      p.name,
+              location:      p.location,
+              orderLeadDays: p.orderLeadDays,
+              getCompletion: p.getCompletion,
+              batches:       p.batches.map(b => ({
+                brewDate:              b.brewDate,
+                completionDate:        b.completionDate,
+                fermentationDays:      b.fermentationDays,
+                materialOrderDeadline: b.materialOrderDeadline,
+                stockOutDate:          b.stockOutDate,
+                isFixed:               b.isFixed,
+                bucketNumbers:         b.bucketNumbers,
+              })),
+            }))}
+          blockedWeeks={blockedWeeks}
+          savedKeys={savedKeys}
+          onSaved={key => setSavedKeys(prev => new Set(prev).add(key))}
+        />
+      )}
+
       {/* 全品種の1行サマリー＋開いた品種だけ詳細（アコーディオン） */}
-      <div className="rounded-lg border overflow-hidden divide-y">
+      <div className={`rounded-lg border overflow-hidden divide-y ${viewMode === 'combined' ? 'hidden' : ''}`}>
         <div className="grid grid-cols-[11rem_8rem_7rem_10rem_8rem_1fr_5rem] gap-x-3 bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
           <span>品種</span>
           <span className="text-right">現在庫</span>
