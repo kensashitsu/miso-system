@@ -27,11 +27,13 @@ export default function MaterialStock({
   basisOrder,
   primaryType,
   incoming,
+  incomingError,
 }: {
   materials:   MaterialStock[]
   basisOrder:  string[]        // 回数の基準にする品種（優先順）
   primaryType: string | null   // 次に仕込む品種。これ以外が基準の行には品種名を添える
   incoming:    IncomingOrder[] // factory-planner の発注中リスト（入荷予定）
+  incomingError: string | null // 発注リストを取れなかった理由（取れていれば null）
 }) {
   if (materials.length === 0) return null
 
@@ -119,6 +121,10 @@ export default function MaterialStock({
         在庫システム（zaiko）の数量。ロットを登録すると自動で引かれます。
         入荷予定は生産管理（factory-planner）の発注リストから
       </p>
+      {/* 取れないときに黙って消えると、発注が無いのか連携が壊れたのか分からない */}
+      {incomingError && (
+        <p className="mt-1 text-[11px] text-amber-700">入荷予定：{incomingError}</p>
+      )}
     </section>
   )
 }

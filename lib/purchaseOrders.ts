@@ -13,21 +13,38 @@ export interface IncomingOrder {
   expectedDateTo:  string | null   // 週指定のときだけ入る（その週の日曜日）
 }
 
-export async function fetchIncomingOrders(): Promise<IncomingOrder[] | null> {
-  const url = process.env.PURCHASE_ORDER_API_URL
-  const key = process.env.PURCHASE_ORDER_API_KEY
-  if (!url || !key) return null
+// 取れなかったときは理由を返す。黙って消えると「発注していないのか、連携が
+// 壊れているのか」が画面から判断できず、原因を追えなくなるため（2026-09-03）
+export interface IncomingOrderResult {
+  orders: IncomingOrder[]
+  error:  string | null
+}
+
+export async function fetchIncomingOrders(): Promise<IncomingOrderResult> {
+  const url = process.env.PURCHASE_ORDER_API_URL?.trim()
+  const key = process.env.PURCHASE_ORDER_API_KEY?.trim()
+  if (!url || !key) {
+    const missing = [!url && 'PURCHASE_ORDER_API_URL', !key && 'PURCHASE_ORDER_API_KEY'].filter(Boolean)
+    return { orders: [], error: `${missing.join(' と ')} が未設定です` }
+  }
 
   try {
     const res = await fetch(url, {
       headers: { 'X-API-Key': key },
       cache:   'no-store',
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      return {
+        orders: [],
+        error: res.status === 401
+          ? '発注リストの認証に失敗しました（APIキーが両システムで一致していません）'
+          : `発注リストの取得に失敗しました（HTTP ${res.status}）`,
+      }
+    }
     const json = await res.json()
     const orders: unknown = json?.orders
-    if (!Array.isArray(orders)) return null
-    return orders
+    if (!Array.isArray(orders)) return { orders: [], error: '発注リストの形式が想定と違います' }
+    const parsed = orders
       .filter((o): boolean => {
         if (typeof o !== 'object' || o === null) return false
         const obj = o as Record<string, unknown>
@@ -44,8 +61,9 @@ export async function fetchIncomingOrders(): Promise<IncomingOrder[] | null> {
           expectedDateTo: typeof obj.expectedDateTo === 'string' ? obj.expectedDateTo : null,
         }
       })
-  } catch {
-    return null
+    return { orders: parsed, error: null }
+  } catch (e) {
+    return { orders: [], error: `発注リストに接続できません（${e instanceof Error ? e.message : String(e)}）` }
   }
 }
 

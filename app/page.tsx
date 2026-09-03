@@ -456,7 +456,8 @@ export default async function DashboardPage() {
             materials={materialStock}
             basisOrder={materialBasisOrder}
             primaryType={materialBaseType}
-            incoming={incomingOrders ?? []}
+            incoming={incomingOrders.orders}
+            incomingError={incomingOrders.error}
           />
         )}
         </div>
