@@ -23,6 +23,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements-forecast.txt
 
+      # 予測の前にDBの出荷実績を最新にする。画面は外部APIの値を毎回マージしているが
+      # DBには保存していなかったため、SARIMAXが直近の実績を知らないまま学習していた
+      - name: Sync shipment history
+        env:
+          DATABASE_URL:     ${{ secrets.FORECAST_DATABASE_URL }}
+          SALES_API_URL:    ${{ secrets.SALES_API_URL }}
+          EXTERNAL_API_KEY: ${{ secrets.EXTERNAL_API_KEY }}
+        run: python scripts/sync_shipments.py
+
       - name: Run forecast script
         env:
           DATABASE_URL: ${{ secrets.FORECAST_DATABASE_URL }}
