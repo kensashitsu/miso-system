@@ -91,15 +91,22 @@ export default function CombinedStockChart({
       supply.set(k, (supply.get(k) ?? 0) + s.batchKg)
     }
 
-    const rows: Row[] = []
+    const daily: Row[] = []
     let stock = s.effectiveStock
     for (let i = 0; i < days; i++) {
       const date = addDays(today, i)
       const k    = format(date, 'yyyy-MM-dd')
       stock += supply.get(k) ?? 0
       stock -= s.getDailyRateFn(date)
-      rows.push({ d: k, kg: Math.round(stock), safety: Math.round(s.safetyLineFn ? s.safetyLineFn(date) : 0) })
+      daily.push({ d: k, kg: Math.round(stock), safety: Math.round(s.safetyLineFn ? s.safetyLineFn(date) : 0) })
     }
+    // 描画点を間引いてから階段（stepAfter）で描く。品種別グラフと同じ作りで、
+    // 毎日ぶんの下り坂より階段のほうが感覚的に読みやすいというユーザー判断（2026-09-04）。
+    // 補充ジャンプの前後の点は形が崩れるので必ず残す
+    const step = Math.max(1, Math.ceil(daily.length / 180))
+    const rows = step === 1 ? daily : daily.filter((p, i) =>
+      i % step === 0 || i === daily.length - 1 ||
+      supply.has(p.d) || (i + 1 < daily.length && supply.has(daily[i + 1].d)))
 
     const marks = placed
       .filter(b => b.misoType === s.misoType)
@@ -113,7 +120,7 @@ export default function CombinedStockChart({
           sub:  `${format(b.brewDate, 'M/d')}仕込 ${b.fermentationDays}日`,
         },
       ]))
-      .map(m => ({ ...m, kg: rows.find(r => r.d === m.d)?.kg }))
+      .map(m => ({ ...m, kg: daily.find(r => r.d === m.d)?.kg }))
       .filter((m): m is { kind: '仕込み' | '完成'; d: string; main: string; sub: string; kg: number } =>
         typeof m.kg === 'number')
       .sort((a, b) => a.d.localeCompare(b.d))
@@ -200,7 +207,7 @@ export default function CombinedStockChart({
                   ]}
                 />
                 <Area
-                  type="linear"
+                  type="stepAfter"
                   dataKey="kg"
                   name="在庫見込み"
                   stroke={color}
