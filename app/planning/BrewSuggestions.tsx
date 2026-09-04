@@ -174,7 +174,11 @@ interface RecipePlan {
   monthlyDemand:    Record<string, number>  // 'yyyy-MM' → その月の需要見込み(kg)。グラフの月境界に出す
 }
 
-const BATCH_OPTIONS = [1, 3, 5] as const
+// 表示回数。5回分だと来年1年分に届かない（無添加は年21回の仕込みが要る）ため、
+// 年間の計画を通して見られるところまで選べるようにする（2026-09-04）
+const BATCH_OPTIONS = [1, 3, 5, 10, 20] as const
+// 手動固定を読み書きする回数の上限。表示回数の最大に合わせる
+const MAX_PIN_INDEX = Math.max(...BATCH_OPTIONS)
 
 const WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'] as const
 
@@ -515,8 +519,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       // 本登録済み（ロット化済み）と同じ日付の手動調整ピンは実現済みなので自動解除する。
       // これがないと本登録後もその回が古い日付に固定表示され続ける。
       const doneDates = registeredDoneDatesByType?.[r.name] ?? []
-      // 回ごと（最大5回分・0始まり）の手動固定を読み込む。1回目のみ後方互換でinitialManualBrewDatesも見る
-      for (let idx = 0; idx < 5; idx++) {
+      // 回ごと（0始まり）の手動固定を読み込む。1回目のみ後方互換でinitialManualBrewDatesも見る
+      for (let idx = 0; idx < MAX_PIN_INDEX; idx++) {
         const key        = manualDateKey(r.name, idx)
         const storedDate = localStorage.getItem(`planning_manualDate_${key}`)
           ?? (idx === 0 ? initialManualBrewDates?.[r.name] : undefined)
@@ -1796,12 +1800,12 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                     <button
                       type="button"
                       onClick={() => {
-                        for (let idx = 0; idx < 5; idx++) {
+                        for (let idx = 0; idx < MAX_PIN_INDEX; idx++) {
                           localStorage.removeItem(`planning_manualDate_${manualDateKey(plan.name, idx)}`)
                         }
                         setManualBrewDates(prev => {
                           const n = { ...prev }
-                          for (let idx = 0; idx < 5; idx++) delete n[manualDateKey(plan.name, idx)]
+                          for (let idx = 0; idx < MAX_PIN_INDEX; idx++) delete n[manualDateKey(plan.name, idx)]
                           return n
                         })
                       }}

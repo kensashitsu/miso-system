@@ -188,7 +188,8 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
     // 削除と同時に消しておく（仕込み提案画面はlocalStorageで手動ピンを管理・
     // 回ごとに1回目=品種名のみ、2回目以降=品種名#インデックスのキー）。
     const brewDateStr = format(plan.brewDate, 'yyyy-MM-dd')
-    for (let idx = 0; idx < 5; idx++) {
+    // 表示回数の最大（20回分）まで見る
+    for (let idx = 0; idx < 20; idx++) {
       const key = `planning_manualDate_${idx === 0 ? plan.misoType : `${plan.misoType}#${idx}`}`
       if (localStorage.getItem(key) === brewDateStr) {
         localStorage.removeItem(key)
