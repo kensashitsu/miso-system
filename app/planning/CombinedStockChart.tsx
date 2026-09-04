@@ -36,6 +36,23 @@ export interface StockSeriesInput {
 
 interface Row { d: string; kg: number; safety: number }
 
+// 完成点に添えるラベル。1行目＝桶番号、2行目＝仕込み日と熟成日数。
+// 1行に繋げると隣の完成点のラベルと重なって読めない（品種ごとのグラフと同じ扱い）
+function completionLabel(main: string, sub: string, color: string, lift: number) {
+  return (props: { viewBox?: { x?: number; y?: number } }) => {
+    const { x = 0, y = 0 } = props.viewBox ?? {}
+    return (
+      <text
+        x={x} y={y - lift} textAnchor="middle" fill={color}
+        stroke="#fff" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
+      >
+        <tspan x={x} dy={-14} fontSize={9}>{main}</tspan>
+        <tspan x={x} dy={9} fontSize={8} fillOpacity={0.75}>{sub}</tspan>
+      </text>
+    )
+  }
+}
+
 export default function CombinedStockChart({
   series,
   placed,
@@ -73,13 +90,34 @@ export default function CombinedStockChart({
     const marks = placed
       .filter(b => b.misoType === s.misoType)
       .flatMap(b => ([
-        { kind: '仕込み' as const, d: format(b.brewDate, 'yyyy-MM-dd') },
-        { kind: '完成'   as const, d: format(b.completionDate, 'yyyy-MM-dd') },
+        { kind: '仕込み' as const, d: format(b.brewDate, 'yyyy-MM-dd'), main: '', sub: '' },
+        {
+          kind: '完成' as const,
+          d:    format(b.completionDate, 'yyyy-MM-dd'),
+          // 桶番号は仮登録のときに採番されるので、未登録の提案にはまだ無い
+          main: b.bucketNumbers ? `桶${b.bucketNumbers}` : '桶未定',
+          sub:  `${format(b.brewDate, 'M/d')}仕込 ${b.fermentationDays}日`,
+        },
       ]))
       .map(m => ({ ...m, kg: rows.find(r => r.d === m.d)?.kg }))
-      .filter((m): m is { kind: '仕込み' | '完成'; d: string; kg: number } => typeof m.kg === 'number')
+      .filter((m): m is { kind: '仕込み' | '完成'; d: string; main: string; sub: string; kg: number } =>
+        typeof m.kg === 'number')
+      .sort((a, b) => a.d.localeCompare(b.d))
 
-    return { misoType: s.misoType, rows, marks }
+    // 完成点が近いとラベル同士が重なるので、近接するものは1段上げて互い違いにする
+    let lastCompletion = ''
+    let lifted = false
+    const marksWithLift = marks.map(m => {
+      if (m.kind !== '完成') return { ...m, lift: 0 }
+      const gapDays = lastCompletion
+        ? (new Date(m.d + 'T00:00:00').getTime() - new Date(lastCompletion + 'T00:00:00').getTime()) / 86400000
+        : Infinity
+      lifted = gapDays <= 21 ? !lifted : false
+      lastCompletion = m.d
+      return { ...m, lift: lifted ? 20 : 0 }
+    })
+
+    return { misoType: s.misoType, rows, marks: marksWithLift }
   }), [series, placed, days, today])
 
   if (panels.length === 0) return null
@@ -104,8 +142,8 @@ export default function CombinedStockChart({
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: color }} />
               <span className="text-[11px] font-medium text-gray-800">{p.misoType}</span>
             </div>
-            <ResponsiveContainer width="100%" height={isLast ? 130 : 112}>
-              <ComposedChart data={p.rows} margin={{ top: 4, right: 12, bottom: isLast ? 0 : 2, left: 4 }}>
+            <ResponsiveContainer width="100%" height={isLast ? 176 : 158}>
+              <ComposedChart data={p.rows} margin={{ top: 40, right: 12, bottom: isLast ? 0 : 2, left: 4 }}>
                 <CartesianGrid stroke="#f1efec" vertical={false} />
                 <XAxis
                   dataKey="d"
@@ -162,6 +200,7 @@ export default function CombinedStockChart({
                     fill={m.kind === '仕込み' ? '#ffffff' : color}
                     stroke={color}
                     strokeWidth={2}
+                    label={m.kind === '完成' ? completionLabel(m.main, m.sub, color, m.lift) : undefined}
                   />
                 ))}
               </ComposedChart>
@@ -172,7 +211,8 @@ export default function CombinedStockChart({
 
       <p className="mt-1 text-[11px] text-muted-foreground">
         面＝在庫見込み／橙の破線＝その品種の安全在庫ライン（冬は厚くなるので段が付きます）。
-        白丸＝仕込み日、塗り丸＝完成日。面が破線より下にある期間はラインを割っている見込みです
+        白丸＝仕込み日、塗り丸＝完成日（桶番号と、いつ何日熟成した分かを添えています）。
+        面が破線より下にある期間はラインを割っている見込みです
       </p>
     </div>
   )
