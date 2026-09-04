@@ -1,30 +1,29 @@
 'use client'
 
 import { useMemo } from 'react'
-import { addDays, differenceInDays, format, startOfDay } from 'date-fns'
+import { addDays, format, startOfDay } from 'date-fns'
 import {
-  ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
-  ReferenceDot, ReferenceArea, ResponsiveContainer, Legend,
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ReferenceLine, ReferenceDot, ResponsiveContainer,
 } from 'recharts'
 import type { PlacedBrew } from '@/lib/brewCombine'
 
 // まとめ提案の根拠。
 //
-// 割り当ては「同じ週を取り合ったら安全在庫ラインまでの余裕が少ない品種が枠を取る」
-// というルールなので、縦軸を **ラインからの余裕（kg）** にすれば、割り当ての理由が
-// そのまま絵になる。0 の線が安全在庫ラインで、線が 0 を割り込む手前に仕込みが入る。
+// 3品種を1枚に重ねると、鋸歯が3本交差して読めないうえ、安全在庫ラインが
+// どの品種のものか分からなくなる（ラインの高さは品種ごとに違う）。
+// **縦に3段に分ける**と線は交差せず、ラインもその段の品種のものだと一目で分かる。
+// 見せ方は品種ごとの提案のグラフ（StockProjectionChart）に揃えている
+// ＝実在庫の面グラフ＋安全在庫ラインの破線。
 //
-// kgの実数を3品種そのまま重ねると、ラインの高さ（無添加1,600／田舎1,600・冬2,000／
-// 山吹は通年なし）が品種ごとに違うので上下関係に意味が出ない。差分にすると
-// 「どの品種が先に苦しくなるか」が同じ土俵で比べられる。
-//
-// 色は品種の identity（緑＝無添加／茶橙＝田舎／藍＝山吹）を保ちつつ、線として
-// 読める明るさに寄せたもの。色覚特性・コントラストの検証を通してある。
+// x軸は3段で共通なので、ある週を縦に見れば「そのときどの品種が苦しいか」を比べられる。
+// 枠の取り合いは余裕の少ない品種が勝つので、これがそのまま割り当ての根拠になる。
 export const SERIES_COLOR: Record<string, string> = {
   '無添加麦みそ': '#12A47A',
   '田舎みそ':     '#C97A0E',
   '山吹みそ':     '#6355E0',
 }
+const SAFETY_COLOR = '#d97706'   // amber-600（品種ごとのグラフと同じ）
 
 export interface StockSeriesInput {
   misoType:         string
@@ -35,7 +34,7 @@ export interface StockSeriesInput {
   batchKg:          number
 }
 
-interface Row { d: string; [key: string]: number | string | null }
+interface Row { d: string; kg: number; safety: number }
 
 export default function CombinedStockChart({
   series,
@@ -48,171 +47,132 @@ export default function CombinedStockChart({
 }) {
   const today = startOfDay(new Date())
 
-  const { rows, marks } = useMemo(() => {
-    const rows: Row[] = []
-    const marks: { d: string; kg: number; misoType: string; kind: '仕込み' | '完成' }[] = []
-
-    // 品種ごとに日次で在庫を積む。補充は「熟成中＋仮登録の完成」＋「まとめ提案の完成」
-    const stateByType = new Map<string, { stock: number; supply: Map<string, number> }>()
-    for (const s of series) {
-      const supply = new Map<string, number>()
-      for (const e of s.baseSupplyEvents) {
-        const k = format(e.date, 'yyyy-MM-dd')
-        supply.set(k, (supply.get(k) ?? 0) + e.kg)
-      }
-      // 仮登録済み（isFixed）の完成は baseSupplyEvents に既に入っているので足さない（二重計上になる）
-      for (const b of placed.filter(b => b.misoType === s.misoType && !b.isFixed)) {
-        const k = format(b.completionDate, 'yyyy-MM-dd')
-        supply.set(k, (supply.get(k) ?? 0) + s.batchKg)
-      }
-      stateByType.set(s.misoType, { stock: s.effectiveStock, supply })
+  const panels = useMemo(() => series.map(s => {
+    // 補充は「熟成中＋仮登録の完成」＋「まとめ提案の完成」。
+    // 仮登録済み（isFixed）は baseSupplyEvents に既に入っているので足さない（二重計上になる）
+    const supply = new Map<string, number>()
+    for (const e of s.baseSupplyEvents) {
+      const k = format(e.date, 'yyyy-MM-dd')
+      supply.set(k, (supply.get(k) ?? 0) + e.kg)
+    }
+    for (const b of placed.filter(b => b.misoType === s.misoType && !b.isFixed)) {
+      const k = format(b.completionDate, 'yyyy-MM-dd')
+      supply.set(k, (supply.get(k) ?? 0) + s.batchKg)
     }
 
+    const rows: Row[] = []
+    let stock = s.effectiveStock
     for (let i = 0; i < days; i++) {
       const date = addDays(today, i)
       const k    = format(date, 'yyyy-MM-dd')
-      const row: Row = { d: k }
-      for (const s of series) {
-        const st = stateByType.get(s.misoType)!
-        st.stock += st.supply.get(k) ?? 0
-        st.stock -= s.getDailyRateFn(date)
-        const line = s.safetyLineFn ? s.safetyLineFn(date) : 0
-        row[s.misoType] = Math.round(st.stock - line)
-        // 縦軸は余裕（ライン基準）だが、実在庫が読めないと「在庫がマイナス」と誤読される。
-        // ツールチップで実数も出すため一緒に持たせる
-        row[`${s.misoType}__kg`]   = Math.round(st.stock)
-        row[`${s.misoType}__line`] = Math.round(line)
-      }
-      rows.push(row)
+      stock += supply.get(k) ?? 0
+      stock -= s.getDailyRateFn(date)
+      rows.push({ d: k, kg: Math.round(stock), safety: Math.round(s.safetyLineFn ? s.safetyLineFn(date) : 0) })
     }
 
-    // 仕込み・完成の点はその日の余裕の高さに置く（線の上に乗る）
-    for (const b of placed) {
-      for (const [kind, date] of [['仕込み', b.brewDate], ['完成', b.completionDate]] as const) {
-        const k = format(date, 'yyyy-MM-dd')
-        const row = rows.find(r => r.d === k)
-        const v = row?.[b.misoType]
-        if (typeof v === 'number') marks.push({ d: k, kg: v, misoType: b.misoType, kind })
-      }
-    }
-    return { rows, marks }
-  }, [series, placed, days, today])
+    const marks = placed
+      .filter(b => b.misoType === s.misoType)
+      .flatMap(b => ([
+        { kind: '仕込み' as const, d: format(b.brewDate, 'yyyy-MM-dd') },
+        { kind: '完成'   as const, d: format(b.completionDate, 'yyyy-MM-dd') },
+      ]))
+      .map(m => ({ ...m, kg: rows.find(r => r.d === m.d)?.kg }))
+      .filter((m): m is { kind: '仕込み' | '完成'; d: string; kg: number } => typeof m.kg === 'number')
 
-  if (series.length === 0 || rows.length === 0) return null
+    return { misoType: s.misoType, rows, marks }
+  }), [series, placed, days, today])
 
-  // 目盛りは月初だけ。日付を全部出すと読めない
-  const monthTicks = rows.filter(r => r.d.endsWith('-01')).map(r => r.d)
-  const minY = rows.reduce((mn, r) => {
-    for (const s of series) {
-      const v = r[s.misoType]
-      if (typeof v === 'number' && v < mn) mn = v
-    }
-    return mn
-  }, 0)
+  if (panels.length === 0) return null
+
+  const monthTicks = panels[0].rows.filter(r => r.d.endsWith('-01')).map(r => r.d)
+
   return (
     <div className="rounded-lg border bg-white p-3">
-      <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
+      <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
         <h4 className="text-xs font-semibold text-gray-900">なぜこの組み方になるか</h4>
         <span className="text-[11px] text-muted-foreground">
-          縦軸は<b className="font-medium">安全在庫ラインまでの余裕（kg）</b>。0より下は在庫がマイナスという意味ではなく、ラインを割っている状態です
+          品種ごとの在庫見込みと安全在庫ライン。同じ週を2品種が取り合ったら、ラインまでの余裕が少ないほうが枠を取ります
         </span>
       </div>
-      <ResponsiveContainer width="100%" height={260}>
-        <ComposedChart data={rows} margin={{ top: 8, right: 16, bottom: 4, left: 4 }}>
-          <CartesianGrid stroke="#eceae6" vertical={false} />
-          <XAxis
-            dataKey="d"
-            ticks={monthTicks}
-            tickFormatter={v => format(new Date(v + 'T00:00:00'), 'M月')}
-            tick={{ fontSize: 11, fill: '#6b7280' }}
-            axisLine={{ stroke: '#e5e7eb' }}
-            tickLine={false}
-          />
-          <YAxis
-            tick={{ fontSize: 11, fill: '#6b7280' }}
-            axisLine={false}
-            tickLine={false}
-            width={54}
-            tickFormatter={v => `${(v as number).toLocaleString()}`}
-          />
-          {/* 0より下＝安全在庫ラインを割っている領域。在庫がマイナスという意味ではない */}
-          <ReferenceArea y1={minY} y2={0} fill="#f43f5e" fillOpacity={0.05} />
-          <ReferenceLine
-            y={0}
-            stroke="#9ca3af"
-            strokeWidth={2}
-            label={{ value: '安全在庫ライン', position: 'insideTopLeft', fontSize: 10, fill: '#6b7280' }}
-          />
-          <Tooltip
-            contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
-            content={({ active, payload, label }) => {
-              if (!active || !payload || payload.length === 0) return null
-              const row = payload[0].payload as Row
-              return (
-                <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[11px] shadow-sm">
-                  <div className="mb-1 font-medium text-gray-900">
-                    {format(new Date(String(label) + 'T00:00:00'), 'yyyy/M/d')}
-                  </div>
-                  {series.map(s => {
-                    const gap  = row[s.misoType]
-                    const kg   = row[`${s.misoType}__kg`]
-                    const line = row[`${s.misoType}__line`]
-                    if (typeof gap !== 'number') return null
-                    return (
-                      <div key={s.misoType} className="flex items-center gap-1.5 whitespace-nowrap">
-                        <span
-                          className="inline-block h-2 w-2 shrink-0 rounded-full"
-                          style={{ background: SERIES_COLOR[s.misoType] ?? '#6b7280' }}
-                        />
-                        <span className="text-gray-700">{s.misoType}</span>
-                        <span className="tabular-nums text-gray-900">
-                          在庫 {Number(kg).toLocaleString()} kg
-                        </span>
-                        <span className="tabular-nums text-muted-foreground">
-                          （ライン {Number(line).toLocaleString()} kg・
-                          {gap >= 0 ? `余裕 ${gap.toLocaleString()}` : `${Math.abs(gap).toLocaleString()} 不足`} kg）
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            }}
-          />
-          <Legend
-            verticalAlign="top"
-            height={24}
-            iconType="plainline"
-            wrapperStyle={{ fontSize: 11 }}
-          />
-          {series.map(s => (
-            <Line
-              key={s.misoType}
-              type="monotone"
-              dataKey={s.misoType}
-              stroke={SERIES_COLOR[s.misoType] ?? '#6b7280'}
-              strokeWidth={2}
-              dot={false}
-              isAnimationActive={false}
-            />
-          ))}
-          {marks.map((m, i) => (
-            <ReferenceDot
-              key={`${m.d}-${m.misoType}-${m.kind}-${i}`}
-              x={m.d}
-              y={m.kg}
-              r={m.kind === '仕込み' ? 4 : 5}
-              fill={m.kind === '仕込み' ? '#ffffff' : (SERIES_COLOR[m.misoType] ?? '#6b7280')}
-              stroke={SERIES_COLOR[m.misoType] ?? '#6b7280'}
-              strokeWidth={2}
 
-            />
-          ))}
-        </ComposedChart>
-      </ResponsiveContainer>
+      {panels.map((p, idx) => {
+        const isLast = idx === panels.length - 1
+        const color  = SERIES_COLOR[p.misoType] ?? '#6b7280'
+        return (
+          <div key={p.misoType} className={isLast ? '' : 'mb-1'}>
+            <div className="flex items-baseline gap-1.5 pl-1">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ background: color }} />
+              <span className="text-[11px] font-medium text-gray-800">{p.misoType}</span>
+            </div>
+            <ResponsiveContainer width="100%" height={isLast ? 130 : 112}>
+              <ComposedChart data={p.rows} margin={{ top: 4, right: 12, bottom: isLast ? 0 : 2, left: 4 }}>
+                <CartesianGrid stroke="#f1efec" vertical={false} />
+                <XAxis
+                  dataKey="d"
+                  ticks={monthTicks}
+                  tickFormatter={v => format(new Date(v + 'T00:00:00'), 'M月')}
+                  tick={isLast ? { fontSize: 11, fill: '#6b7280' } : false}
+                  height={isLast ? 20 : 1}
+                  axisLine={{ stroke: '#e5e7eb' }}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#6b7280' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={54}
+                  tickFormatter={v => (v as number).toLocaleString()}
+                />
+                <Tooltip
+                  contentStyle={{ fontSize: 11, padding: '4px 8px', borderRadius: 8, border: '1px solid #e5e7eb' }}
+                  labelFormatter={v => format(new Date(String(v) + 'T00:00:00'), 'yyyy/M/d')}
+                  formatter={(v, name) => [
+                    `${Math.round(Number(v ?? 0)).toLocaleString()} kg`,
+                    name === 'safety' ? '安全在庫ライン' : '在庫見込み',
+                  ]}
+                />
+                <Area
+                  type="linear"
+                  dataKey="kg"
+                  name="在庫見込み"
+                  stroke={color}
+                  strokeWidth={1.8}
+                  fill={color}
+                  fillOpacity={0.1}
+                  isAnimationActive={false}
+                />
+                {/* 冬季はラインが変わるので階段で描く（品種ごとのグラフと同じ扱い） */}
+                <Line
+                  type="stepAfter"
+                  dataKey="safety"
+                  name="safety"
+                  stroke={SAFETY_COLOR}
+                  strokeDasharray="4 3"
+                  strokeWidth={1.5}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <ReferenceLine y={0} stroke="#e5e7eb" />
+                {p.marks.map((m, i) => (
+                  <ReferenceDot
+                    key={`${m.d}-${m.kind}-${i}`}
+                    x={m.d}
+                    y={m.kg}
+                    r={m.kind === '仕込み' ? 4 : 5}
+                    fill={m.kind === '仕込み' ? '#ffffff' : color}
+                    stroke={color}
+                    strokeWidth={2}
+                  />
+                ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      })}
+
       <p className="mt-1 text-[11px] text-muted-foreground">
-        白丸＝仕込み日／塗り丸＝完成日（その日に生産量が入る）。同じ週を2品種が取り合ったら、
-        余裕の少ない品種が枠を取ります。実在庫の数量は線にカーソルを合わせると出ます
+        面＝在庫見込み／橙の破線＝その品種の安全在庫ライン（冬は厚くなるので段が付きます）。
+        白丸＝仕込み日、塗り丸＝完成日。面が破線より下にある期間はラインを割っている見込みです
       </p>
     </div>
   )
