@@ -118,6 +118,10 @@ export default function CombinedBrewPlan({
     const saved  = b.isFixed || savedKeys.has(key)
     return (
       <span className="flex flex-wrap items-center gap-1.5">
+        {/* 「その週の水曜」では何日か分からないので、日付そのものを先頭に出す */}
+        <span className="tabular-nums font-medium text-foreground whitespace-nowrap">
+          {format(b.brewDate, 'M/d')}（{DOW[b.brewDate.getDay()]}）
+        </span>
         <span
           className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap"
           style={getMisoTypeBadgeStyle(b.misoType)}
