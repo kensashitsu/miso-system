@@ -1789,6 +1789,27 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                       {urgencyBadge.label}
                     </span>
                   )}
+                  {/* 手動固定（調整済）が残っていると、仮登録を動かしたあとに古い日付の提案が
+                      復活して見える。1つずつ×を押さなくてもまとめて戻せるようにする */}
+                  {plan.manualPinIndices.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (let idx = 0; idx < 5; idx++) {
+                          localStorage.removeItem(`planning_manualDate_${manualDateKey(plan.name, idx)}`)
+                        }
+                        setManualBrewDates(prev => {
+                          const n = { ...prev }
+                          for (let idx = 0; idx < 5; idx++) delete n[manualDateKey(plan.name, idx)]
+                          return n
+                        })
+                      }}
+                      className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+                      title="手動で固定した仕込み日をすべてAI推奨日に戻します"
+                    >
+                      手動調整を解除（{plan.manualPinIndices.length}件）
+                    </button>
+                  )}
                   {mapeBadge && (
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${mapeBadge.cls}`}
