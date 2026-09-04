@@ -131,6 +131,11 @@ interface RecipePlan {
   // 仕込み日を動かしたときに完成日を引き直す関数（常温のみ。それ以外は熟成日数固定）。
   // 3品種まとめての提案で、週の枠に合わせて日をずらしたときに使う
   getCompletion:    ((brewDate: Date) => { days: number; completionDate: Date }) | undefined
+  // まとめ提案の根拠グラフ用。置き直した仕込み日で在庫推移を引き直すのに要る
+  getDailyRateFn:   (date: Date) => number
+  safetyLineFn:     ((date: Date) => number) | null
+  baseSupplyEvents: { date: Date; kg: number }[]   // 熟成中ロット＋仮登録の完成（新規提案は含まない）
+  batchKg:          number
   batches:          BatchPlan[]
   hasData:          boolean
   canCalc:          boolean
@@ -1109,6 +1114,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       currentSafetyKg: safetyLineAt ? safetyLineAt(today) : null,
       dailyRate, dailyAccum, location: selectedLocation, orderLeadDays,
       getCompletion,
+      getDailyRateFn,
+      safetyLineFn:     safetyLineAt,
+      baseSupplyEvents: baseSupplyEvents.map(e => ({ date: e.date, kg: e.kg })),
+      batchKg:          recipe.totalWeightKg,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, unreachableStockOut, earliestCompletion0,
       fixedKg: regPlans.length * recipe.totalWeightKg, fixedCount: regPlans.length,
@@ -1534,6 +1543,11 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               location:      p.location,
               orderLeadDays: p.orderLeadDays,
               getCompletion: p.getCompletion,
+              effectiveStock:   p.effectiveStock,
+              getDailyRateFn:   p.getDailyRateFn,
+              safetyLineFn:     p.safetyLineFn,
+              baseSupplyEvents: p.baseSupplyEvents,
+              batchKg:          p.batchKg,
               batches:       p.batches.map(b => ({
                 brewDate:              b.brewDate,
                 completionDate:        b.completionDate,

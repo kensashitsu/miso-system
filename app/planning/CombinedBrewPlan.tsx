@@ -8,6 +8,7 @@ import {
   type CombineCandidate, type PlacedBrew,
 } from '@/lib/brewCombine'
 import { createBrewPlan } from './brew-plan-actions'
+import CombinedStockChart, { type StockSeriesInput } from './CombinedStockChart'
 
 // 3品種（無添加・田舎・山吹）をまとめた仕込み提案。
 // 品種ごとの提案は在庫切れからの逆算をそれぞれ独立にやるため、田舎と無添加が
@@ -19,6 +20,12 @@ export interface CombinedPlanInput {
   misoType:      string
   location:      string
   orderLeadDays: number
+  // 根拠グラフ用（在庫推移の引き直しに要る）
+  effectiveStock:   number
+  getDailyRateFn:   (date: Date) => number
+  safetyLineFn:     ((date: Date) => number) | null
+  baseSupplyEvents: { date: Date; kg: number }[]
+  batchKg:          number
   getCompletion?: (brewDate: Date) => { days: number; completionDate: Date }
   batches: {
     brewDate:              Date
@@ -145,8 +152,22 @@ export default function CombinedBrewPlan({
     )
   }
 
+  // 置き直したあとの仕込み（グラフの補充と点に使う）
+  const placed = weeks.flatMap(w => [w.wed, w.thu].filter(Boolean) as PlacedBrew[])
+  const series: StockSeriesInput[] = inputs
+    .filter(p => TARGET_TYPES.includes(p.misoType))
+    .map(p => ({
+      misoType:         p.misoType,
+      effectiveStock:   p.effectiveStock,
+      getDailyRateFn:   p.getDailyRateFn,
+      safetyLineFn:     p.safetyLineFn,
+      baseSupplyEvents: p.baseSupplyEvents,
+      batchKg:          p.batchKg,
+    }))
+
   return (
     <div className="space-y-2">
+      <CombinedStockChart series={series} placed={placed} />
       <div className="rounded-lg border overflow-hidden">
         <div className="grid grid-cols-[7rem_1fr_1fr_10rem] gap-x-3 bg-muted/50 px-3 py-1.5 text-[11px] text-muted-foreground">
           <span>週</span>
