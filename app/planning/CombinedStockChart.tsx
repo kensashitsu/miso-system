@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { addDays, differenceInDays, format, startOfDay } from 'date-fns'
 import {
   ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
-  ReferenceDot, ResponsiveContainer, Legend,
+  ReferenceDot, ReferenceArea, ResponsiveContainer, Legend,
 } from 'recharts'
 import type { PlacedBrew } from '@/lib/brewCombine'
 
@@ -78,6 +78,10 @@ export default function CombinedStockChart({
         st.stock -= s.getDailyRateFn(date)
         const line = s.safetyLineFn ? s.safetyLineFn(date) : 0
         row[s.misoType] = Math.round(st.stock - line)
+        // 縦軸は余裕（ライン基準）だが、実在庫が読めないと「在庫がマイナス」と誤読される。
+        // ツールチップで実数も出すため一緒に持たせる
+        row[`${s.misoType}__kg`]   = Math.round(st.stock)
+        row[`${s.misoType}__line`] = Math.round(line)
       }
       rows.push(row)
     }
@@ -98,12 +102,19 @@ export default function CombinedStockChart({
 
   // 目盛りは月初だけ。日付を全部出すと読めない
   const monthTicks = rows.filter(r => r.d.endsWith('-01')).map(r => r.d)
+  const minY = rows.reduce((mn, r) => {
+    for (const s of series) {
+      const v = r[s.misoType]
+      if (typeof v === 'number' && v < mn) mn = v
+    }
+    return mn
+  }, 0)
   return (
     <div className="rounded-lg border bg-white p-3">
       <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
         <h4 className="text-xs font-semibold text-gray-900">なぜこの組み方になるか</h4>
         <span className="text-[11px] text-muted-foreground">
-          縦軸は安全在庫ラインからの余裕。0を割り込む手前に仕込みが入る。同じ週を取り合ったら余裕の少ない品種が枠を取る
+          縦軸は<b className="font-medium">安全在庫ラインまでの余裕（kg）</b>。0より下は在庫がマイナスという意味ではなく、ラインを割っている状態です
         </span>
       </div>
       <ResponsiveContainer width="100%" height={260}>
@@ -124,12 +135,49 @@ export default function CombinedStockChart({
             width={54}
             tickFormatter={v => `${(v as number).toLocaleString()}`}
           />
-          {/* 0＝安全在庫ライン。ここを割ると在庫が薄い */}
-          <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={2} />
+          {/* 0より下＝安全在庫ラインを割っている領域。在庫がマイナスという意味ではない */}
+          <ReferenceArea y1={minY} y2={0} fill="#f43f5e" fillOpacity={0.05} />
+          <ReferenceLine
+            y={0}
+            stroke="#9ca3af"
+            strokeWidth={2}
+            label={{ value: '安全在庫ライン', position: 'insideTopLeft', fontSize: 10, fill: '#6b7280' }}
+          />
           <Tooltip
-            labelFormatter={v => format(new Date(String(v) + 'T00:00:00'), 'yyyy/M/d')}
-            formatter={(value, name) => [`${Number(value).toLocaleString()} kg`, String(name)]}
             contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+            content={({ active, payload, label }) => {
+              if (!active || !payload || payload.length === 0) return null
+              const row = payload[0].payload as Row
+              return (
+                <div className="rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-[11px] shadow-sm">
+                  <div className="mb-1 font-medium text-gray-900">
+                    {format(new Date(String(label) + 'T00:00:00'), 'yyyy/M/d')}
+                  </div>
+                  {series.map(s => {
+                    const gap  = row[s.misoType]
+                    const kg   = row[`${s.misoType}__kg`]
+                    const line = row[`${s.misoType}__line`]
+                    if (typeof gap !== 'number') return null
+                    return (
+                      <div key={s.misoType} className="flex items-center gap-1.5 whitespace-nowrap">
+                        <span
+                          className="inline-block h-2 w-2 shrink-0 rounded-full"
+                          style={{ background: SERIES_COLOR[s.misoType] ?? '#6b7280' }}
+                        />
+                        <span className="text-gray-700">{s.misoType}</span>
+                        <span className="tabular-nums text-gray-900">
+                          在庫 {Number(kg).toLocaleString()} kg
+                        </span>
+                        <span className="tabular-nums text-muted-foreground">
+                          （ライン {Number(line).toLocaleString()} kg・
+                          {gap >= 0 ? `余裕 ${gap.toLocaleString()}` : `${Math.abs(gap).toLocaleString()} 不足`} kg）
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            }}
           />
           <Legend
             verticalAlign="top"
@@ -163,8 +211,8 @@ export default function CombinedStockChart({
         </ComposedChart>
       </ResponsiveContainer>
       <p className="mt-1 text-[11px] text-muted-foreground">
-        白丸＝仕込み日／塗り丸＝完成日（その日に生産量が入る）。線が0より下にある期間は
-        安全在庫ラインを割っている見込みです
+        白丸＝仕込み日／塗り丸＝完成日（その日に生産量が入る）。同じ週を2品種が取り合ったら、
+        余裕の少ない品種が枠を取ります。実在庫の数量は線にカーソルを合わせると出ます
       </p>
     </div>
   )
