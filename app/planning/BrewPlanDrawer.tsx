@@ -65,8 +65,13 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
     startTransition(async () => {
       // JST午前0時はUTCで前日になるため、日付文字列からUTC midnightに正規化する
       const res = await updateBrewPlanBrewDate(plan.id, `${editDate}T00:00:00Z`)
-      if (res.ok) cancelEdit()
-      else setEditError(res.error)
+      if (res.ok) {
+        // 動かす前の日付に提案側の手動固定(調整済)ピンが残っていると、
+        // 仮登録がその日から外れた瞬間にピンが復活し、元の日付の提案が
+        // もう1回分として現れてしまう（削除時と同じ問題）。ここで消しておく
+        clearManualPin(plan)
+        cancelEdit()
+      } else setEditError(res.error)
     })
   }
 
