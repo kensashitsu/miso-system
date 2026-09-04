@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { addDays, format, startOfDay } from 'date-fns'
+import { useMemo, useState } from 'react'
+import { addDays, differenceInDays, format, startOfDay } from 'date-fns'
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ReferenceLine, ReferenceDot, ResponsiveContainer,
@@ -53,16 +53,30 @@ function completionLabel(main: string, sub: string, color: string, lift: number)
   }
 }
 
+// 表示期間。先まで見たいときと、直近の谷だけ詰めて見たいときで必要な幅が違う
+const RANGES = [
+  { key: '3m',  label: '3ヶ月', days: 92 },
+  { key: '6m',  label: '6ヶ月', days: 183 },
+  { key: '1y',  label: '1年',   days: 365 },
+  { key: 'all', label: '提案の最後まで', days: 0 },  // 0＝最後の完成日＋30日まで
+] as const
+
 export default function CombinedStockChart({
   series,
   placed,
-  days = 240,
 }: {
   series: StockSeriesInput[]
   placed: PlacedBrew[]   // 置き直したあとの仕込み（完成日に生産量が入る）
-  days?:  number
 }) {
   const today = startOfDay(new Date())
+  const [rangeKey, setRangeKey] = useState<(typeof RANGES)[number]['key']>('6m')
+
+  const days = useMemo(() => {
+    const r = RANGES.find(r => r.key === rangeKey)!
+    if (r.days > 0) return r.days
+    const last = placed.reduce((mx, b) => (b.completionDate > mx ? b.completionDate : mx), today)
+    return Math.max(92, differenceInDays(last, today) + 30)
+  }, [rangeKey, placed, today])
 
   const panels = useMemo(() => series.map(s => {
     // 補充は「熟成中＋仮登録の完成」＋「まとめ提案の完成」。
@@ -122,7 +136,9 @@ export default function CombinedStockChart({
 
   if (panels.length === 0) return null
 
-  const monthTicks = panels[0].rows.filter(r => r.d.endsWith('-01')).map(r => r.d)
+  const monthTicks = panels[0].rows
+    .filter(r => r.d.endsWith('-01') || (days <= 120 && r.d.endsWith('-16')))
+    .map(r => r.d)
 
   return (
     <div className="rounded-lg border bg-white p-3">
@@ -130,6 +146,20 @@ export default function CombinedStockChart({
         <h4 className="text-xs font-semibold text-gray-900">なぜこの組み方になるか</h4>
         <span className="text-[11px] text-muted-foreground">
           品種ごとの在庫見込みと安全在庫ライン。同じ週を2品種が取り合ったら、ラインまでの余裕が少ないほうが枠を取ります
+        </span>
+        <span className="ml-auto inline-flex rounded-lg border p-0.5 text-[11px]">
+          {RANGES.map(r => (
+            <button
+              key={r.key}
+              type="button"
+              onClick={() => setRangeKey(r.key)}
+              className={`rounded-md px-2 py-0.5 transition-colors ${
+                rangeKey === r.key ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
         </span>
       </div>
 
