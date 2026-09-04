@@ -186,20 +186,42 @@ const lastDate = batches.reduce((mx: Date, b: any) => {
   const c = b.pairCompletionDate ?? b.completionDate
   return c > mx ? c : mx
 }, today)
-const horizonDays = Math.max(400, differenceInDays(lastDate, today) + 90)
+// 検証は**最後の提案の完成日まで**。それより先は「仕込みが尽きたあと消費だけ続く」区間で、
+// 提案が足りないのではなく表示回数で切っただけなので、割れとして数えると誤読する
+// HORIZON_END='2027-12-31' のように区切ると、その日までで評価する。
+// 提案回数が足りないまま先まで見ると「仕込みが尽きたあと消費だけ続く」区間を
+// 割れとして数えてしまい、構造的な不足と区別できない
+const horizonEnd = process.env.HORIZON_END
+  ? new Date(process.env.HORIZON_END + 'T00:00:00')
+  : lastDate
+const horizonDays = Math.max(30, differenceInDays(horizonEnd < lastDate ? horizonEnd : lastDate, today))
 
+// 安全在庫ラインは「絶対に割ってはいけない線」ではない（1,600kgを100kg下回る程度なら
+// 実質安全・2026-09-04 ユーザー確認）。割った期間だけでなく**どれだけ深く**割ったかを出す
 let stock = effectiveStock
 let cur = today
 const below: string[] = []
 let runStart: string | null = null
+let runDeepest = 0        // その期間で最も深く割った量(kg)
+let runDeepestDate = ''
+const closeRun = (endLabel: string) => {
+  below.push(`${runStart}〜${endLabel}  最大 ${Math.round(runDeepest).toLocaleString()}kg 不足（${runDeepestDate}）`)
+  runStart = null; runDeepest = 0; runDeepestDate = ''
+}
 for (let i = 0; i < horizonDays; i++) {
   stock += events.get(d(cur)) ?? 0
   stock -= getDailyRateFn(cur)
-  if (stock < safetyLineAt(cur)) { if (!runStart) runStart = d(cur) }
-  else if (runStart) { below.push(`${runStart}〜${d(cur)}`); runStart = null }
+  const line = safetyLineAt(cur)
+  if (stock < line) {
+    if (!runStart) runStart = d(cur)
+    const gap = line - stock
+    if (gap > runDeepest) { runDeepest = gap; runDeepestDate = d(cur) }
+  } else if (runStart) {
+    closeRun(d(cur))
+  }
   cur = addDays(cur, 1)
 }
-if (runStart) below.push(`${runStart}〜(以降ずっと)`)
+if (runStart) closeRun('(以降ずっと)')
 // 月別の在庫水準（ラインに対してどれだけ余っているか）
 const monthly = new Map<string, { min: number; max: number; line: number }>()
 {
