@@ -1548,6 +1548,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               safetyLineFn:     p.safetyLineFn,
               baseSupplyEvents: p.baseSupplyEvents,
               batchKg:          p.batchKg,
+              monthlyDemand:    p.monthlyDemand,
               batches:       p.batches.map(b => ({
                 brewDate:              b.brewDate,
                 completionDate:        b.completionDate,

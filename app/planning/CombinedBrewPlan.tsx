@@ -26,6 +26,7 @@ export interface CombinedPlanInput {
   safetyLineFn:     ((date: Date) => number) | null
   baseSupplyEvents: { date: Date; kg: number }[]
   batchKg:          number
+  monthlyDemand:    Record<string, number>
   getCompletion?: (brewDate: Date) => { days: number; completionDate: Date }
   batches: {
     brewDate:              Date
@@ -167,6 +168,7 @@ export default function CombinedBrewPlan({
       safetyLineFn:     p.safetyLineFn,
       baseSupplyEvents: p.baseSupplyEvents,
       batchKg:          p.batchKg,
+      monthlyDemand:    p.monthlyDemand,
     }))
 
   return (

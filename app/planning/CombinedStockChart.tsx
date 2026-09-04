@@ -27,6 +27,7 @@ const SAFETY_COLOR = '#d97706'   // amber-600（品種ごとのグラフと同�
 
 export interface StockSeriesInput {
   misoType:         string
+  monthlyDemand:    Record<string, number>   // 'yyyy-MM' → その月の需要見込み(kg)
   effectiveStock:   number
   getDailyRateFn:   (date: Date) => number
   safetyLineFn:     ((date: Date) => number) | null
@@ -35,6 +36,23 @@ export interface StockSeriesInput {
 }
 
 interface Row { d: string; kg: number; safety: number }
+
+// 月の境目に出す需要見込みラベル。在庫の線や桶番号ラベルと重なっても読めるよう
+// 白い縁取り（ハロー）を敷く（品種別グラフと同じ作り）
+function monthLabel(text: string) {
+  return (props: { viewBox?: { x?: number; y?: number } }) => {
+    const { x = 0, y = 0 } = props.viewBox ?? {}
+    return (
+      <text
+        x={x + 4} y={y + 11} textAnchor="start"
+        fontSize={10} fontWeight={500} fill="#64748b"
+        stroke="#fff" strokeWidth={3} strokeLinejoin="round" paintOrder="stroke"
+      >
+        {text}
+      </text>
+    )
+  }
+}
 
 // 完成点に添えるラベル。1行目＝桶番号、2行目＝仕込み日と熟成日数。
 // 1行に繋げると隣の完成点のラベルと重なって読めない（品種ごとのグラフと同じ扱い）
@@ -138,7 +156,20 @@ export default function CombinedStockChart({
       return { ...m, lift: lifted ? 20 : 0 }
     })
 
-    return { misoType: s.misoType, rows, marks: marksWithLift }
+    // 月の境目＝その月の需要見込み。右端に寄りすぎるとラベルが切れるので終盤の月は出さない
+    const monthMarks: { d: string; label: string }[] = []
+    const seenMonths = new Set<string>()
+    rows.forEach((r, i) => {
+      const ym = r.d.slice(0, 7)
+      if (seenMonths.has(ym)) return
+      seenMonths.add(ym)
+      if (rows.length - 1 - i < 8) return
+      const kg = s.monthlyDemand[ym]
+      if (kg == null) return
+      monthMarks.push({ d: r.d, label: `${Number(ym.slice(5))}月 ${kg.toLocaleString()}kg` })
+    })
+
+    return { misoType: s.misoType, rows, marks: marksWithLift, monthMarks }
   }), [series, placed, days, today])
 
   if (panels.length === 0) return null
@@ -228,6 +259,16 @@ export default function CombinedStockChart({
                   isAnimationActive={false}
                 />
                 <ReferenceLine y={0} stroke="#e5e7eb" />
+                {/* 月の境目にその月の需要見込みを出す（品種別グラフと同じ） */}
+                {p.monthMarks.map(m => (
+                  <ReferenceLine
+                    key={`month-${m.d}`}
+                    x={m.d}
+                    stroke="#e5e7eb"
+                    strokeWidth={1}
+                    label={monthLabel(m.label)}
+                  />
+                ))}
                 {p.marks.map((m, i) => (
                   <ReferenceDot
                     key={`${m.d}-${m.kind}-${i}`}
@@ -249,7 +290,7 @@ export default function CombinedStockChart({
       <p className="mt-1 text-[11px] text-muted-foreground">
         面＝在庫見込み／橙の破線＝その品種の安全在庫ライン（冬は厚くなるので段が付きます）。
         白丸＝仕込み日、塗り丸＝完成日（桶番号と、いつ何日熟成した分かを添えています）。
-        面が破線より下にある期間はラインを割っている見込みです
+        月の境目の灰色の線＝その月の需要見込み。面が破線より下にある期間はラインを割っている見込みです
       </p>
     </div>
   )
