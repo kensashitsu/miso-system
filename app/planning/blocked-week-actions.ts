@@ -44,3 +44,12 @@ export async function removeBlockedWeek(weekStart: string): Promise<string[]> {
   await write(weeks)
   return weeks
 }
+
+// 週の一覧をクリックで選ぶUI用。まとめて置き換える。
+// 仕込める頻度は他の仕事の予定次第で毎回変わる（2026-09-04 ユーザー確認）ため、
+// 1週ずつ登録するより先の予定をまとめて入れられる方が実務に合う
+export async function replaceBlockedWeeks(weeks: string[]): Promise<string[]> {
+  const valid = weeks.filter(w => /^\d{4}-\d{2}-\d{2}$/.test(w))
+  await write(valid)
+  return [...new Set(valid)].sort()
+}

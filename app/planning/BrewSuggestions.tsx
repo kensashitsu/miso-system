@@ -20,7 +20,7 @@ import {
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
 import CombinedBrewPlan, { type CombinedPlanInput } from './CombinedBrewPlan'
-import { addBlockedWeek, removeBlockedWeek } from './blocked-week-actions'
+import { addBlockedWeek, removeBlockedWeek, replaceBlockedWeeks } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
 // 仕込み日を最終的に決めた条件の表示名（BatchPlan.decidedBy と対応）
@@ -444,6 +444,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
   // 提案の見せ方。品種ごと（従来）と、3品種を週の枠にまとめたものを切り替える。
   // 田舎と無添加の組み合わせ方は品種ごとの計算では出せないため（lib/brewCombine.ts）
   const [viewMode, setViewMode] = useState<'byType' | 'combined'>('byType')
+  // 仕込めない週をまとめて選ぶパネル。仕込める頻度は他の仕事次第で毎回変わるため、
+  // 1週ずつ登録するより先の予定をまとめて入れられる方が実務に合う（2026-09-04）
+  const [blockedPickerOpen, setBlockedPickerOpen] = useState(false)
   const [openTypes,       setOpenTypes]      = useState<Record<string, boolean>>({})
   const openTypesInitRef = useRef(false)
   const [useRawAsBase,    setUseRawAsBase]    = useState(false)
@@ -1436,7 +1439,51 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
           >
             {blockedSaving ? '保存中' : 'この日を含む週を登録'}
           </button>
+          <button
+            type="button"
+            onClick={() => setBlockedPickerOpen(v => !v)}
+            className="text-[11px] px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-white transition-colors whitespace-nowrap"
+          >
+            {blockedPickerOpen ? '閉じる' : 'まとめて選ぶ'}
+          </button>
         </div>
+
+        {/* 半年分の週を並べてクリックで切り替える。先の予定を一度に入れられるようにする */}
+        {blockedPickerOpen && (
+          <div className="mt-2 rounded-md border border-slate-200 bg-white p-2">
+            <p className="mb-1.5 text-[11px] text-muted-foreground">
+              みそを仕込まない週をクリックしてください（もう一度押すと解除）。日付は水・木です
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {Array.from({ length: 26 }, (_, i) => {
+                const mon = addDays(weekStartOf(today), i * 7)
+                const key = format(mon, 'yyyy-MM-dd')
+                const on  = blockedWeeks.includes(key)
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={blockedSaving}
+                    onClick={async () => {
+                      const next = on ? blockedWeeks.filter(w => w !== key) : [...blockedWeeks, key].sort()
+                      setBlockedWeeks(next)   // 押した瞬間の反応を優先し、保存はその後で追う
+                      setBlockedSaving(true)
+                      try { setBlockedWeeks(await replaceBlockedWeeks(next)) } finally { setBlockedSaving(false) }
+                    }}
+                    className={`rounded border px-1.5 py-1 text-[11px] tabular-nums transition-colors disabled:opacity-50 ${
+                      on
+                        ? 'border-slate-400 bg-slate-700 text-white'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                    title={on ? 'この週は仕込めない（解除する）' : 'この週を仕込めない週にする'}
+                  >
+                    {format(addDays(mon, 2), 'M/d')}・{format(addDays(mon, 3), 'd')}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 今すぐ動くべき品種が無いときだけ、その旨を1行で出す。

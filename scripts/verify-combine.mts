@@ -213,10 +213,10 @@ for (const p of actualPlans) {
   else e.wed = p.misoType
   actualByWeek.set(d(monday), e)
 }
-const allWeeks = [...new Set([...weeks.map(w => d(w.weekMonday)), ...actualByWeek.keys()])].sort()
+const allWeeks = [...new Set([...weeks.map((w: any) => d(w.weekMonday)), ...actualByWeek.keys()])].sort()
 let hit = 0, total = 0
 for (const wk of allWeeks) {
-  const mine = weeks.find(w => d(w.weekMonday) === wk)
+  const mine = weeks.find((w: any) => d(w.weekMonday) === wk)
   const act  = actualByWeek.get(wk)
   const fmtPair = (wed?: string | null, thu?: string | null) =>
     `水:${(wed ?? '—').padEnd(6, '　')} 木:${(thu ?? '—').padEnd(6, '　')}`
