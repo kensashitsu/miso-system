@@ -28,8 +28,18 @@ export async function getRetrospect(baseYearMonth?: string): Promise<RetrospectD
     prisma.weatherCache.findMany({ select: { date: true, effectiveTemp: true } }),
   ])
 
-  // 起点は指定が無ければ「最も古い月末スナップショット」。そこから今日までを振り返る
-  const available = [...new Set(allSnaps.map(s => s.yearMonth))].sort()
+  // 起点は指定が無ければ「最も古い月末スナップショット」。そこから今日までを振り返る。
+  // ただし記録日時がその月末から離れているものは、月末以外に手動実行されて
+  // ラベルが1ヶ月ずれた可能性がある（2026-05-30に実行された「2026-04」が実例）。
+  // 中身は別の時点の在庫なので起点にすると振り返り全体がずれる。除外する
+  const isTrustworthy = (ym: string) => {
+    const rec = allSnaps.find(s => s.yearMonth === ym)?.recordedAt
+    if (!rec) return false
+    const monthEnd = addMonths(new Date(`${ym}-01T00:00:00`), 1)   // 翌月1日
+    const diffDays = Math.abs((rec.getTime() - monthEnd.getTime()) / 86400000)
+    return diffDays <= 3
+  }
+  const available = [...new Set(allSnaps.map(s => s.yearMonth))].sort().filter(isTrustworthy)
   const baseYm = baseYearMonth ?? available[0]
   if (!baseYm) {
     return {
@@ -59,7 +69,7 @@ export async function getRetrospect(baseYearMonth?: string): Promise<RetrospectD
   for (const recipe of recipes) {
     // 各月末スナップショットを「翌月1日の朝の実測在庫」として持たせる
     const anchors = new Map<string, number>()
-    for (const sn of allSnaps.filter(x => x.misoType === recipe.name)) {
+    for (const sn of allSnaps.filter(x => x.misoType === recipe.name && available.includes(x.yearMonth))) {
       const at = addMonths(new Date(`${sn.yearMonth}-01T00:00:00`), 1)
       if (at > startDate && at <= endDate) {
         anchors.set(format(at, 'yyyy-MM-dd'), (sn.agedKg ?? 0) + (sn.packagedKg ?? 0))

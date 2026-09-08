@@ -165,7 +165,27 @@ def main():
                          ensure_ascii=False))
         sys.exit(1)
 
-    year_month = get_prev_year_month()
+    # 月末日以外に実行すると、その日の在庫が「前月末」として保存されてしまう。
+    # 2026-05-30 の手動実行で作られた「2026-04」のスナップショットが実際には
+    # 5/30 時点の値で、振り返りの起点在庫が1ヶ月ずれていた（2026-09-08 判明）。
+    # 手動実行（workflow_dispatch）はワークフロー側の月末判定を通らないので、ここで止める。
+    # 過去月を意図して補完するときは SNAPSHOT_YEAR_MONTH=2026-04 のように明示する。
+    forced = os.environ.get('SNAPSHOT_YEAR_MONTH', '').strip()
+    if forced:
+        if not re.fullmatch(r'\d{4}-\d{2}', forced):
+            print(f'SNAPSHOT_YEAR_MONTH の形式が不正です: {forced}', file=sys.stderr)
+            sys.exit(1)
+        year_month = forced
+        print(f'対象月を明示指定: {year_month}（現在の在庫をこの月の月末として保存します）', file=sys.stderr)
+    else:
+        today_jst = datetime.now(JST)
+        if today_jst.day != 1:
+            print(f'JST {today_jst:%Y-%m-%d} は月初(1日)ではないため中止します。'
+                  f'月末以外に実行すると、その日の在庫が前月末として保存され、'
+                  f'ラベルが1ヶ月ずれます。意図して保存するなら '
+                  f'SNAPSHOT_YEAR_MONTH=YYYY-MM を指定してください', file=sys.stderr)
+            sys.exit(1)
+        year_month = get_prev_year_month()
     print(f'スナップショット対象: {year_month}', file=sys.stderr)
 
     conn = psycopg2.connect(db_url)
