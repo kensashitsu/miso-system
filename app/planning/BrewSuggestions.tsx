@@ -20,6 +20,7 @@ import {
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
 import CombinedBrewPlan, { type CombinedPlanInput } from './CombinedBrewPlan'
+import RetrospectPanel from './RetrospectPanel'
 import { addBlockedWeek, removeBlockedWeek, replaceBlockedWeeks } from './blocked-week-actions'
 import StockProjectionChart, { type StockPoint } from './StockProjectionChart'
 
@@ -1393,6 +1394,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         </div>
         </div>
       </div>
+
+      {/* 実績だけで振り返る（設定の見直しに使う）。重いのでボタンを押したときだけ計算する */}
+      <RetrospectPanel />
 
       {/* 仕込めない週（全品種共通）。登録した週を避けて翌週以降で提案する */}
       <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5 no-print">
