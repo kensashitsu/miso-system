@@ -8,6 +8,7 @@ import {
   ReferenceDot, ResponsiveContainer,
 } from 'recharts'
 import { getRetrospect, type RetrospectData } from './retrospect-action'
+import type { RetrospectPoint } from '@/lib/retrospect'
 import { SERIES_COLOR } from './CombinedStockChart'
 
 // 振り返り：予測ではなく**実際に起きたこと**で在庫推移を再現し、
@@ -17,6 +18,31 @@ import { SERIES_COLOR } from './CombinedStockChart'
 // 出た結果は設定（安全在庫ラインなど）の見直しに使う。年20〜30回しか事例が増えないので
 // 機械に学習させるのではなく、人が毎年これを見て設定を直す形にしている。
 const SAFETY_COLOR = '#d97706'
+
+// 描画点を間引いてから階段（stepAfter）で描く。計算は毎日ぶんのまま、絵だけ段にする。
+// 毎日ぶんの下り坂より階段のほうが感覚的に読みやすいというユーザー判断で、
+// 仕込み計画のグラフ（StockProjectionChart / CombinedStockChart）が既にこの作り。
+// このグラフは高さ150pxで期間も数ヶ月と短いため、段の数を約35に揃える。
+const STEP_TARGET = 35
+
+// X軸は日付カテゴリなので、印を打つ日（仕込み・ここで1回・月初）は間引くと点ごと消える。
+// 補充や実測補正で線が跳ねる日も、前後を残さないと段の形が崩れる
+function thinToSteps(points: RetrospectPoint[], marked: string[]): RetrospectPoint[] {
+  const step = Math.max(1, Math.round(points.length / STEP_TARGET))
+  if (step === 1) return points
+  const keep = new Set(marked)
+  for (const p of points) if (p.d.endsWith('-01')) keep.add(p.d)
+  const gaps = points.slice(1).map((p, i) => Math.abs(p.kg - points[i].kg)).sort((a, b) => a - b)
+  const typical = gaps[Math.floor(gaps.length / 2)] ?? 0
+  points.forEach((p, i) => {
+    if (i === 0) return
+    const prev = points[i - 1]
+    if (Math.abs(p.kg - prev.kg) > typical * 3 || p.safety !== prev.safety) {
+      keep.add(prev.d); keep.add(p.d)
+    }
+  })
+  return points.filter((p, i) => i % step === 0 || i === points.length - 1 || keep.has(p.d))
+}
 
 export default function RetrospectPanel() {
   const [open, setOpen] = useState(false)
@@ -66,6 +92,11 @@ export default function RetrospectPanel() {
               {data.results.map(r => {
                 const color = SERIES_COLOR[r.misoType] ?? '#6b7280'
                 const kgOn = (d: string) => r.points.find(p => p.d === d)?.kg
+                const rows = thinToSteps(r.points, [
+                  ...r.brewDates,
+                  ...r.shouldHaveBrewed.map(s => s.d),
+                  ...r.runs.flatMap(x => [x.from, x.to, x.deepestDate]),
+                ])
                 return (
                   <div key={r.misoType} className="mb-4 last:mb-0">
                     <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
@@ -80,11 +111,11 @@ export default function RetrospectPanel() {
                     </div>
 
                     <ResponsiveContainer width="100%" height={150}>
-                      <ComposedChart data={r.points} margin={{ top: 18, right: 12, bottom: 0, left: 4 }}>
+                      <ComposedChart data={rows} margin={{ top: 18, right: 12, bottom: 0, left: 4 }}>
                         <CartesianGrid stroke="#f1efec" vertical={false} />
                         <XAxis
                           dataKey="d"
-                          ticks={r.points.filter(p => p.d.endsWith('-01')).map(p => p.d)}
+                          ticks={rows.filter(p => p.d.endsWith('-01')).map(p => p.d)}
                           tickFormatter={v => format(new Date(v + 'T00:00:00'), 'M月')}
                           tick={{ fontSize: 11, fill: '#6b7280' }}
                           axisLine={{ stroke: '#e5e7eb' }}
