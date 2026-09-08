@@ -13,7 +13,7 @@ import BucketUsageOptionsCard from './BucketUsageOptionsCard'
 import SettingsTabs from './SettingsTabs'
 
 export const metadata: Metadata = {
-  title: '設定 | みそ熟成管理システム',
+  title: '設定',
 }
 
 const HEATING_RE = /^暖房\d+(?:\.\d+)?℃$/

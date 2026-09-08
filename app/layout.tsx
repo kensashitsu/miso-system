@@ -9,8 +9,13 @@ import BrewPlanDrawer from '@/app/planning/BrewPlanDrawer'
 
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
+// タブに何のページか出す（2026-09-08 ユーザー要望。複数タブで並べると見分けがつかなかった）。
+// 各ページは短い名前だけを持ち、末尾はここで付ける（タブは幅が狭く先頭しか見えないため）。
 export const metadata: Metadata = {
-  title: 'みそ熟成管理システム',
+  title: {
+    default:  'みそ熟成管理システム',
+    template: '%s｜みそ熟成',
+  },
   description: '仕込みロット熟成進捗・仕込み計画管理',
 }
 

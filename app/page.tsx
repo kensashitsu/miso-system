@@ -19,6 +19,10 @@ import StockSummary from '@/components/dashboard/StockSummary'
 import InventoryTrendChart from '@/components/dashboard/InventoryTrendChart'
 
 // 常にサーバー側で最新データを取得する
+// ルートのページには layout の template が効かない（Nextの仕様：同じ階層には適用されない）ため、
+// ここだけ末尾まで書く
+export const metadata = { title: 'ダッシュボード｜みそ熟成' }
+
 export const dynamic = 'force-dynamic'
 
 

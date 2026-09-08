@@ -5,7 +5,7 @@ import { applyQ10 } from '@/lib/tempCalc'
 import BrewSimulator from './BrewSimulator'
 
 export const metadata: Metadata = {
-  title: '試作シミュレーター | みそ熟成管理システム',
+  title: '試作シミュレーター',
 }
 
 export const dynamic = 'force-dynamic'

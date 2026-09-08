@@ -17,6 +17,13 @@ interface Props {
   params: Promise<{ id: string }>
 }
 
+// タブにロット番号を出す（複数のロットを並べて見比べることがあるため）
+export async function generateMetadata({ params }: Props) {
+  const { id } = await params
+  const lot = await prisma.lot.findUnique({ where: { id }, select: { lotNumber: true, misoType: true } })
+  return { title: lot ? `${lot.lotNumber} ${lot.misoType}` : 'ロット詳細' }
+}
+
 export default async function LotDetailPage({ params }: Props) {
   const { id } = await params
 

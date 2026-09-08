@@ -14,6 +14,8 @@ import WeatherSimulator from './WeatherSimulator'
 import ForecastUpdater from './ForecastUpdater'
 import BufferDaySuggestion from './BufferDaySuggestion'
 
+export const metadata = { title: '仕込み計画' }
+
 export const dynamic = 'force-dynamic'
 
 // SARIMAX予測マップの型定義
