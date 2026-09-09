@@ -360,6 +360,15 @@ export default function LotDetail({
     initialBuckets.length > 0 &&
     initialBuckets.every(b => b.status === '空')
   )
+  // 全桶が空になった瞬間に一度だけ出す。使用記録の追加・編集・残量の直接入力の
+  // どの経路でも同じように出したいので、桶の状態から判定する
+  const wasAllEmptyRef = useRef(showAllEmptyPrompt)
+  useEffect(() => {
+    const allEmpty = status === '完成' && buckets.length > 0 && buckets.every(b => b.status === '空')
+    if (allEmpty && !wasAllEmptyRef.current) setShowAllEmptyPrompt(true)
+    wasAllEmptyRef.current = allEmpty
+  }, [buckets, status])
+
   const [bucketSavingId, setBucketSavingId] = useState<string | null>(null)
   const [showAddBucket, setShowAddBucket] = useState(false)
   const [addBucketNum, setAddBucketNum] = useState('')
@@ -516,7 +525,7 @@ export default function LotDetail({
           : b
       ))
       setBucketDrafts(prev => { const next = { ...prev }; delete next[bucketId]; return next })
-      if (result.allEmpty && status === '完成') setShowAllEmptyPrompt(true)
+      // プロンプトは桶の状態を見る useEffect が出す（経路によって出たり出なかったりしないように）
     }
   }
 
@@ -1435,9 +1444,18 @@ export default function LotDetail({
         )}
       </section>
 
-      {/* ── 全桶空プロンプト（完成ロットのみ） ── */}
+      {/* ── 全桶空プロンプト（完成ロットのみ）──
+           画面のどこを操作していても気づけるよう、ページ内の帯ではなくダイアログで出す */}
       {showAllEmptyPrompt && status === '完成' && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-4 space-y-3">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(2px)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowAllEmptyPrompt(false) }}
+        >
+        <div
+          className="w-full max-w-sm rounded-xl border border-amber-200 bg-card px-4 py-4 space-y-3 shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        >
           <div className="flex items-start gap-2">
             <span className="text-amber-600 text-lg leading-none">⚠</span>
             <div>
@@ -1462,6 +1480,7 @@ export default function LotDetail({
               {isStatusChanging ? '変更中...' : '出荷済みにする'}
             </button>
           </div>
+        </div>
         </div>
       )}
 
