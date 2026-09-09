@@ -1,11 +1,11 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { format } from 'date-fns'
+import { addDays, differenceInDays, format, startOfMonth } from 'date-fns'
 import { ChevronDown, History } from 'lucide-react'
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceDot, ResponsiveContainer,
+  ReferenceDot, ReferenceLine, ResponsiveContainer,
 } from 'recharts'
 import { getRetrospect, type RetrospectData } from './retrospect-action'
 import type { RetrospectPoint } from '@/lib/retrospect'
@@ -44,6 +44,29 @@ function thinToSteps(points: RetrospectPoint[], marked: string[]): RetrospectPoi
   return points.filter((p, i) => i % step === 0 || i === points.length - 1 || keep.has(p.d))
 }
 
+// 「ここで1回」は不足の入口から熟成日数を遡った日なので、起点（＝最も古い月末在庫の翌日）
+// より前に出ることがある。その日が軸に無いと印を打てないので、必要な分だけ左に足す。
+// 在庫の実測が無い期間なので kg・safety は null にして線は描かない（軸の日付だけ用意する）
+type Row = { d: string; kg: number | null; safety: number | null }
+
+function leadInRows(earliest: string, startDate: string, marked: string[]): Row[] {
+  if (earliest >= startDate) return []
+  // X軸の目盛りは月初なので、その月の1日まで伸ばす（5/21から描くと「5月」の目盛りが出ない）
+  const from = startOfMonth(new Date(earliest + 'T00:00:00'))
+  const to   = new Date(startDate + 'T00:00:00')
+  const keep = new Set(marked)
+  const rows: Row[] = []
+  // 起点までの日数ぶん軸を伸ばす（等間隔の日付カテゴリなので、間を空けずに埋めないと
+  // 5月が6月のすぐ隣に詰まって時間の間隔が嘘になる）。間引きは本体と同じ歩幅で
+  const days = differenceInDays(to, from)
+  const step = Math.max(1, Math.round(days / STEP_TARGET))
+  for (let i = 0; i < days; i++) {
+    const d = format(addDays(from, i), 'yyyy-MM-dd')
+    if (i % step === 0 || keep.has(d) || d.endsWith('-01')) rows.push({ d, kg: null, safety: null })
+  }
+  return rows
+}
+
 export default function RetrospectPanel() {
   const [open, setOpen] = useState(false)
   const [data, setData] = useState<RetrospectData | null>(null)
@@ -78,25 +101,37 @@ export default function RetrospectPanel() {
           {!isPending && data?.note && (
             <p className="py-6 text-center text-sm text-muted-foreground">{data.note}</p>
           )}
-          {!isPending && data && !data.note && (
+          {!isPending && data && !data.note && (() => {
+            // 「ここで1回」は起点より前に出ることがある。全品種で一番早いその日を左端にする
+            const chartStart = data.results
+              .flatMap(r => r.shouldHaveBrewed.map(s => s.d).filter(d => d < r.points[0].d))
+              .sort()[0] ?? data.startDate
+            return (
             <>
               <p className="mb-3 text-[11px] text-muted-foreground">
                 {data.startDate} 〜 {data.endDate}。起点は {data.baseYearMonth} の月末在庫（熟成済＋小分け）、
-                消費は出荷実績の日割り、補充は実際に完成したロット。予測は使っていません
+                消費は出荷実績の日割り、補充は実際に完成したロット。予測は使っていません。
+                「ここで1回」が起点より前になる場合は、その日までグラフを左に伸ばしています（在庫の線は起点から）
               </p>
               {data.results.length === 0 && (
                 <p className="py-6 text-center text-sm text-muted-foreground">
                   振り返れる品種がありません（起点の在庫スナップショットか出荷実績が不足）
                 </p>
               )}
+              {/* 品種ごとに左端がずれると縦に並べたグラフを見比べられないので、
+                  一番早い「ここで1回」に全品種の左端をそろえる */}
               {data.results.map(r => {
                 const color = SERIES_COLOR[r.misoType] ?? '#6b7280'
                 const kgOn = (d: string) => r.points.find(p => p.d === d)?.kg
-                const rows = thinToSteps(r.points, [
+                const marked = [
                   ...r.brewDates,
                   ...r.shouldHaveBrewed.map(s => s.d),
                   ...r.runs.flatMap(x => [x.from, x.to, x.deepestDate]),
-                ])
+                ]
+                const rows: Row[] = [
+                  ...leadInRows(chartStart, r.points[0].d, marked),
+                  ...thinToSteps(r.points, marked),
+                ]
                 return (
                   <div key={r.misoType} className="mb-4 last:mb-0">
                     <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
@@ -158,7 +193,20 @@ export default function RetrospectPanel() {
                         {/* 仕込んでおくべきだった日（赤の×印） */}
                         {r.shouldHaveBrewed.map(s => {
                           const y = kgOn(s.d)
-                          if (y == null) return null
+                          // 起点より前の日は在庫の実測が無く線も無いので、丸は打てない。
+                          // 縦線とラベルだけ置いて「この日に1回」を示す
+                          if (y == null) {
+                            return (
+                              <ReferenceLine
+                                key={`s-${s.d}`} x={s.d}
+                                stroke="#e11d48" strokeDasharray="3 3" strokeWidth={1}
+                                label={{
+                                  value: 'ここで1回', position: 'insideTop',
+                                  fontSize: 9, fill: '#e11d48',
+                                }}
+                              />
+                            )
+                          }
                           return (
                             <ReferenceDot
                               key={`s-${s.d}`} x={s.d} y={y} r={5}
@@ -197,7 +245,8 @@ export default function RetrospectPanel() {
                 月初に段差が出るのは、月末在庫の実測に合わせ直しているためです（段差の大きさ＝再現と実測のズレ）
               </p>
             </>
-          )}
+            )
+          })()}
         </div>
       )}
     </div>
