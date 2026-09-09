@@ -103,6 +103,7 @@ interface Props {
     materialOrderDeadlineStr: string
     fermentationDays:         number
     bucketNumbers?:           string | null
+    materialOrderedAtStr?:    string | null   // 原料を手配した日（null = 未手配）
   }[]>
   // 本登録済み（ロット化済み）の仕込み日（品種別・yyyy-MM-dd）。
   // 同じ日付の手動調整ピンは実現済みのため自動解除するために使う。
@@ -717,6 +718,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
         materialOrderDeadline: new Date(p.materialOrderDeadlineStr + 'T00:00:00'),
         fermentationDays:      p.fermentationDays,
         bucketNumbers:         p.bucketNumbers ?? null,
+        materialOrderedAt:     p.materialOrderedAtStr ? new Date(p.materialOrderedAtStr + 'T00:00:00') : null,
       }))
       .filter(p => p.completionDate > today)
       .sort((a, b) => a.brewDate.getTime() - b.brewDate.getTime())
@@ -949,6 +951,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       startStockKg:          0,
       isFixed:               true,
       bucketNumbers:         p.bucketNumbers,
+      materialOrderedAt:     p.materialOrderedAt,
     }))
 
     // 田舎みその仕込み日（確定＋新規提案）を記録し、後続の無添加の順序判定に使う
@@ -2106,7 +2109,10 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                             const pDL      = (useRawAsBase && b.rawMaterialOrderDeadline) ? b.rawMaterialOrderDeadline : b.materialOrderDeadline
                             const sDL      = b.rawMaterialOrderDeadline ? (useRawAsBase ? b.materialOrderDeadline : b.rawMaterialOrderDeadline) : undefined
                             const pDaysUntilOrder = differenceInDays(pDL, today)
-                            const orderCls =
+                            // 手配済みの確定行は締切を急かさない（仮登録リストで手配済にしたのに
+                            // ここだけ赤い「N日超過」が残り、食い違って見えていた・2026-09-09指摘）
+                            const ordered  = b.isFixed ? (b.materialOrderedAt ?? null) : null
+                            const orderCls = ordered ? 'text-emerald-700' :
                               pDaysUntilOrder <= 14 ? 'text-red-600 font-semibold' :
                               pDaysUntilOrder <= 30 ? 'text-orange-600 font-semibold' :
                               'text-muted-foreground'
@@ -2262,10 +2268,24 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
                                   )}
                                 </td>
                                 <td className={`px-2 py-2 tabular-nums ${orderCls}`}>
-                                  {format(pDL, 'M/d')}
-                                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                                    ({daysLabel(pDaysUntilOrder)})
-                                  </span>
+                                  {ordered ? (
+                                    <>
+                                      手配済
+                                      <span className="ml-1 text-[10px] font-normal text-emerald-700/80">
+                                        {format(ordered, 'M/d')}
+                                      </span>
+                                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                                        (締切 {format(pDL, 'M/d')})
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      {format(pDL, 'M/d')}
+                                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                                        ({daysLabel(pDaysUntilOrder)})
+                                      </span>
+                                    </>
+                                  )}
                                   {sDL && (
                                     <div className="text-[10px] text-muted-foreground/50 mt-0.5 whitespace-nowrap font-normal">
                                       {sLabel} {format(sDL, 'M/d')}

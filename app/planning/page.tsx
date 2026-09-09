@@ -313,7 +313,7 @@ export default async function PlanningPage() {
   // 仮登録済み（確定）の未来の仕込み予定（ロット化前のみ）を品種別に整理。
   // 完成日に生産量が入る確定供給として、AI提案に織り込む。
   const today0 = startOfDay(new Date())
-  const registeredPlansByType: Record<string, { brewDateStr: string; completionDateStr: string; materialOrderDeadlineStr: string; fermentationDays: number; bucketNumbers?: string | null }[]> = {}
+  const registeredPlansByType: Record<string, { brewDateStr: string; completionDateStr: string; materialOrderDeadlineStr: string; fermentationDays: number; bucketNumbers?: string | null; materialOrderedAtStr?: string | null }[]> = {}
   // 本登録済み（ロット化済み）の仕込み日（品種別）。同じ日付の手動調整ピンを自動解除するために渡す。
   const registeredDoneDatesByType: Record<string, string[]> = {}
   for (const p of brewPlans) {
@@ -329,6 +329,8 @@ export default async function PlanningPage() {
       materialOrderDeadlineStr: format(p.materialOrderDeadline, 'yyyy-MM-dd'),
       fermentationDays:         p.fermentationDays,
       bucketNumbers:            p.bucketNumbers,
+      // 手配済みなら提案リストの「手配締切」を赤い超過表示にしない（仮登録リストと食い違うため）
+      materialOrderedAtStr:     p.materialOrderedAt ? format(p.materialOrderedAt, 'yyyy-MM-dd') : null,
     })
   }
 
