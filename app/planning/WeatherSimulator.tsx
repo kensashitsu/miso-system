@@ -235,7 +235,24 @@ export default function WeatherSimulator({
   const maturityComplete    = maturityCompleteIdx    >= 0 ? new Date(fullData[maturityCompleteIdx].date)    : null
   const accumulatedComplete = accumulatedCompleteIdx >= 0 ? new Date(fullData[accumulatedCompleteIdx].date) : null
 
+  // 常温は10/1から暖房室、6/1から外気に戻る（simulate と同じ扱い）。
+  // 場所プランに書いていない切り替わりなので、いつ移すのかがグラフで分かるように線を出す
+  const segAt = (i: number) => {
+    let seg = segments[0]
+    for (const s of [...segments].sort((a, b) => a.startDay - b.startDay)) if (s.startDay <= i) seg = s
+    return seg
+  }
+  const lastIdx = maturityCompleteIdx >= 0 ? maturityCompleteIdx : fullData.length - 1
+  const roomSwitches = fullData.slice(0, lastIdx + 1).flatMap((d, i) => {
+    const mmDd = d.date.slice(5)
+    if (i === 0 || (mmDd !== '10-01' && mmDd !== '06-01')) return []
+    if (segAt(i).locType !== '常温') return []
+    return [{ i, date: d.date, toHeating: mmDd === '10-01' }]
+  })
+
   const moveIndices = new Set(sortedMoves.map(m => m.daysAfterBrew).filter(d => d > 0 && d < fullData.length))
+  // 縦線を引く日はX軸（日付カテゴリ）から間引かれると線ごと消えるので必ず残す
+  for (const r of roomSwitches) moveIndices.add(r.i)
   const chartData = fullData.filter(
     (_, i) => i === 0 || (i + 1) % 7 === 0 || i === fullData.length - 1
       || i === maturityCompleteIdx || i === accumulatedCompleteIdx
@@ -573,6 +590,32 @@ export default function WeatherSimulator({
                       }}
                     />
                   )}
+
+                  {/* 常温の季節の切り替わり（10/1 暖房室へ・6/1 外気へ）。
+                      実際に指定した場所移動と区別できるよう、細く薄い破線にする */}
+                  {roomSwitches.map(r => (
+                    <ReferenceLine
+                      key={`room-${r.date}`}
+                      x={r.date}
+                      stroke={r.toHeating ? LOC_COLORS['暖房'] : LOC_COLORS['常温']}
+                      strokeDasharray="2 3"
+                      strokeWidth={1}
+                      strokeOpacity={0.55}
+                      label={({ viewBox }) => {
+                        const vb = viewBox as { x?: number; y?: number }
+                        if (vb.x == null || vb.y == null) return <g />
+                        return (
+                          <text
+                            x={vb.x + 4} y={vb.y + 12} textAnchor="start" fontSize={10}
+                            fill={r.toHeating ? LOC_COLORS['暖房'] : LOC_COLORS['常温']}
+                            fillOpacity={0.85}
+                          >
+                            {r.toHeating ? `→ 暖房室 ${heatingBaseTemp}℃（10〜5月）` : '→ 常温（6〜9月）'}
+                          </text>
+                        )
+                      }}
+                    />
+                  ))}
 
                   {/* 場所移動縦線 */}
                   {sortedMoves.map((move, idx) => {
