@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { addDays, differenceInDays, format, startOfMonth } from 'date-fns'
+import { addDays, differenceInDays, format } from 'date-fns'
 import { ChevronDown, History } from 'lucide-react'
 import {
   ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -24,6 +24,9 @@ const SAFETY_COLOR = '#d97706'
 // 仕込み計画のグラフ（StockProjectionChart / CombinedStockChart）が既にこの作り。
 // このグラフは高さ150pxで期間も数ヶ月と短いため、段の数を約35に揃える。
 const STEP_TARGET = 35
+
+// 起点より前に伸ばすとき、一番早い「ここで1回」の何日前から描くか（ラベルが左端で切れない程度）
+const LEAD_IN_MARGIN_DAYS = 4
 
 // X軸は日付カテゴリなので、印を打つ日（仕込み・ここで1回・月初）は間引くと点ごと消える。
 // 補充や実測補正で線が跳ねる日も、前後を残さないと段の形が崩れる
@@ -51,8 +54,9 @@ type Row = { d: string; kg: number | null; safety: number | null }
 
 function leadInRows(earliest: string, startDate: string, marked: string[]): Row[] {
   if (earliest >= startDate) return []
-  // X軸の目盛りは月初なので、その月の1日まで伸ばす（5/21から描くと「5月」の目盛りが出ない）
-  const from = startOfMonth(new Date(earliest + 'T00:00:00'))
+  // その日の少し手前まででよい（月初まで伸ばすと空白が広くなりすぎる）。
+  // 左端の日付はX軸に目盛りとして出す
+  const from = addDays(new Date(earliest + 'T00:00:00'), -LEAD_IN_MARGIN_DAYS)
   const to   = new Date(startDate + 'T00:00:00')
   const keep = new Set(marked)
   const rows: Row[] = []
@@ -150,8 +154,12 @@ export default function RetrospectPanel() {
                         <CartesianGrid stroke="#f1efec" vertical={false} />
                         <XAxis
                           dataKey="d"
-                          ticks={rows.filter(p => p.d.endsWith('-01')).map(p => p.d)}
-                          tickFormatter={v => format(new Date(v + 'T00:00:00'), 'M月')}
+                          // 月初のほかに左端も出す（起点より前に伸ばした分は月初が無いことがある）
+                          ticks={[
+                            ...(rows[0].d.endsWith('-01') ? [] : [rows[0].d]),
+                            ...rows.filter(p => p.d.endsWith('-01')).map(p => p.d),
+                          ]}
+                          tickFormatter={v => format(new Date(v + 'T00:00:00'), v.endsWith('-01') ? 'M月' : 'M/d')}
                           tick={{ fontSize: 11, fill: '#6b7280' }}
                           axisLine={{ stroke: '#e5e7eb' }}
                           tickLine={false}
