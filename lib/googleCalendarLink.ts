@@ -1,4 +1,8 @@
-import { differenceInDays, format } from 'date-fns'
+import { differenceInDays, format, startOfDay } from 'date-fns'
+
+// 熟成日数は必ず日付単位で数える。DBの brewedAt は UTC midnight（＝JST 9:00）で入っており、
+// 時刻込みで引くと丸めで1日短く出る（画面の「熟成日数（予定）」と食い違う・2026-09-09指摘）
+const agingDays = (from: Date, to: Date) => differenceInDays(startOfDay(to), startOfDay(from))
 
 // カレンダー（Google Calendar）のID。完成予定日と仕込み予定日でカレンダーを分けている
 export const AGING_CALENDAR_ID = '1734b91d3702c0f7c7d08184672490495ec6ab8c74ffac171de070f577610d88@group.calendar.google.com'  // 「熟成完了日」
@@ -37,7 +41,7 @@ export function completionEventTitle(
 ): string {
   const abbr = MISO_ABBR[misoType] ?? misoType.replace('みそ', '')
   return `${abbr}${circledBucketNumbers(bucketNumbers)}`
-    + `（${format(brewDate, 'M/d')}仕込 熟成${differenceInDays(targetDate, brewDate)}日）`
+    + `（${format(brewDate, 'M/d')}仕込 熟成${agingDays(brewDate, targetDate)}日）`
 }
 
 // 仕込み予定日：「田舎⑤⑥仕込」
@@ -87,7 +91,7 @@ export function buildBrewPlanCalendarUrl(opts: {
   const details = `仕込み予定日：${format(brewDate, 'yyyy/MM/dd')}`
     + (completionDate
         ? `
-完成予定日：${format(completionDate, 'yyyy/MM/dd')}（熟成${differenceInDays(completionDate, brewDate)}日）`
+完成予定日：${format(completionDate, 'yyyy/MM/dd')}（熟成${agingDays(brewDate, completionDate)}日）`
         : '')
   const params = new URLSearchParams({
     action: 'TEMPLATE',
