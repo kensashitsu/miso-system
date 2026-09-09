@@ -43,7 +43,10 @@ export type ModalSimDay = {
   simplePct:   number  // 単純積算 ÷ 目標 × 100（%）
 }
 
-const isOutdoor = (m: number) => m >= 6 && m <= 9
+// 常温の扱いは月で変わる。6〜9月は外気（weatherAvg）、10〜5月は暖房室
+// （10月に入ったら暖房室へ移す運用のため）。熟成シミュレーターも同じ判定を使う
+export const isOutdoorMonth = (m: number) => m >= 6 && m <= 9
+const isOutdoor = isOutdoorMonth
 
 /**
  * 仕込み日から完成日まで両線をシミュレーション。

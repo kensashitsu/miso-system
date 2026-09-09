@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select'
 import { Plus, X } from 'lucide-react'
 import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
+import { isOutdoorMonth } from '@/lib/brewSimulation'
 
 interface Recipe {
   name: string
@@ -81,7 +82,16 @@ function getDailyAccum(
     const eff = Math.max(fridgeTemp - 10, 0)
     return { simple: eff, corrected: eff }
   }
-  // 常温: weatherAvg + Q10補正
+  // 常温: 6〜9月は気象データ（Q10補正あり）、10〜5月は暖房室として積む。
+  // 常温のロットも10月に入ったら暖房室へ移す運用のため、ロット詳細・ダッシュボード
+  // （simulateLotForModal）とAI仕込み提案（simulateFermentationDays）に扱いをそろえる。
+  // これが抜けていて、9月仕込みが41日ではなく218日と出ていた（2026-09-09）
+  const month = Number(dateStr.slice(5, 7))
+  if (!isOutdoorMonth(month)) {
+    // 暖房室の日はQ10を掛けない（HEATING_MONTHLY_FACTOR が実績で較正済みなので二重になる）
+    const eff = Math.max(heatingBaseTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+    return { simple: eff, corrected: eff }
+  }
   const mmDd = dateStr.slice(5)
   const eff  = weatherAvg[mmDd] ?? 0
   let corrected = eff
@@ -667,10 +677,11 @@ export default function WeatherSimulator({
 
           {/* 注意事項 */}
           <p className="text-xs text-muted-foreground leading-relaxed">
-            ※ 常温の積算は
+            ※ 常温の積算は6〜9月が
             {hasWeatherData
-              ? `過去気象データの月日平均を使用（Q10係数 ${q10Value} で酵素反応速度を補正）。`
-              : '気象データ未取込のためデフォルト値（0℃/日）を使用。設定画面から取り込むと精度が向上します。'}
+              ? `過去気象データの月日平均（Q10係数 ${q10Value} で酵素反応速度を補正）、`
+              : '気象データ未取込のためデフォルト値（0℃/日）、'}
+            10〜5月は暖房室（{heatingBaseTemp}℃）として計算します（10月に入ったら暖房室へ移す運用のため）。
             暖房・冷房は設定温度から10℃を引いた値を毎日加算。
           </p>
           </div>{/* /結果セクション wrapper */}
