@@ -18,6 +18,7 @@ model Lot {
   targetTempSum  Float                    // 目標積算温度（℃・日）
   status         String    @default("熟成中") // 熟成中・完成・品質低下出荷・種みそ転用・出荷済
   completedAt    DateTime?
+  shippedAt      DateTime?                 // 出荷済にした日（完成日とは別。桶が空になった日）
   bucketNumbers  String?                   // 使用桶番号（例: "1・2"）
   finalYieldKg   Float?                   // 完了時の確定歩留まり（kg）
   yieldRate      Float?                   // 歩留まり率（%）自動計算

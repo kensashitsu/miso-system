@@ -461,6 +461,10 @@ export default function LotSimChart({
             <span className="font-semibold ml-1 text-emerald-700">
               {format(completedAtDate, 'yyyy年M月d日')}
             </span>
+            {/* 仕込みから何日で完成したか。ヘッダーの熟成日数と同じ数え方（startOfDay同士で引く） */}
+            <span className="ml-1 text-emerald-700">
+              （熟成{differenceInDays(startOfDay(completedAtDate), startOfDay(new Date(brewedAtISO)))}日）
+            </span>
             {completedAtAccumKg != null && (
               <span className="ml-2 text-xs text-muted-foreground">
                 （積算温度 {completedAtAccumKg} / {targetTempSum} ℃・日時点）

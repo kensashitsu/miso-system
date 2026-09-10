@@ -68,12 +68,20 @@ export async function changeLotStatus(
     // 完成日は「完成」にしたときだけ入れる。出荷済・品質低下出荷・種みそ転用に変えるときに
     // 今日の日付で上書きすると、実際の完成日（手で直した値を含む）が消えて熟成日数が狂う
     // （2026-09-10：桶が空→出荷済みにしたロットの完成日が7/29から当日に書き換わっていた）
-    const existing = await prisma.lot.findUnique({ where: { id: lotId }, select: { completedAt: true } })
+    const existing = await prisma.lot.findUnique({
+      where: { id: lotId },
+      select: { completedAt: true, shippedAt: true },
+    })
     const completedAt = completedAtStr ? new Date(completedAtStr)
       : (existing?.completedAt ?? new Date())
+    // 出荷済にした日は完成日とは別に残す（桶が空になった日＝実際に出し切った日）。
+    // 出荷済から他のステータスへ戻すときは消す
+    const shippedAt = newStatus === '出荷済'
+      ? (existing?.shippedAt ?? new Date())
+      : null
     const lot = await prisma.lot.update({
       where: { id: lotId },
-      data: { status: newStatus, completedAt },
+      data: { status: newStatus, completedAt, shippedAt },
       select: { misoType: true, lotNumber: true, isPrototype: true, yieldRate: true, brewedAt: true, bucketNumbers: true },
     })
 
@@ -379,6 +387,24 @@ export async function deleteLot(lotId: string, skipStockUpdate?: boolean): Promi
 }
 
 // ── 完成日を更新 ──────────────────────────────────────────
+// 出荷日（出荷済にした日）を直す。押した日と実際に出し切った日がずれることがあるため
+export async function updateShippedAt(
+  lotId: string,
+  shippedAtStr: string,
+): Promise<{ success?: true; error?: string }> {
+  const shippedAt = new Date(shippedAtStr)
+  if (isNaN(shippedAt.getTime())) return { error: '日付が不正です。' }
+  try {
+    await prisma.lot.update({ where: { id: lotId }, data: { shippedAt } })
+    revalidatePath(`/lots/${lotId}`)
+    revalidatePath('/')
+    return { success: true }
+  } catch (e) {
+    console.error('出荷日更新エラー:', e)
+    return { error: '更新中にエラーが発生しました。' }
+  }
+}
+
 export async function updateCompletedAt(
   lotId: string,
   completedAtStr: string,
@@ -553,7 +579,7 @@ export async function revertLotStatus(lotId: string, skipStockUpdate?: boolean):
 
     await prisma.lot.update({
       where: { id: lotId },
-      data:  { status: '熟成中', completedAt: null },
+      data:  { status: '熟成中', completedAt: null, shippedAt: null },
     })
 
     // 熟成済→熟成中の在庫移動（試作品・スキップ指定・情報取得失敗時はスキップ）

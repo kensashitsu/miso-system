@@ -133,6 +133,7 @@ export default async function LotDetailPage({ params }: Props) {
     targetTempSum,
     q10Value:               moisture.q10Value,
     completedAtISO:         lot.completedAt?.toISOString() ?? null,
+    shippedAtISO:           lot.shippedAt?.toISOString() ?? null,
     bucketNumbers:          lot.bucketNumbers ?? null,
     accumulatedTemp,
     postCompletionTemp:     accum.afterCompletion > 0 ? accum.afterCompletion : null,

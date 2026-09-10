@@ -3,11 +3,11 @@
 import { useState, useTransition, useMemo, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { format } from 'date-fns'
+import { differenceInDays, format, startOfDay } from 'date-fns'
 import { ChevronDown, ChevronUp, ArrowLeft, MapPin, Pencil } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import LotSimChart from './LotSimChart'
-import { addAgingNote, changeLotStatus, revertLotStatus, deleteLot, updateBucketNumbers, updateBucketRemaining, addBucketToLot, addBucketUsage, updateBucketUsage, deleteBucketUsage, updateCompletedAt, updateLocationTemp, updateBrewRecord, type NoteResult, type BucketUsageResult } from './actions'
+import { addAgingNote, changeLotStatus, revertLotStatus, deleteLot, updateBucketNumbers, updateBucketRemaining, addBucketToLot, addBucketUsage, updateBucketUsage, deleteBucketUsage, updateCompletedAt, updateShippedAt, updateLocationTemp, updateBrewRecord, type NoteResult, type BucketUsageResult } from './actions'
 import { getStockPreview, type StockChangeItem } from '@/app/lots/stock-preview-action'
 import StockPreviewPanel from '@/components/StockPreviewPanel'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
@@ -95,6 +95,7 @@ export interface LotDetailProps {
   totalWeightKg: number
   targetTempSum: number
   completedAtISO: string | null
+  shippedAtISO: string | null       // 出荷済にした日（完成日とは別）
   bucketNumbers: string | null
   accumulatedTemp: number             // 完成までの積算（熟成中は今日まで）
   postCompletionTemp?: number | null  // 完成後に進んだ積算（完成ロットのみ）
@@ -282,6 +283,7 @@ export default function LotDetail({
   totalWeightKg,
   targetTempSum,
   completedAtISO,
+  shippedAtISO,
   bucketNumbers,
   accumulatedTemp,
   postCompletionTemp,
@@ -415,6 +417,12 @@ export default function LotDetail({
   const [completedAtDraft, setCompletedAtDraft] = useState('')
   const [isSavingCompletedAt, startCompletedAtTransition] = useTransition()
   const cancelCompletedAtRef = useRef(false)
+  // 出荷日インライン編集（出荷済のみ。押した日と実際に出し切った日がずれることがある）
+  const [shippedAtValue, setShippedAtValue] = useState<string | null>(shippedAtISO)
+  const [editingShippedAt, setEditingShippedAt] = useState(false)
+  const [shippedAtDraft, setShippedAtDraft] = useState('')
+  const [isSavingShippedAt, startShippedAtTransition] = useTransition()
+  const cancelShippedAtRef = useRef(false)
   // 場所温度インライン編集
   const [editingLocId, setEditingLocId] = useState<string | null>(null)
   const [locTempDraft, setLocTempDraft] = useState('')
@@ -670,6 +678,11 @@ export default function LotDetail({
     })
   }
 
+  // 日付の差は startOfDay 同士で引く（時刻成分があると夜間に1日ずれる）
+  const daysFromBrew  = (iso: string) => differenceInDays(startOfDay(new Date(iso)), startOfDay(brewedAt))
+  const daysBetween   = (fromIso: string, toIso: string) =>
+    differenceInDays(startOfDay(new Date(toIso)), startOfDay(new Date(fromIso)))
+
   // ── 完成日を保存 ───────────────────────────────────────
   function handleCompletedAtSave() {
     if (!completedAtDraft) { setEditingCompletedAt(false); return }
@@ -678,6 +691,17 @@ export default function LotDetail({
       if (result.error) return
       setCompletedAtValue(new Date(completedAtDraft + 'T00:00:00').toISOString())
       setEditingCompletedAt(false)
+    })
+  }
+
+  // ── 出荷日を保存 ───────────────────────────────────────
+  function handleShippedAtSave() {
+    if (!shippedAtDraft) { setEditingShippedAt(false); return }
+    startShippedAtTransition(async () => {
+      const result = await updateShippedAt(id, shippedAtDraft + 'T00:00:00')
+      if (result.error) return
+      setShippedAtValue(new Date(shippedAtDraft + 'T00:00:00').toISOString())
+      setEditingShippedAt(false)
     })
   }
 
@@ -864,7 +888,7 @@ export default function LotDetail({
               <p className="flex items-center gap-1.5">
                 <span>完成日：</span>
                 {completedAtValue
-                  ? <span>{format(new Date(completedAtValue), 'yyyy年M月d日')}</span>
+                  ? <span>{format(new Date(completedAtValue), 'yyyy年M月d日')}（熟成{daysFromBrew(completedAtValue)}日）</span>
                   : <span className="text-gray-400">未設定</span>}
                 <button
                   type="button"
@@ -873,6 +897,61 @@ export default function LotDetail({
                     setEditingCompletedAt(true)
                   }}
                   title="完成日を編集"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </p>
+            )
+          )}
+          {/* 出荷日（出荷済のみ）。完成日とは別で、桶を出し切った日 */}
+          {status === '出荷済' && (
+            editingShippedAt ? (
+              <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                <span>出荷日：</span>
+                <input
+                  type="date"
+                  autoFocus
+                  value={shippedAtDraft}
+                  onChange={e => setShippedAtDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); handleShippedAtSave() }
+                    if (e.key === 'Escape') { e.preventDefault(); cancelShippedAtRef.current = true; setEditingShippedAt(false) }
+                  }}
+                  onBlur={() => {
+                    if (cancelShippedAtRef.current) { cancelShippedAtRef.current = false; return }
+                    handleShippedAtSave()
+                  }}
+                  disabled={isSavingShippedAt}
+                  className="rounded border bg-background px-2 py-0.5 text-sm text-foreground disabled:opacity-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => { cancelShippedAtRef.current = true; setEditingShippedAt(false) }}
+                  disabled={isSavingShippedAt}
+                  className="text-xs text-muted-foreground underline underline-offset-2 disabled:opacity-50"
+                >
+                  キャンセル
+                </button>
+              </div>
+            ) : (
+              <p className="flex items-center gap-1.5">
+                <span>出荷日：</span>
+                {shippedAtValue
+                  ? <span>
+                      {format(new Date(shippedAtValue), 'yyyy年M月d日')}
+                      {completedAtValue && (
+                        <span className="ml-1">（完成から{daysBetween(completedAtValue, shippedAtValue)}日）</span>
+                      )}
+                    </span>
+                  : <span className="text-gray-400">記録なし（この機能より前に出荷済みにしたロット）</span>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShippedAtDraft(shippedAtValue ? format(new Date(shippedAtValue), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'))
+                    setEditingShippedAt(true)
+                  }}
+                  title="出荷日を編集"
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <Pencil className="h-3 w-3" />
