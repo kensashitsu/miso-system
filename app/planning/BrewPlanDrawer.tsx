@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { Trash2, ArrowRight, ChevronUp, ChevronDown, CalendarPlus, LineChart, RefreshCw, Pencil, Check, X } from 'lucide-react'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
@@ -11,7 +12,8 @@ import {
 import { buildIcs, downloadIcs } from '@/lib/ics'
 import { syncCalendarNow } from '@/app/planning/calendar-sync-action'
 import {
-  deleteBrewPlan, deleteBrewPlans, setBrewPlanMaterialOrdered, updateBrewPlanBrewDate,
+  deleteBrewPlan, deleteBrewPlans, recalcPendingBrewPlans, setBrewPlanMaterialOrdered,
+  updateBrewPlanBrewDate,
 } from '@/app/planning/brew-plan-actions'
 import { getPlanSimConfig } from '@/app/planning/plan-sim-action'
 import LotSimulationModal, { type LotSimConfig } from '@/components/dashboard/LotSimulationModal'
@@ -31,6 +33,7 @@ export interface BrewPlanItem {
 }
 
 export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
+  const router = useRouter()
   const [isOpen, setIsOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -122,6 +125,24 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
       setSyncMsg(r.ok ? `${time} 同期しました：${r.message}` : `${time} ${r.message}`)
     } finally {
       setSyncing(false)
+    }
+  }
+
+  // 仮登録は登録時点の完成予定日・熟成日数をDBに持っているので、暖房室の温度や
+  // 稼働開始日を変えても古いままになる。設定を変えたらこのボタンで全件引き直す
+  const [recalcing, setRecalcing] = useState(false)
+  const handleRecalc = async () => {
+    setRecalcing(true)
+    setSyncMsg(null)
+    try {
+      const r = await recalcPendingBrewPlans()
+      const time = format(new Date(), 'HH:mm')
+      setSyncMsg(r.updated > 0
+        ? `${time} 熟成日数を引き直しました：${r.updated}件`
+        : `${time} 熟成日数はいまの設定と一致しています`)
+      router.refresh()
+    } finally {
+      setRecalcing(false)
     }
   }
 
@@ -260,6 +281,16 @@ export default function BrewPlanDrawer({ plans }: { plans: BrewPlanItem[] }) {
                   >
                     <RefreshCw className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`} />
                     {syncing ? '同期中...' : 'カレンダーに同期'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={recalcing}
+                    onClick={() => void handleRecalc()}
+                    className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded border border-gray-200 hover:bg-gray-50 transition-colors whitespace-nowrap disabled:opacity-40"
+                    title="いまの設定（暖房室の温度・稼働開始日・Q10）で完成予定日と熟成日数を全件引き直す"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${recalcing ? 'animate-spin' : ''}`} />
+                    {recalcing ? '計算中...' : '熟成日数を引き直す'}
                   </button>
                   <button
                     type="button"
