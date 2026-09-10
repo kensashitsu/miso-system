@@ -19,8 +19,10 @@ interface RecentRow {
 }
 
 interface Props {
-  items:        PackingItem[]
-  types:        string[]
+  items:          PackingItem[]
+  types:          string[]
+  stockByItem:    Record<string, number>
+  stockAvailable: boolean
   location:     string
   pendingCount: number
   recent:       RecentRow[]
@@ -36,7 +38,9 @@ const TYPE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
 }
 const FALLBACK_STYLE = { bg: '#F3F4F6', fg: '#374151', bd: '#D1D5DB' }
 
-export default function PackingInput({ items, types, location, pendingCount, recent }: Props) {
+export default function PackingInput({
+  items, types, stockByItem, stockAvailable, location, pendingCount, recent,
+}: Props) {
   const [activeType, setActiveType] = useState(types[0] ?? '')
   const [selected, setSelected] = useState<PackingItem | null>(null)
   const [qty,      setQty]      = useState('')
@@ -220,6 +224,18 @@ export default function PackingInput({ items, types, location, pendingCount, rec
                 <span className="block text-xs opacity-80 mt-0.5">
                   {isBulkItem(item) ? 'kgで入力' : `${item.kgPerUnit}kg／${item.unit}`}
                 </span>
+                {stockAvailable && (
+                  <span
+                    className="block text-xs mt-2 pt-1.5 border-t"
+                    style={{ borderColor: active ? 'rgba(255,255,255,.35)' : st.bd }}
+                  >
+                    在庫 <b className="text-sm">
+                      {stockByItem[item.name] != null
+                        ? stockByItem[item.name].toLocaleString()
+                        : '—'}
+                    </b> {item.unit}
+                  </span>
+                )}
               </button>
             )
           })}
@@ -234,6 +250,16 @@ export default function PackingInput({ items, types, location, pendingCount, rec
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-5 py-4">
           <span className="text-base font-medium text-gray-900 min-w-[220px]">
             {selected ? selected.name : <span className="text-gray-400">品目を選んでください</span>}
+            {selected && stockAvailable && stockByItem[selected.name] != null && (
+              <span className="block text-xs text-gray-500 mt-0.5">
+                いまの在庫 {stockByItem[selected.name].toLocaleString()}{selected.unit}
+                {Number(qty) > 0 && (
+                  <> → <b className="text-gray-900">
+                    {(stockByItem[selected.name] + Number(qty)).toLocaleString()}{selected.unit}
+                  </b></>
+                )}
+              </span>
+            )}
           </span>
           {!(selected && isBulkItem(selected)) && (
             <button

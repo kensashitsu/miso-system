@@ -388,3 +388,43 @@ export async function adjustItemStock(payload: ItemStockAdjustPayload): Promise<
     return { ok: false, error: String(e) }
   }
 }
+
+// ── 品目ごとの在庫数（小分け入力画面の表示用）────────────────
+// zaiko.mitsuura.jp 開発者への依頼: docs/zaiko-api-packaging.md
+//
+// GET ${ITEM_STOCK_API_URL}
+// 認証: X-API-Key（既存の EXTERNAL_API_KEY を共用）
+// レスポンス: [ { "itemCode": "800895", "itemName": "田舎みそ（ｽﾘ）20K桶入",
+//                "unit": "丁", "stock": 12, "location": "調味料工場倉庫" }, ... ]
+//
+// 既存の熟成済在庫API（STOCK_API_URL）は品種ごとの合計kgしか返さないため、
+// 「20K桶が今いくつあるか」は分からない。品目単位で必要。
+export interface ItemStock {
+  itemCode: string
+  itemName: string
+  unit:     string
+  stock:    number
+}
+
+export async function fetchItemStocks(): Promise<ItemStock[] | null> {
+  const url = process.env.ITEM_STOCK_API_URL
+  if (!url || !process.env.EXTERNAL_API_KEY) return null
+
+  try {
+    const res = await fetch(url, { headers: headers(), cache: 'no-store' })
+    if (!res.ok) return null
+    const json = await res.json()
+    const items: unknown = Array.isArray(json) ? json : json?.data ?? null
+    if (!Array.isArray(items)) return null
+    return (items as Record<string, unknown>[])
+      .filter(i => typeof i?.stock === 'number' && (typeof i?.itemCode === 'string' || typeof i?.itemName === 'string'))
+      .map(i => ({
+        itemCode: typeof i.itemCode === 'string' ? i.itemCode : '',
+        itemName: typeof i.itemName === 'string' ? i.itemName : '',
+        unit:     typeof i.unit     === 'string' ? i.unit     : '',
+        stock:    i.stock as number,
+      }))
+  } catch {
+    return null
+  }
+}

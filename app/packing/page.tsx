@@ -2,12 +2,13 @@ import type { Metadata } from 'next'
 import { subDays } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { PACKING_ITEMS, PACKING_LOCATION } from '@/lib/packingItems'
+import { fetchItemStocks } from '@/lib/externalApi'
 import PackingInput from './PackingInput'
 
 export const metadata: Metadata = { title: '小分け入力' }
 
 export default async function PackingPage() {
-  const [recent, usage, pendingCount] = await Promise.all([
+  const [recent, usage, pendingCount, itemStocks] = await Promise.all([
     // 直近の記録（取消ボタンを出すぶん）
     prisma.packingRecord.findMany({
       where:   { qty: { gt: 0 } },
@@ -23,6 +24,9 @@ export default async function PackingPage() {
       _count: { _all: true },
     }),
     prisma.packingRecord.count({ where: { sendStatus: '未送信' } }),
+    // 在庫数はzaikoにしか無い（本システムは持っていない）。API未設定・取得失敗のときは
+    // null が返り、画面は在庫欄を出さない
+    fetchItemStocks(),
   ])
 
   // よく使う品目ほど前に出す（使わない品目は自然に沈む）
@@ -35,10 +39,21 @@ export default async function PackingPage() {
   // タブまで動くと「いつもの位置」が変わって押し間違えるため）
   const types = [...new Set(PACKING_ITEMS.map(i => i.misoType))]
 
+  // 品目コード優先・無ければ品名で突き合わせる（コードが埋まるまでの保険）
+  const stockByItem: Record<string, number> = {}
+  for (const item of PACKING_ITEMS) {
+    const hit = itemStocks?.find(s =>
+      (item.code !== '' && s.itemCode === item.code) || s.itemName === item.name
+    )
+    if (hit) stockByItem[item.name] = hit.stock
+  }
+
   return (
     <PackingInput
       items={items}
       types={types}
+      stockByItem={stockByItem}
+      stockAvailable={itemStocks != null}
       location={PACKING_LOCATION}
       pendingCount={pendingCount}
       recent={recent.map(r => ({
