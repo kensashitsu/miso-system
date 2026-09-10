@@ -38,8 +38,9 @@ export const PACKING_ITEMS: PackingItem[] = [
   // 無添加麦みそ
   { code: '',       name: '無添加　麦みそ　バラ',   short: 'バラ',    unit: 'KG', kgPerUnit: 1,  misoType: '無添加麦みそ' },
   { code: '',       name: '無添加　麦みそ　10K桶入', short: '10K桶',  unit: '丁', kgPerUnit: 10, misoType: '無添加麦みそ' },
-  // 合せみそ（バラのみ）
+  // 合せみそ
   { code: '',       name: '合せみそ　バラ',        short: 'バラ',    unit: 'KG', kgPerUnit: 1,  misoType: '合せみそ' },
+  { code: '',       name: '合せみそ　20K桶入',     short: '20K桶',   unit: '丁', kgPerUnit: 20, misoType: '合せみそ' },
 ]
 
 /** kg で入力する品目（バラ）かどうか。桶・袋は個数、バラは重量で入れる */
