@@ -77,9 +77,13 @@ export async function recordPacking(input: {
   const item = findPackingItem(input.itemName)
   if (!item) return { ok: false, error: '品目が選ばれていません' }
   if (!Number.isFinite(input.qty) || input.qty <= 0) {
-    return { ok: false, error: '個数は1以上を入力してください' }
+    return { ok: false, error: '数量は0より大きい値を入力してください' }
   }
-  if (input.qty > 999) return { ok: false, error: '個数が大きすぎます（999まで）' }
+  // バラはkg・桶や袋は個数なので上限が桁違いになる
+  const max = item.unit === 'KG' ? 20000 : 999
+  if (input.qty > max) {
+    return { ok: false, error: `入力できるのは${max.toLocaleString()}${item.unit}までです` }
+  }
 
   const rec = await prisma.packingRecord.create({
     data: {

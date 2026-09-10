@@ -18,6 +18,7 @@ export interface PackingItem {
 
 export const PACKING_ITEMS: PackingItem[] = [
   // 田舎みそ（ｽﾘ）
+  { code: '',       name: '田舎みそ（ｽﾘ）バラ',    short: 'ｽﾘ バラ', unit: 'KG', kgPerUnit: 1,  misoType: '田舎みそ' },
   { code: '',       name: '田舎みそ（ｽﾘ）1kg',     short: 'ｽﾘ 1kg',  unit: '個', kgPerUnit: 1,  misoType: '田舎みそ' },
   { code: '',       name: '田舎みそ（ｽﾘ）2K桶入',  short: 'ｽﾘ 2K桶', unit: '丁', kgPerUnit: 2,  misoType: '田舎みそ' },
   { code: '',       name: '田舎みそ（ｽﾘ）4K桶入',  short: 'ｽﾘ 4K桶', unit: '丁', kgPerUnit: 4,  misoType: '田舎みそ' },
@@ -25,16 +26,26 @@ export const PACKING_ITEMS: PackingItem[] = [
   { code: '',       name: '田舎みそ（ｽﾘ）10K桶入', short: 'ｽﾘ 10K桶',unit: '丁', kgPerUnit: 10, misoType: '田舎みそ' },
   { code: '800895', name: '田舎みそ（ｽﾘ）20K桶入', short: 'ｽﾘ 20K桶',unit: '丁', kgPerUnit: 20, misoType: '田舎みそ' },
   // 田舎みそ（粒）
+  { code: '',       name: '田舎みそ（粒）バラ',     short: '粒 バラ',  unit: 'KG', kgPerUnit: 1,  misoType: '田舎みそ' },
   { code: '',       name: '田舎みそ（粒）2kg袋入',  short: '粒 2kg袋', unit: '個', kgPerUnit: 2,  misoType: '田舎みそ' },
   { code: '',       name: '田舎みそ（粒）20K桶入',  short: '粒 20K桶', unit: '丁', kgPerUnit: 20, misoType: '田舎みそ' },
   // 山吹みそ
+  { code: '',       name: '山吹みそ　バラ',        short: 'バラ',    unit: 'KG', kgPerUnit: 1,  misoType: '山吹みそ' },
   { code: '',       name: '山吹みそ　4K桶入',      short: '4K桶',    unit: '丁', kgPerUnit: 4,  misoType: '山吹みそ' },
   { code: '',       name: '山吹みそ　8K桶入',      short: '8K桶',    unit: '丁', kgPerUnit: 8,  misoType: '山吹みそ' },
   { code: '',       name: '山吹みそ　10K桶入',     short: '10K桶',   unit: '丁', kgPerUnit: 10, misoType: '山吹みそ' },
   { code: '',       name: '山吹みそ　20K桶入',     short: '20K桶',   unit: '丁', kgPerUnit: 20, misoType: '山吹みそ' },
   // 無添加麦みそ
+  { code: '',       name: '無添加　麦みそ　バラ',   short: 'バラ',    unit: 'KG', kgPerUnit: 1,  misoType: '無添加麦みそ' },
   { code: '',       name: '無添加　麦みそ　10K桶入', short: '10K桶',  unit: '丁', kgPerUnit: 10, misoType: '無添加麦みそ' },
+  // 合せみそ（バラのみ）
+  { code: '',       name: '合せみそ　バラ',        short: 'バラ',    unit: 'KG', kgPerUnit: 1,  misoType: '合せみそ' },
 ]
+
+/** kg で入力する品目（バラ）かどうか。桶・袋は個数、バラは重量で入れる */
+export function isBulkItem(item: PackingItem): boolean {
+  return item.unit === 'KG'
+}
 
 export function findPackingItem(name: string): PackingItem | undefined {
   return PACKING_ITEMS.find(i => i.name === name)

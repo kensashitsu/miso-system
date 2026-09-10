@@ -15,18 +15,20 @@ export default async function PackingPage() {
       take:    8,
     }),
     // 品目ボタンの並び順に使う直近90日の実績
+    // ※ 量ではなく「入力した回数」で数える（バラはkg・桶は丁で桁が違うため、
+    //   量で並べるとバラだけが常に先頭に来てしまう）
     prisma.packingRecord.groupBy({
       by:    ['itemName'],
       where: { createdAt: { gte: subDays(new Date(), 90) }, qty: { gt: 0 } },
-      _sum:  { qty: true },
+      _count: { _all: true },
     }),
     prisma.packingRecord.count({ where: { sendStatus: '未送信' } }),
   ])
 
   // よく使う品目ほど前に出す（使わない品目は自然に沈む）
-  const usedQty = new Map(usage.map(u => [u.itemName, u._sum.qty ?? 0]))
+  const usedCount = new Map(usage.map(u => [u.itemName, u._count._all]))
   const items = [...PACKING_ITEMS].sort(
-    (a, b) => (usedQty.get(b.name) ?? 0) - (usedQty.get(a.name) ?? 0)
+    (a, b) => (usedCount.get(b.name) ?? 0) - (usedCount.get(a.name) ?? 0)
   )
 
   return (

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import type { PackingItem } from '@/lib/packingItems'
+import { isBulkItem, type PackingItem } from '@/lib/packingItems'
 import { recordPacking, cancelPacking, resendPending, type PackingResult } from './actions'
 
 interface RecentRow {
@@ -31,6 +31,7 @@ const TYPE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
   '田舎みそ':     { bg: '#FAEEDA', fg: '#854F0B', bd: '#EF9F27' },
   '山吹みそ':     { bg: '#EEEDFE', fg: '#3C3489', bd: '#AFA9EC' },
   '白みそ':       { bg: '#E6F1FB', fg: '#185FA5', bd: '#85B7EB' },
+  '合せみそ':     { bg: '#F1F3F5', fg: '#495057', bd: '#CED4DA' },
 }
 
 export default function PackingInput({ items, location, pendingCount, recent }: Props) {
@@ -66,7 +67,10 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
   function submit() {
     if (!selected) { setError('品目を選んでください'); return }
     const n = Number(qty)
-    if (!Number.isFinite(n) || n <= 0) { setError('個数を入力してください'); return }
+    if (!Number.isFinite(n) || n <= 0) {
+      setError(isBulkItem(selected) ? '重さ（kg）を入力してください' : '個数を入力してください')
+      return
+    }
     setError(null)
     startTransition(async () => {
       const res = await recordPacking({
@@ -106,7 +110,11 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
     return acc
   }, {})
 
-  const totalKg = selected && Number(qty) > 0 ? selected.kgPerUnit * Number(qty) : null
+  // 桶・袋は「3丁（60kg）」と重さを添える。バラは打った数がkgそのものなので添えない
+  const totalKg =
+    selected && !isBulkItem(selected) && Number(qty) > 0
+      ? selected.kgPerUnit * Number(qty)
+      : null
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -184,7 +192,7 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
                       >
                         <span className="block text-lg font-bold leading-tight">{item.short}</span>
                         <span className="block text-xs opacity-80 mt-0.5">
-                          {item.kgPerUnit}kg／{item.unit}
+                          {isBulkItem(item) ? 'kgで入力' : `${item.kgPerUnit}kg／${item.unit}`}
                         </span>
                       </button>
                     )
@@ -198,22 +206,27 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
 
       {/* ② 個数を打つ */}
       <section className="mb-6">
-        <h2 className="text-sm font-semibold text-gray-700 mb-3">② 個数を入力して Enter</h2>
+        <h2 className="text-sm font-semibold text-gray-700 mb-3">
+          ② {selected && isBulkItem(selected) ? '重さ（kg）' : '個数'}を入力して Enter
+        </h2>
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-5 py-4">
           <span className="text-base font-medium text-gray-900 min-w-[220px]">
             {selected ? selected.name : <span className="text-gray-400">品目を選んでください</span>}
           </span>
-          <button
-            type="button"
-            onClick={() => setQty(String(Math.max(0, (Number(qty) || 0) - 1)))}
-            disabled={!selected}
-            className="w-11 h-11 rounded-lg border border-gray-300 text-xl font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          >−</button>
+          {!(selected && isBulkItem(selected)) && (
+            <button
+              type="button"
+              onClick={() => setQty(String(Math.max(0, (Number(qty) || 0) - 1)))}
+              disabled={!selected}
+              className="w-11 h-11 rounded-lg border border-gray-300 text-xl font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >−</button>
+          )}
           <input
             ref={qtyRef}
             type="number"
-            inputMode="numeric"
-            min={1}
+            inputMode="decimal"
+            min={0}
+            step={selected && isBulkItem(selected) ? 'any' : 1}
             value={qty}
             disabled={!selected}
             onChange={e => setQty(e.target.value)}
@@ -221,12 +234,14 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); submit() } }}
             className="w-28 text-center text-3xl font-bold border-2 border-gray-300 rounded-lg py-2 focus:border-gray-900 focus:outline-none disabled:bg-gray-50"
           />
-          <button
-            type="button"
-            onClick={() => setQty(String((Number(qty) || 0) + 1))}
-            disabled={!selected}
-            className="w-11 h-11 rounded-lg border border-gray-300 text-xl font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-          >＋</button>
+          {!(selected && isBulkItem(selected)) && (
+            <button
+              type="button"
+              onClick={() => setQty(String((Number(qty) || 0) + 1))}
+              disabled={!selected}
+              className="w-11 h-11 rounded-lg border border-gray-300 text-xl font-bold text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >＋</button>
+          )}
           <span className="text-base text-gray-500 w-28">
             {selected?.unit ?? ''}{totalKg != null && `（${totalKg}kg）`}
           </span>
@@ -282,7 +297,9 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
                 </span>
                 <span className={`flex-1 text-sm ${r.canceled ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                   {r.itemName}　<b>{r.qty}</b>{r.unit}
-                  <span className="text-gray-400">（{r.qty * r.kgPerUnit}kg）</span>
+                  {r.unit !== 'KG' && (
+                    <span className="text-gray-400">（{r.qty * r.kgPerUnit}kg）</span>
+                  )}
                   {r.operator && <span className="text-xs text-gray-400 ml-2">{r.operator}</span>}
                 </span>
                 {r.canceled ? (
