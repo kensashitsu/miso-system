@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { href: '/',            label: 'ダッシュボード' },
   { href: '/lots/new',    label: 'ロット登録' },
   { href: '/planning',    label: '仕込み計画' },
+  { href: '/packing',     label: '小分け入力' },
   { href: '/simulation',  label: '試作' },
   { href: '/trace',       label: 'トレース' },
   { href: '/import',      label: 'インポート' },

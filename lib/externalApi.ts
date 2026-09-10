@@ -312,3 +312,79 @@ export async function testApiConnection(url: string): Promise<ApiTestResult> {
     return { ok: false, latency: Date.now() - start, error: String(e) }
   }
 }
+
+// ── 品目単位の在庫調整（小分け入力の転記用）─────────────────
+// zaiko.mitsuura.jp 開発者への依頼: docs/zaiko-api-packaging.md
+//
+// POST ${STOCK_ITEM_ADJUST_API_URL}
+// 認証: X-API-Key（既存の EXTERNAL_API_KEY を共用）
+//
+// 既存の在庫調整API（STOCK_ADJUST_API_URL）は misoType + wip/aged の2区分しか受け取れず、
+// 「田舎みそ（ｽﾘ）20K桶入」のような個別品目を指定できないため別エンドポイントを使う。
+//
+// ★ 原材料の減算はこちらでは一切計算しない。zaiko の在庫登録モーダル「加算＋」タブと
+//   同じレシピ連動（applyRecipe: true）に任せる。両方で引くと二重計上になる。
+//   実際の連動（田舎みそ（ｽﾘ）20K桶入 を10丁）: 田舎みそ（熟成済）−200kg／
+//   アルコール無変性 −10L／シート −10枚／掛け紙 −10枚
+//
+// ★ requestId は冪等キー。工場のネットワークが不安定で「送信は通ったがレスポンスが
+//   返らない」ことがあり、その場合こちらは再送する。zaiko側は同じ requestId の
+//   2回目以降は在庫を動かさず1回目と同じ結果を返す。
+export interface ItemStockAdjustPayload {
+  itemCode:    string
+  location:    string
+  delta:       number   // 正=加算＋、負=減算−（単位は品目の在庫単位）
+  applyRecipe: boolean
+  occurredAt?: string   // yyyy-MM-dd
+  operator?:   string
+  requestId:   string
+  notes?:      string
+}
+
+export interface ItemStockAdjustResult {
+  ok:                 boolean
+  error?:             string
+  stockBefore?:       number
+  stockAfter?:        number
+  consumedMaterials?: ConsumedMaterial[]
+}
+
+export async function adjustItemStock(payload: ItemStockAdjustPayload): Promise<ItemStockAdjustResult> {
+  const url = process.env.STOCK_ITEM_ADJUST_API_URL
+  if (!url || !process.env.EXTERNAL_API_KEY) {
+    return { ok: false, error: 'zaikoの品目在庫APIが未設定です（対応待ち）' }
+  }
+
+  try {
+    const res = await fetch(url, {
+      method:  'POST',
+      headers: headers(),
+      body:    JSON.stringify(payload),
+      cache:   'no-store',
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      return { ok: false, error: `HTTP ${res.status}${body ? `: ${body.slice(0, 200)}` : ''}` }
+    }
+    const json = await res.json().catch(() => ({}))
+    const mats: unknown = json?.consumedMaterials
+    return {
+      ok:          true,
+      stockBefore: typeof json?.stockBefore === 'number' ? json.stockBefore : undefined,
+      stockAfter:  typeof json?.stockAfter  === 'number' ? json.stockAfter  : undefined,
+      consumedMaterials: Array.isArray(mats)
+        ? (mats as Record<string, unknown>[])
+            .filter(m => typeof m?.name === 'string' && typeof m?.unit === 'string')
+            .map(m => ({
+              name:        m.name as string,
+              quantity:    typeof m.quantity === 'number' ? m.quantity : 0,
+              unit:        m.unit as string,
+              stockBefore: typeof m.stockBefore === 'number' ? m.stockBefore : undefined,
+              stockAfter:  typeof m.stockAfter  === 'number' ? m.stockAfter  : undefined,
+            }))
+        : undefined,
+    }
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+}
