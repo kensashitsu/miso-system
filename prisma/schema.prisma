@@ -270,31 +270,3 @@ model CustomerMonthlySales {
 
   @@id([yearMonth, misoType, customer])
 }
-
-// 業務用小分けみその現場入力（2026-09-10）
-// 現場スタッフが zaiko の在庫管理画面で入力しなくなってきたため、専用の入力画面を用意した。
-// 入力は必ずここへ先に保存し、zaiko への転記は送信キュー（sendStatus）で後追いする。
-// ※ 原材料の減算はこちらでは計算しない。zaiko 側のレシピ連動に任せる（二重計上になるため）
-model PackingRecord {
-  id           String    @id @default(cuid())
-  itemCode     String                          // zaiko の品目コード（例: 800895）
-  itemName     String
-  unit         String                          // 丁・個・KG
-  kgPerUnit    Float                           // 1単位あたりのkg（表示用）
-  misoType     String
-  qty          Float                           // 正=製造、負=取消
-  occurredAt   DateTime                        // 作業日
-  operator     String?                         // 入力者
-  location     String    @default("調味料工場倉庫")
-  requestId    String    @unique               // zaiko へ送る冪等キー（再送で二重計上しないため）
-  sendStatus   String    @default("未送信")     // 未送信・送信済・失敗
-  sentAt       DateTime?
-  lastError    String?
-  attempts     Int       @default(0)
-  canceledAt   DateTime?                       // 取消された元レコードに入る
-  reversalOfId String?                         // 取消レコードが指す元レコードID
-  createdAt    DateTime  @default(now())
-
-  @@index([occurredAt])
-  @@index([sendStatus])
-}
