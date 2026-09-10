@@ -2,13 +2,13 @@ import type { Metadata } from 'next'
 import { subDays } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { PACKING_ITEMS, PACKING_LOCATION } from '@/lib/packingItems'
-import { fetchItemStocks } from '@/lib/externalApi'
+import { fetchItemStocks, fetchAgedStock } from '@/lib/externalApi'
 import PackingInput from './PackingInput'
 
 export const metadata: Metadata = { title: '小分け入力' }
 
 export default async function PackingPage() {
-  const [recent, usage, pendingCount, itemStocks] = await Promise.all([
+  const [recent, usage, pendingCount, itemStocks, agedStocks] = await Promise.all([
     // 直近の記録（取消ボタンを出すぶん）
     prisma.packingRecord.findMany({
       where:   { qty: { gt: 0 } },
@@ -27,6 +27,8 @@ export default async function PackingPage() {
     // 在庫数はzaikoにしか無い（本システムは持っていない）。API未設定・取得失敗のときは
     // null が返り、画面は在庫欄を出さない
     fetchItemStocks(),
+    // 品種ごとの熟成済（バラ）在庫。小分けするとこれがレシピ連動で減っていく
+    fetchAgedStock(),
   ])
 
   // よく使う品目ほど前に出す（使わない品目は自然に沈む）
@@ -48,12 +50,17 @@ export default async function PackingPage() {
     if (hit) stockByItem[item.name] = hit.stock
   }
 
+  // タブに出す品種ごとの熟成済在庫（合せみそなど、品種として無いものは出ない）
+  const agedByType: Record<string, number> = {}
+  for (const a of agedStocks ?? []) agedByType[a.misoType] = a.stockKg
+
   return (
     <PackingInput
       items={items}
       types={types}
       stockByItem={stockByItem}
       stockAvailable={itemStocks != null}
+      agedByType={agedByType}
       location={PACKING_LOCATION}
       pendingCount={pendingCount}
       recent={recent.map(r => ({

@@ -23,6 +23,7 @@ interface Props {
   types:          string[]
   stockByItem:    Record<string, number>
   stockAvailable: boolean
+  agedByType:     Record<string, number>
   location:     string
   pendingCount: number
   recent:       RecentRow[]
@@ -39,7 +40,7 @@ const TYPE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
 const FALLBACK_STYLE = { bg: '#F3F4F6', fg: '#374151', bd: '#D1D5DB' }
 
 export default function PackingInput({
-  items, types, stockByItem, stockAvailable, location, pendingCount, recent,
+  items, types, stockByItem, stockAvailable, agedByType, location, pendingCount, recent,
 }: Props) {
   const [activeType, setActiveType] = useState(types[0] ?? '')
   const [selected, setSelected] = useState<PackingItem | null>(null)
@@ -203,6 +204,18 @@ export default function PackingInput({
             )
           })}
         </div>
+
+        {agedByType[activeType] != null && (
+          <p className="text-sm text-gray-600 mb-3">
+            {activeType}の熟成済（バラ）在庫{' '}
+            <b className="text-base text-gray-900">
+              {Math.round(agedByType[activeType]).toLocaleString()}
+            </b> kg
+            <span className="text-xs text-gray-400 ml-2">
+              小分けするとここから減ります
+            </span>
+          </p>
+        )}
 
         <div className="flex flex-wrap gap-2">
           {items.filter(i => i.misoType === activeType).map(item => {
