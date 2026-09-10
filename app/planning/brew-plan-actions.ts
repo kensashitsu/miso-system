@@ -4,8 +4,10 @@ import { addDays, format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
 import { getHeatingStartDate, getMoistureSettings } from '@/lib/settings'
+import { isHeatingDate } from '@/lib/tempCalc'
 import {
-  simulateFermentationDays, getDailyAccum, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
+  simulateFermentationDays, simulateHeatingDays, getDailyAccum,
+  ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
 } from '@/lib/brewPlanCalc'
 
 // ロット登録と同じ桶番号プール（1・2〜29・30、計15ペア）
@@ -139,6 +141,12 @@ function calcPlanSchedule(
     )
     return { fermentationDays: r.days, completionDate: r.completionDate }
   }
+  if (location.startsWith('暖房')) {
+    // 暖房は月別の実効レート補正があるので日ごとに積む（常温の季節切り替えと同じ扱い）
+    const rate = Math.max(Number(location.match(/(\d+(?:\.\d+)?)/)?.[1] ?? moisture.heatingDefaultTemp) - 10, 0)
+    const r = simulateHeatingDays(brewDate, targetTempSum, rate)
+    return r.days > 0 ? { fermentationDays: r.days, completionDate: r.completionDate } : null
+  }
   const dailyAccum = getDailyAccum(
     location, moisture.fridgeTemp, weatherAvgValues,
     moisture.q10Value, moisture.q10BaseTemp,
@@ -166,7 +174,11 @@ export async function recalcPendingBrewPlans(): Promise<{ updated: number }> {
   for (const plan of plans) {
     const target = targetOf.get(plan.misoType)
     if (target == null) continue
-    const location = plan.location.startsWith('暖房') ? heatingLoc : plan.location
+    // 暖房期に仕込む分は暖房室へ入れる運用なので、常温のまま残っている行も暖房室に寄せる
+    // （中身の計算は元から暖房として積んでいたが、画面の「場所」だけ常温のままだった）
+    const location = plan.location.startsWith('暖房') ? heatingLoc
+      : (plan.location === '常温' && isHeatingDate(plan.brewDate, ctx.heatingStartDate)) ? heatingLoc
+      : plan.location
     const calc = calcPlanSchedule(plan.brewDate, location, target, ctx)
     if (!calc) continue
     const leadDays = ORDER_LEAD_DAYS[plan.misoType] ?? DEFAULT_ORDER_LEAD_DAYS

@@ -64,6 +64,28 @@ export function getDailyAccum(
     .reduce((a, b) => a + b, 0) / weatherAvgValues.length
 }
 
+// 暖房室に置いたままの熟成日数。暖房は月別の実効レート補正（HEATING_MONTHLY_FACTOR）が
+// あり、12月は遅く春は速いので、単純な「目標 ÷ 日次レート」だと季節ぶんズレる。
+// 常温の季節切り替え（simulateFermentationDays）と同じく日ごとに積む。
+// 暖房室を通年で使うようになった2026-09-10に追加（それ以前は暖房固定＝固定日数だった）
+export function simulateHeatingDays(
+  brewDate:      Date,
+  targetTempSum: number,
+  dailyRate:     number,   // 暖房室の日次有効積算温度（= 設定温度 - 10）
+): { days: number; completionDate: Date } {
+  if (!brewDate || isNaN(brewDate.getTime()) || dailyRate <= 0) {
+    return { days: 0, completionDate: new Date() }
+  }
+  let accumulated = 0
+  let current = new Date(brewDate)
+  for (let i = 0; i < 730; i++) {
+    accumulated += dailyRate * (HEATING_MONTHLY_FACTOR[current.getMonth() + 1] ?? 1)
+    current = addDays(current, 1)
+    if (accumulated >= targetTempSum) return { days: i + 1, completionDate: new Date(current) }
+  }
+  return { days: 730, completionDate: addDays(brewDate, 730) }
+}
+
 export function simulateFermentationDays(
   brewDate:         Date,
   targetTempSum:    number,

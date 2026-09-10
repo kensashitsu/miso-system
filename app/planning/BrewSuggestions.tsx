@@ -16,6 +16,7 @@ import {
   type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
   snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
   PEAK_COMPLETION_MONTHS, calcBatches, refineBrewDateToStockOut, makeSafetyDeltaFn, makeSafetyLineFn, getDailyAccum,
+  simulateHeatingDays,
   weekStartOf, expandBlockedWeeks,
 } from '@/lib/brewPlanCalc'
 import { createBrewPlan } from './brew-plan-actions'
@@ -676,14 +677,20 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     const selectedLocation = locations[recipe.name]
       ?? (locationOptions.includes(recipe.defaultLocation) ? recipe.defaultLocation : locationOptions[0])
-    const dailyAccum       = getDailyAccum(selectedLocation, fridgeTemp, weatherAvgValues, q10Value, heatingDefaultTemp)
-    const fermentationDays = dailyAccum > 0
-      ? Math.ceil(recipe.targetTempSum / dailyAccum)
+    const dailyAccum       = getDailyAccum(selectedLocation, fridgeTemp, weatherAvgValues, q10Value, q10BaseTemp)
+    // 暖房は月別の実効レート補正があるので「目標÷日次レート」ではなく日ごとに積む
+    const heatingRate      = selectedLocation.startsWith('暖房')
+      ? Math.max(Number(selectedLocation.match(/(\d+(?:\.\d+)?)/)?.[1] ?? heatingDefaultTemp) - 10, 0)
       : 0
+    const fermentationDays = heatingRate > 0
+      ? simulateHeatingDays(new Date(), recipe.targetTempSum, heatingRate).days
+      : dailyAccum > 0
+        ? Math.ceil(recipe.targetTempSum / dailyAccum)
+        : 0
 
     // 補正なしの初期推定値（常温・q10≠1のときのみ）
     const rawDailyAccum = (selectedLocation === '常温' && q10Value !== 1)
-      ? getDailyAccum(selectedLocation, fridgeTemp, weatherAvgValues, 1, heatingDefaultTemp)
+      ? getDailyAccum(selectedLocation, fridgeTemp, weatherAvgValues, 1, q10BaseTemp)
       : dailyAccum
     const fermentationDaysRaw = (selectedLocation === '常温' && q10Value !== 1 && rawDailyAccum > 0)
       ? Math.ceil(recipe.targetTempSum / rawDailyAccum)
@@ -802,7 +809,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
 
     const getCompletion = selectedLocation === '常温'
       ? (brewDate: Date) => simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg ?? {}, weatherFallback, q10Value, q10BaseTemp, outdoorToIndoorRate, heatingStartDate)
-      : undefined
+      : heatingRate > 0
+        ? (brewDate: Date) => simulateHeatingDays(brewDate, recipe.targetTempSum, heatingRate)
+        : undefined
 
     // 補正なし完成日（q10≠1のときのみ生成）
     const getCompletionRaw = (selectedLocation === '常温' && q10Value !== 1)
