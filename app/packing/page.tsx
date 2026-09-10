@@ -31,9 +31,14 @@ export default async function PackingPage() {
     (a, b) => (usedCount.get(b.name) ?? 0) - (usedCount.get(a.name) ?? 0)
   )
 
+  // タブの並びはマスタの登録順で固定する（実績順で並べ替えるのは各タブの中の品目だけ。
+  // タブまで動くと「いつもの位置」が変わって押し間違えるため）
+  const types = [...new Set(PACKING_ITEMS.map(i => i.misoType))]
+
   return (
     <PackingInput
       items={items}
+      types={types}
       location={PACKING_LOCATION}
       pendingCount={pendingCount}
       recent={recent.map(r => ({

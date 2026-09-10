@@ -20,6 +20,7 @@ interface RecentRow {
 
 interface Props {
   items:        PackingItem[]
+  types:        string[]
   location:     string
   pendingCount: number
   recent:       RecentRow[]
@@ -33,8 +34,10 @@ const TYPE_STYLE: Record<string, { bg: string; fg: string; bd: string }> = {
   '白みそ':       { bg: '#E6F1FB', fg: '#185FA5', bd: '#85B7EB' },
   '合せみそ':     { bg: '#F1F3F5', fg: '#495057', bd: '#CED4DA' },
 }
+const FALLBACK_STYLE = { bg: '#F3F4F6', fg: '#374151', bd: '#D1D5DB' }
 
-export default function PackingInput({ items, location, pendingCount, recent }: Props) {
+export default function PackingInput({ items, types, location, pendingCount, recent }: Props) {
+  const [activeType, setActiveType] = useState(types[0] ?? '')
   const [selected, setSelected] = useState<PackingItem | null>(null)
   const [qty,      setQty]      = useState('')
   const [operator, setOperator] = useState('')
@@ -45,10 +48,21 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
   const qtyRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
 
-  // 担当者は端末に覚えさせる（毎回打たせない）
+  // 担当者と開いていた品種タブは端末に覚えさせる（毎回選ばせない）
   useEffect(() => {
     setOperator(localStorage.getItem('packing_operator') ?? '')
+    const saved = localStorage.getItem('packing_type')
+    if (saved && types.includes(saved)) setActiveType(saved)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  function changeType(t: string) {
+    setActiveType(t)
+    localStorage.setItem('packing_type', t)
+    setSelected(null)
+    setQty('')
+    setError(null)
+  }
 
   function changeOperator(v: string) {
     setOperator(v)
@@ -103,12 +117,6 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
       router.refresh()
     })
   }
-
-  // 品種ごとにまとめて並べる
-  const byType = items.reduce<Record<string, PackingItem[]>>((acc, i) => {
-    (acc[i.misoType] ??= []).push(i)
-    return acc
-  }, {})
 
   // 桶・袋は「3丁（60kg）」と重さを添える。バラは打った数がkgそのものなので添えない
   const totalKg =
@@ -166,39 +174,53 @@ export default function PackingInput({ items, location, pendingCount, recent }: 
         </div>
       )}
 
-      {/* ① 品目を選ぶ */}
+      {/* ① 品目を選ぶ（品種はタブで切り替える） */}
       <section className="mb-6">
         <h2 className="text-sm font-semibold text-gray-700 mb-3">① 作ったものを選ぶ</h2>
-        <div className="space-y-4">
-          {Object.entries(byType).map(([type, list]) => {
-            const s = TYPE_STYLE[type] ?? { bg: '#F3F4F6', fg: '#374151', bd: '#D1D5DB' }
+
+        <div className="flex flex-wrap gap-1 border-b border-gray-200 mb-4">
+          {types.map(t => {
+            const st = TYPE_STYLE[t] ?? FALLBACK_STYLE
+            const on = t === activeType
             return (
-              <div key={type}>
-                <div className="text-xs font-semibold mb-2" style={{ color: s.fg }}>{type}</div>
-                <div className="flex flex-wrap gap-2">
-                  {list.map(item => {
-                    const active = selected?.name === item.name
-                    return (
-                      <button
-                        key={item.name}
-                        type="button"
-                        onClick={() => pick(item)}
-                        className="min-w-[120px] px-4 py-4 rounded-xl border-2 text-left transition-all hover:-translate-y-0.5"
-                        style={{
-                          background:  active ? s.fg : s.bg,
-                          borderColor: active ? s.fg : s.bd,
-                          color:       active ? '#fff' : s.fg,
-                        }}
-                      >
-                        <span className="block text-lg font-bold leading-tight">{item.short}</span>
-                        <span className="block text-xs opacity-80 mt-0.5">
-                          {isBulkItem(item) ? 'kgで入力' : `${item.kgPerUnit}kg／${item.unit}`}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              <button
+                key={t}
+                type="button"
+                onClick={() => changeType(t)}
+                className="px-5 py-2.5 text-base font-semibold rounded-t-lg border-b-[3px] -mb-px transition-colors"
+                style={{
+                  color:             on ? st.fg : '#9CA3AF',
+                  borderBottomColor: on ? st.fg : 'transparent',
+                  background:        on ? st.bg : 'transparent',
+                }}
+              >
+                {t}
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {items.filter(i => i.misoType === activeType).map(item => {
+            const st     = TYPE_STYLE[item.misoType] ?? FALLBACK_STYLE
+            const active = selected?.name === item.name
+            return (
+              <button
+                key={item.name}
+                type="button"
+                onClick={() => pick(item)}
+                className="min-w-[120px] px-4 py-4 rounded-xl border-2 text-left transition-all hover:-translate-y-0.5"
+                style={{
+                  background:  active ? st.fg : st.bg,
+                  borderColor: active ? st.fg : st.bd,
+                  color:       active ? '#fff' : st.fg,
+                }}
+              >
+                <span className="block text-lg font-bold leading-tight">{item.short}</span>
+                <span className="block text-xs opacity-80 mt-0.5">
+                  {isBulkItem(item) ? 'kgで入力' : `${item.kgPerUnit}kg／${item.unit}`}
+                </span>
+              </button>
             )
           })}
         </div>
