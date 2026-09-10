@@ -358,15 +358,19 @@ export default function LotDetail({
   // 桶管理
   const [buckets, setBuckets] = useState<BucketItem[]>(initialBuckets)
   const [bucketDrafts, setBucketDrafts] = useState<Record<string, string>>({})
-  // 全桶が空になった時のプロンプト（完成ロットのみ）
-  const [showAllEmptyPrompt, setShowAllEmptyPrompt] = useState(
+  // 全桶が空になった時のプロンプト（完成ロットのみ）。
+  // **画面を開いた時点では出さない**。以前は「開いたとき既に全桶が空なら出す」初期値にしていたが、
+  // 出荷済みにした直後の router.refresh() で作り直されると同じ条件で復活し、答えたはずの
+  // ダイアログがもう一度出ていた（2026-09-10ユーザー報告）。開くたびに出るのも煩わしい。
+  // 手動で変えたいときは下の「出荷済みにする」ボタンがある
+  const [showAllEmptyPrompt, setShowAllEmptyPrompt] = useState(false)
+  // 全桶が空に「なった瞬間」に一度だけ出す。使用記録の追加・編集・残量の直接入力の
+  // どの経路でも同じように出したいので、桶の状態から判定する
+  const wasAllEmptyRef = useRef(
     status === '完成' &&
     initialBuckets.length > 0 &&
     initialBuckets.every(b => b.status === '空')
   )
-  // 全桶が空になった瞬間に一度だけ出す。使用記録の追加・編集・残量の直接入力の
-  // どの経路でも同じように出したいので、桶の状態から判定する
-  const wasAllEmptyRef = useRef(showAllEmptyPrompt)
   useEffect(() => {
     const allEmpty = status === '完成' && buckets.length > 0 && buckets.every(b => b.status === '空')
     if (allEmpty && !wasAllEmptyRef.current) setShowAllEmptyPrompt(true)

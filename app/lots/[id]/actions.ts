@@ -65,7 +65,12 @@ export async function changeLotStatus(
     return { error: '不正なステータスです。' }
   }
   try {
-    const completedAt = completedAtStr ? new Date(completedAtStr) : new Date()
+    // 完成日は「完成」にしたときだけ入れる。出荷済・品質低下出荷・種みそ転用に変えるときに
+    // 今日の日付で上書きすると、実際の完成日（手で直した値を含む）が消えて熟成日数が狂う
+    // （2026-09-10：桶が空→出荷済みにしたロットの完成日が7/29から当日に書き換わっていた）
+    const existing = await prisma.lot.findUnique({ where: { id: lotId }, select: { completedAt: true } })
+    const completedAt = completedAtStr ? new Date(completedAtStr)
+      : (existing?.completedAt ?? new Date())
     const lot = await prisma.lot.update({
       where: { id: lotId },
       data: { status: newStatus, completedAt },
