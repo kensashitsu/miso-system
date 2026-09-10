@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
-import { getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
 import {
   calcAccumulatedTempSplit,
   calcColoringRisk,
@@ -27,7 +27,7 @@ export async function generateMetadata({ params }: Props) {
 export default async function LotDetailPage({ params }: Props) {
   const { id } = await params
 
-  const [lot, moisture, allWeatherData, usageOptions] = await Promise.all([
+  const [lot, moisture, heatingStartDate, allWeatherData, usageOptions] = await Promise.all([
     prisma.lot.findUnique({
       where: { id },
       include: {
@@ -41,6 +41,7 @@ export default async function LotDetailPage({ params }: Props) {
       },
     }),
     getMoistureSettings(),
+    getHeatingStartDate(),
     // 全期間の気象データ取得（MM-dd 月日平均のために全年分必要）
     prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
     getBucketUsageOptions(),
@@ -51,7 +52,7 @@ export default async function LotDetailPage({ params }: Props) {
   const recipe      = await prisma.misoRecipe.findUnique({ where: { name: lot.misoType } })
   const targetTempSum = recipe?.targetTempSum ?? lot.targetTempSum
 
-  const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
+  const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.q10BaseTemp, q10Value: moisture.q10Value }
 
   // 日付→有効積算温度 Map（積算計算用）
   const weatherMap = new Map<string, number>(
@@ -84,8 +85,8 @@ export default async function LotDetailPage({ params }: Props) {
     lot.status === '熟成中'
       ? calcCompletionFromBrew(
           lot.brewedAt, targetTempSum, currentLocation,
-          weatherAvg, moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
-          accumulatedTemp,
+          weatherAvg, moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.q10BaseTemp, moisture.fridgeTemp,
+          accumulatedTemp, heatingStartDate,
         )
       : null
   const elapsedDays = differenceInDays(today, startOfDay(lot.brewedAt))
@@ -139,7 +140,9 @@ export default async function LotDetailPage({ params }: Props) {
     coloringRisk,
     estimatedCompletionISO: estimatedCompletion?.toISOString() ?? null,
     weatherAvg,
-    heatingBaseTemp:        moisture.heatingDefaultTemp,
+    heatingBaseTemp:        moisture.q10BaseTemp,
+    heatingRoomTemp:        moisture.heatingDefaultTemp,
+    heatingStartDate,
     fridgeTemp:             moisture.fridgeTemp,
     locationPeriods,
     agingNotes: lot.agingNotes.map(n => ({

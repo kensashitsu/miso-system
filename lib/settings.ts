@@ -22,7 +22,8 @@ export type MoistureSettings = {
   room1Temp:           number  // 計画用参照温度: 暖房（仕込み計画・気象シミュレーター用）℃
   room2Temp:           number  // 計画用参照温度: 冷房（仕込み計画用）℃
   fridgeTemp:          number  // 冷蔵庫の設定温度 ℃（デフォルト6）
-  heatingDefaultTemp:  number  // 場所移動時の暖房デフォルト温度 ℃（Q10の基準温度も兼ねる）
+  heatingDefaultTemp:  number  // 暖房室の設定温度 ℃（場所移動のデフォルト値・季節切替で暖房室に入る分のレート）
+  q10BaseTemp:         number  // 常温Q10補正の基準温度 ℃（実績較正済みのモデル定数。暖房室の設定温度とは別物）
   coolingDefaultTemp:  number  // 場所移動時の冷房デフォルト温度 ℃
   q10Value:            number  // 常温熟成のQ10補正係数（デフォルト2.0）
   brewBufferDays:      number  // 仕込み計画バッファ日数（デフォルト14）
@@ -44,6 +45,7 @@ export const DEFAULT_MOISTURE: MoistureSettings = {
   room2Temp:          20,
   fridgeTemp:         6,
   heatingDefaultTemp: 25,
+  q10BaseTemp:        25,
   coolingDefaultTemp: 20,
   q10Value:           2.0,
   brewBufferDays:     14,
@@ -92,6 +94,7 @@ export async function getMoistureSettings(): Promise<MoistureSettings> {
     room2Temp:          map[dbKey('room2Temp')]          ?? DEFAULT_MOISTURE.room2Temp,
     fridgeTemp:         map[dbKey('fridgeTemp')]         ?? DEFAULT_MOISTURE.fridgeTemp,
     heatingDefaultTemp: map[dbKey('heatingDefaultTemp')] ?? DEFAULT_MOISTURE.heatingDefaultTemp,
+    q10BaseTemp:        map[dbKey('q10BaseTemp')]        ?? DEFAULT_MOISTURE.q10BaseTemp,
     coolingDefaultTemp: map[dbKey('coolingDefaultTemp')] ?? DEFAULT_MOISTURE.coolingDefaultTemp,
     q10Value:           map[dbKey('q10Value')]           ?? DEFAULT_MOISTURE.q10Value,
     brewBufferDays:     map[dbKey('brewBufferDays')]     ?? DEFAULT_MOISTURE.brewBufferDays,
@@ -109,6 +112,29 @@ export async function saveMoistureSettings(settings: MoistureSettings): Promise<
       })
     )
   )
+}
+
+// ==========================================
+// 暖房室の稼働開始日（前倒しで稼働させた年だけ設定する）
+// 通常は10月から暖房室へ移す運用だが、熟成が遅れた年は前倒しで稼働させる。
+// 2026年は9/9から28℃で稼働し、以降の仕込みは全て暖房室で熟成させる（ユーザー確認）。
+// 空文字なら従来どおり「10〜5月＝暖房室」だけで判定する。
+// ==========================================
+const HEATING_START_KEY = 'aging_heatingStartDate'
+
+export async function getHeatingStartDate(): Promise<string | null> {
+  const row = await prisma.systemSetting.findUnique({ where: { key: HEATING_START_KEY } })
+  const v = row?.value?.trim()
+  return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
+}
+
+export async function saveHeatingStartDate(value: string): Promise<void> {
+  const v = /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? value.trim() : ''
+  await prisma.systemSetting.upsert({
+    where:  { key: HEATING_START_KEY },
+    create: { key: HEATING_START_KEY, value: v },
+    update: { value: v },
+  })
 }
 
 // ==========================================

@@ -21,9 +21,10 @@ import { simulateLotForModal } from '@/lib/brewSimulation'
 export interface LotSimConfig {
   weatherAvg:         Record<string, number>  // { 'MM-dd': effectiveTemp 月日平均 }
   q10Value:           number
-  heatingBaseTemp:    number  // = heatingDefaultTemp
+  heatingBaseTemp:    number  // Q10補正の基準温度（= q10BaseTemp）
   room1Temp:          number  // 室内参照温度（dailyRoomAccum = room1Temp - 10）
-  heatingDefaultTemp: number
+  heatingDefaultTemp: number  // 暖房室の設定温度（季節切替で暖房室に入る分のレート）
+  heatingStartDate:   string | null  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'（無ければ10〜5月のみ暖房）
   coolingDefaultTemp: number
   fridgeTemp:         number
 }
@@ -138,7 +139,7 @@ export default function LotSimulationModal({
   simConfig, locationTransitions = [], completedAtISO,
 }: Props) {
   const {
-    weatherAvg, q10Value, heatingBaseTemp,
+    weatherAvg, q10Value, heatingBaseTemp, heatingStartDate,
     room1Temp, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp,
   } = simConfig
 
@@ -151,8 +152,8 @@ export default function LotSimulationModal({
   )
 
   const currentPct     = targetTempSum > 0 ? Math.min(100, (accumulatedTemp / targetTempSum) * 100) : 0
-  // 室内期間（10〜5月）は暖房デフォルト温度を使用（WeatherSimulator と統一）
-  const dailyRoomAccum = Math.max(heatingBaseTemp - 10, 0)
+  // 室内期間（10〜5月・前倒し稼働日以降）は暖房室の設定温度を使用（WeatherSimulator と統一）
+  const dailyRoomAccum = Math.max(heatingDefaultTemp - 10, 0)
 
   // ── シミュレーション（WeatherSimulator と同一関数） ──────────
   const {
@@ -183,7 +184,7 @@ export default function LotSimulationModal({
     const fullData = simulateLotForModal(
       brewDate, targetTempSum, weatherAvg, dailyRoomAccum,
       q10Value, heatingBaseTemp, futureFixedRate, locType === '暖房',
-      accumulatedTemp,
+      accumulatedTemp, heatingStartDate,
     )
 
     const matCompleteIdx  = fullData.findIndex(d => d.maturityPct >= 100)
@@ -205,7 +206,13 @@ export default function LotSimulationModal({
       for (let y = Number(firstStr.slice(0, 4)); y <= Number(lastStr.slice(0, 4)); y++) {
         for (const [md, label] of [['10-01', '→暖房室'], ['06-01', '→常温']] as const) {
           const d = `${y}-${md}`
+          // 前倒し稼働した年は10/1ではなくその日から暖房室（同じ年の10/1の線は出さない）
+          if (md === '10-01' && heatingStartDate?.slice(0, 4) === String(y)) continue
           if (d >= firstStr && d <= lastStr) assumed.push({ date: d, label })
+        }
+        if (heatingStartDate && heatingStartDate.slice(0, 4) === String(y)
+            && heatingStartDate >= firstStr && heatingStartDate <= lastStr) {
+          assumed.push({ date: heatingStartDate, label: '→暖房室' })
         }
       }
     }
@@ -255,7 +262,7 @@ export default function LotSimulationModal({
       assumedTransitions:     assumed,
     }
   }, [locType, locTemp, brewedAtISO, targetTempSum, room1Temp, fridgeTemp, accumulatedTemp,
-      dailyRoomAccum, weatherAvg, q10Value, heatingBaseTemp, locationTransitions])
+      dailyRoomAccum, weatherAvg, q10Value, heatingBaseTemp, heatingStartDate, locationTransitions])
 
   const today           = startOfDay(new Date())
   const maturityDays    = maturityComplete    ? differenceInDays(maturityComplete,    today) : null
@@ -658,18 +665,19 @@ export default function LotSimulationModal({
                 それ以前は常温だけ全期間weatherAvgで、冬に線が寝たまま完成予定が遅く出ていた */}
             {locType === '常温' ? (
               <>
-                ※ 常温は6〜9月を過去気象データの月日平均、10〜5月は暖房室（{heatingBaseTemp}℃）として計算しています
-                （10月に入ったら暖房室へ移す運用のため）。冬もそのまま外に置く場合は実際よりも早い完成予定になります。
+                ※ 常温は夏（6〜9月）を過去気象データの月日平均、暖房期は暖房室（{heatingDefaultTemp}℃）として計算しています
+                （10月に入ったら暖房室へ移す運用のため{heatingStartDate ? `。${heatingStartDate.slice(5).replace('-', '/')}から暖房室を稼働させているのでそれ以降は暖房室` : ''}）。
+                冬もそのまま外に置く場合は実際よりも早い完成予定になります。
               </>
             ) : (
               <>
-                ※ 今日以降は選択した場所（{locType}）の温度で試算。今日までは室内期間（10月〜5月）を
-                暖房デフォルト温度 {heatingBaseTemp}℃、常温期間（6〜9月）を過去気象データの月日平均として計算しています。
+                ※ 今日以降は選択した場所（{locType}）の温度で試算。今日までは暖房期を
+                暖房室の設定温度 {heatingDefaultTemp}℃、常温期間（夏）を過去気象データの月日平均として計算しています。
               </>
             )}
             {hasQ10Effect
               ? `Q10係数 ${q10Value} で酵素反応速度を補正（高温時に傾きが急増、低温時に緩慢）。`
-              : `現在の条件（室内温度 = 基準温度 ${heatingBaseTemp}℃）ではQ10補正係数が1.0となり、単純積算と一致するため1本表示。`}
+              : `現在の条件（気温 = Q10の基準温度 ${heatingBaseTemp}℃）ではQ10補正係数が1.0となり、単純積算と一致するため1本表示。`}
             {' '}グラフは完成（100%）で止めず、着色の目安（120%要注意・150%リスク高）が見えるよう200%まで描いています。
           </p>
 

@@ -2,7 +2,7 @@
 
 import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
-import { getMoistureSettings } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings } from '@/lib/settings'
 import type { LotSimConfig } from '@/components/dashboard/lot-card'
 
 // 仮登録リストから熟成シミュレーションを開くための設定一式。
@@ -12,8 +12,9 @@ export async function getPlanSimConfig(): Promise<{
   simConfig:     LotSimConfig
   targetByType:  Record<string, number>
 }> {
-  const [moisture, recipes, weather] = await Promise.all([
+  const [moisture, heatingStartDate, recipes, weather] = await Promise.all([
     getMoistureSettings(),
+    getHeatingStartDate(),
     prisma.misoRecipe.findMany(),
     prisma.weatherCache.findMany({ select: { date: true, effectiveTemp: true } }),
   ])
@@ -35,7 +36,8 @@ export async function getPlanSimConfig(): Promise<{
     simConfig: {
       weatherAvg,
       q10Value:           moisture.q10Value,
-      heatingBaseTemp:    moisture.heatingDefaultTemp,
+      heatingBaseTemp:    moisture.q10BaseTemp,
+      heatingStartDate,
       room1Temp:          moisture.room1Temp,
       heatingDefaultTemp: moisture.heatingDefaultTemp,
       coolingDefaultTemp: moisture.coolingDefaultTemp,

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings, getBucketUsageOptions } from '@/lib/settings'
 import { getMisoRecipes } from '@/lib/recipes'
 import { prisma } from '@/lib/prisma'
 import { getWeatherStatus } from './weather-actions'
@@ -20,8 +20,9 @@ const HEATING_RE = /^暖房\d+(?:\.\d+)?℃$/
 const COOLING_RE = /^冷房\d+(?:\.\d+)?℃$/
 
 export default async function SettingsPage() {
-  const [moisture, recipes, weatherStatus, fermentingLots, snapshots, usageOptions] = await Promise.all([
+  const [moisture, heatingStartDate, recipes, weatherStatus, fermentingLots, snapshots, usageOptions] = await Promise.all([
     getMoistureSettings(),
+    getHeatingStartDate(),
     getMisoRecipes(),
     getWeatherStatus(),
     // 完成ロットも対象にする。完成後も置き場の温度で熟成（着色）は進むため、
@@ -66,7 +67,7 @@ export default async function SettingsPage() {
       <h1 className="hidden sm:block text-2xl font-bold text-gray-900 tracking-tight mb-4">設定</h1>
       <SettingsTabs
         recipe={<RecipeSettings recipes={recipes} moisture={moisture} />}
-        aging={<MoistureSettingsForm moisture={moisture} />}
+        aging={<MoistureSettingsForm moisture={moisture} heatingStartDate={heatingStartDate} />}
         place={
           <>
             <BulkTempUpdateCard

@@ -36,7 +36,7 @@ const d        = (x: Date) => format(x, 'yyyy-MM-dd')
 
 const [recipes, moistureRows, weatherData, lots, plans, forecastRows] = await Promise.all([
   prisma.misoRecipe.findMany({ where: { isActive: true } }),
-  prisma.systemSetting.findMany({ where: { key: { startsWith: 'moisture_' } } }),
+  prisma.systemSetting.findMany({ where: { OR: [{ key: { startsWith: 'moisture_' } }, { key: 'aging_heatingStartDate' }] } }),
   prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
   prisma.lot.findMany({ where: { status: '熟成中' }, include: { buckets: true, locationHistory: { orderBy: { startDate: 'desc' } } } }),
   prisma.brewPlan.findMany({ where: { status: '仮登録' }, orderBy: { brewDate: 'asc' } }),
@@ -50,6 +50,10 @@ const setting = (k: string, def: number) =>
   Number(moistureRows.find(m => m.key === `moisture_${k}`)?.value ?? def)
 const q10Value           = setting('q10Value', 2)
 const heatingDefaultTemp = setting('heatingDefaultTemp', 25)
+const q10BaseTemp        = setting('q10BaseTemp', 25)
+// 暖房室の前倒し稼働開始日（画面と同じ設定キー。空なら10〜5月だけが暖房期）
+const heatingStartRaw = moistureRows.find(m => m.key === 'aging_heatingStartDate')?.value?.trim() ?? ''
+const heatingStartDate = /^\d{4}-\d{2}-\d{2}$/.test(heatingStartRaw) ? heatingStartRaw : null
 const brewBufferDays     = setting('brewBufferDays', 14)
 
 // 日付別の有効積算温度（実績積算の再現用・画面と同じ）
@@ -88,11 +92,11 @@ for (const lot of lots.filter(l => l.misoType === MISO)) {
   const accumulatedTemp = tempCalc.calcAccumulatedTemp(
     lot.brewedAt, lot.locationHistory, weatherMap,
     { room1Temp: setting('room1Temp', 24), room2Temp: setting('room2Temp', 20),
-      fridgeTemp: setting('fridgeTemp', 6), heatingBaseTemp: heatingDefaultTemp, q10Value })
+      fridgeTemp: setting('fridgeTemp', 6), heatingBaseTemp: q10BaseTemp, q10Value })
   const comp = brewSim.calcCompletionFromBrew(
     lot.brewedAt, recipe.targetTempSum, tempCalc.getCurrentLocation(lot.locationHistory),
-    weatherAvg, heatingDefaultTemp - 10, q10Value, heatingDefaultTemp, setting('fridgeTemp', 6),
-    accumulatedTemp)
+    weatherAvg, heatingDefaultTemp - 10, q10Value, q10BaseTemp, setting('fridgeTemp', 6),
+    accumulatedTemp, heatingStartDate)
   if (comp) supplyEvents.push({ date: startOfDay(comp), kg: yieldKg, note: `熟成中 ${lot.lotNumber}` })
 }
 const regPlans = plans.filter(p => p.misoType === MISO && p.completionDate > today)
@@ -136,7 +140,7 @@ if (yamabukiNextDays) console.log('山吹の仕込み可能日(確定分の翌�
 
 const getCompletion = (brewDate: Date) =>
   simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg, weatherFallback,
-    q10Value, heatingDefaultTemp, Math.max(heatingDefaultTemp - 10, 0))
+    q10Value, q10BaseTemp, Math.max(heatingDefaultTemp - 10, 0), heatingStartDate)
 const isDoubleBatch = MISO === '無添加麦みそ'
   ? (c: Date) => PEAK_COMPLETION_MONTHS.includes(c.getMonth() + 1)
   : undefined

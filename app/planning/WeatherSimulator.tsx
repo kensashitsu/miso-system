@@ -15,8 +15,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { Plus, X } from 'lucide-react'
-import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
-import { isOutdoorMonth } from '@/lib/brewSimulation'
+import { HEATING_MONTHLY_FACTOR, isHeatingDate, isOutdoorDate } from '@/lib/tempCalc'
 
 interface Recipe {
   name: string
@@ -27,7 +26,9 @@ interface Props {
   recipes:            Recipe[]
   weatherAvg:         Record<string, number>  // { 'MM-dd': effectiveTemp }
   q10Value:           number
-  heatingBaseTemp:    number
+  heatingBaseTemp:    number  // Q10補正の基準温度
+  heatingRoomTemp:    number  // 暖房室の設定温度
+  heatingStartDate:   string | null  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'
   coolingDefaultTemp: number
   fridgeTemp:         number
 }
@@ -67,6 +68,8 @@ function getDailyAccum(
   weatherAvg:      Record<string, number>,
   q10Value:        number,
   heatingBaseTemp: number,
+  heatingRoomTemp: number,
+  heatingStartDate: string | null,
   fridgeTemp:      number,
 ): { simple: number; corrected: number } {
   if (locType === '暖房') {
@@ -82,14 +85,15 @@ function getDailyAccum(
     const eff = Math.max(fridgeTemp - 10, 0)
     return { simple: eff, corrected: eff }
   }
-  // 常温: 6〜9月は気象データ（Q10補正あり）、10〜5月は暖房室として積む。
-  // 常温のロットも10月に入ったら暖房室へ移す運用のため、ロット詳細・ダッシュボード
-  // （simulateLotForModal）とAI仕込み提案（simulateFermentationDays）に扱いをそろえる。
+  // 常温: 夏は気象データ（Q10補正あり）、暖房期は暖房室として積む。
+  // 常温のロットも10月（前倒し稼働した年はその日）に暖房室へ移す運用のため、
+  // ロット詳細・ダッシュボード（simulateLotForModal）とAI仕込み提案
+  // （simulateFermentationDays）に扱いをそろえる。
   // これが抜けていて、9月仕込みが41日ではなく218日と出ていた（2026-09-09）
   const month = Number(dateStr.slice(5, 7))
-  if (!isOutdoorMonth(month)) {
+  if (!isOutdoorDate(new Date(dateStr + 'T00:00:00'), heatingStartDate)) {
     // 暖房室の日はQ10を掛けない（HEATING_MONTHLY_FACTOR が実績で較正済みなので二重になる）
-    const eff = Math.max(heatingBaseTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+    const eff = Math.max(heatingRoomTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
     return { simple: eff, corrected: eff }
   }
   const mmDd = dateStr.slice(5)
@@ -111,6 +115,8 @@ function simulate(
   segments:        LocSegment[],
   q10Value:        number,
   heatingBaseTemp: number,
+  heatingRoomTemp: number,
+  heatingStartDate: string | null,
   fridgeTemp:      number,
 ): SimDay[] {
   if (segments.length === 0 || targetTempSum <= 0) return []
@@ -129,7 +135,8 @@ function simulate(
 
     const dateStr = format(current, 'yyyy-MM-dd')
     const { simple, corrected } = getDailyAccum(
-      seg.locType, seg.temp, dateStr, weatherAvg, q10Value, heatingBaseTemp, fridgeTemp,
+      seg.locType, seg.temp, dateStr, weatherAvg, q10Value, heatingBaseTemp,
+      heatingRoomTemp, heatingStartDate, fridgeTemp,
     )
 
     total    = Math.round((total    + simple)    * 10) / 10
@@ -205,16 +212,16 @@ function CustomTooltip({ active, payload, label }: {
 
 
 export default function WeatherSimulator({
-  recipes, weatherAvg, q10Value, heatingBaseTemp, coolingDefaultTemp, fridgeTemp,
+  recipes, weatherAvg, q10Value, heatingBaseTemp, heatingRoomTemp, heatingStartDate,
+  coolingDefaultTemp, fridgeTemp,
 }: Props) {
   const todayStr    = format(new Date(), 'yyyy-MM-dd')
-  const todayMonth  = new Date().getMonth() + 1
-  const defaultLoc  = todayMonth >= 6 && todayMonth <= 9 ? '常温' : '暖房'
+  const defaultLoc  = isHeatingDate(new Date(), heatingStartDate) ? '暖房' : '常温'
 
   const [selectedType, setSelectedType] = useState(recipes[0]?.name ?? '')
   const [brewDate,     setBrewDate]     = useState(todayStr)
   const [initLocType,  setInitLocType]  = useState<LocType>(defaultLoc as LocType)
-  const [initTemp,     setInitTemp]     = useState(heatingBaseTemp)
+  const [initTemp,     setInitTemp]     = useState(heatingRoomTemp)
   const [moves,        setMoves]        = useState<LocationMove[]>([])
 
   const recipe        = recipes.find(r => r.name === selectedType)
@@ -227,7 +234,7 @@ export default function WeatherSimulator({
   ]
 
   const fullData = brewDate && targetTempSum > 0
-    ? simulate(new Date(brewDate), targetTempSum, weatherAvg, segments, q10Value, heatingBaseTemp, fridgeTemp)
+    ? simulate(new Date(brewDate), targetTempSum, weatherAvg, segments, q10Value, heatingBaseTemp, heatingRoomTemp, heatingStartDate, fridgeTemp)
     : []
 
   const maturityCompleteIdx    = fullData.findIndex(d => d.maturityPct    >= 100)
@@ -245,9 +252,12 @@ export default function WeatherSimulator({
   const lastIdx = maturityCompleteIdx >= 0 ? maturityCompleteIdx : fullData.length - 1
   const roomSwitches = fullData.slice(0, lastIdx + 1).flatMap((d, i) => {
     const mmDd = d.date.slice(5)
-    if (i === 0 || (mmDd !== '10-01' && mmDd !== '06-01')) return []
+    // 前倒し稼働した年は10/1ではなくその日が切り替わり日
+    const isStart = heatingStartDate === d.date
+    const isOct1  = mmDd === '10-01' && heatingStartDate?.slice(0, 4) !== d.date.slice(0, 4)
+    if (i === 0 || (!isOct1 && !isStart && mmDd !== '06-01')) return []
     if (segAt(i).locType !== '常温') return []
-    return [{ i, date: d.date, toHeating: mmDd === '10-01' }]
+    return [{ i, date: d.date, toHeating: isOct1 || isStart }]
   })
 
   const moveIndices = new Set(sortedMoves.map(m => m.daysAfterBrew).filter(d => d > 0 && d < fullData.length))
@@ -285,7 +295,7 @@ export default function WeatherSimulator({
   }
 
   function handleMoveLocTypeChange(id: string, locType: LocType) {
-    const temp = locType === '暖房' ? heatingBaseTemp
+    const temp = locType === '暖房' ? heatingRoomTemp
                : locType === '冷房' ? coolingDefaultTemp
                : 0
     updateMove(id, { locType, temp })
@@ -293,19 +303,18 @@ export default function WeatherSimulator({
 
   function handleInitLocTypeChange(locType: LocType) {
     setInitLocType(locType)
-    if      (locType === '暖房') setInitTemp(heatingBaseTemp)
+    if      (locType === '暖房') setInitTemp(heatingRoomTemp)
     else if (locType === '冷房') setInitTemp(coolingDefaultTemp)
   }
 
   function handleBrewDateChange(dateStr: string) {
     setBrewDate(dateStr)
     if (!dateStr) return
-    const month = parseInt(dateStr.slice(5, 7), 10)
-    if (month >= 6 && month <= 9) {
-      setInitLocType('常温')
-    } else {
+    if (isHeatingDate(new Date(dateStr + 'T00:00:00'), heatingStartDate)) {
       setInitLocType('暖房')
-      setInitTemp(heatingBaseTemp)
+      setInitTemp(heatingRoomTemp)
+    } else {
+      setInitLocType('常温')
     }
   }
 
@@ -610,7 +619,7 @@ export default function WeatherSimulator({
                             fill={r.toHeating ? LOC_COLORS['暖房'] : LOC_COLORS['常温']}
                             fillOpacity={0.85}
                           >
-                            {r.toHeating ? `→ 暖房室 ${heatingBaseTemp}℃（10〜5月）` : '→ 常温（6〜9月）'}
+                            {r.toHeating ? `→ 暖房室 ${heatingRoomTemp}℃` : '→ 常温（夏）'}
                           </text>
                         )
                       }}
@@ -720,11 +729,12 @@ export default function WeatherSimulator({
 
           {/* 注意事項 */}
           <p className="text-xs text-muted-foreground leading-relaxed">
-            ※ 常温の積算は6〜9月が
+            ※ 常温の積算は夏（6〜9月）が
             {hasWeatherData
               ? `過去気象データの月日平均（Q10係数 ${q10Value} で酵素反応速度を補正）、`
               : '気象データ未取込のためデフォルト値（0℃/日）、'}
-            10〜5月は暖房室（{heatingBaseTemp}℃）として計算します（10月に入ったら暖房室へ移す運用のため）。
+            暖房期（10〜5月{heatingStartDate ? `・${heatingStartDate.slice(5).replace('-', '/')}以降` : ''}）は
+            暖房室（{heatingRoomTemp}℃）として計算します（10月に入ったら暖房室へ移す運用のため）。
             暖房・冷房は設定温度から10℃を引いた値を毎日加算。
           </p>
           </div>{/* /結果セクション wrapper */}

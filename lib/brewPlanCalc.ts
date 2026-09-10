@@ -2,7 +2,7 @@
 // UI（app/planning/BrewSuggestions.tsx）から切り出してテスト可能にしている。
 // 実データでの検証は scripts/debug-brew-plan.mts で行う。
 import { addDays, differenceInDays, format } from 'date-fns'
-import { HEATING_MONTHLY_FACTOR } from './tempCalc'
+import { HEATING_MONTHLY_FACTOR, isOutdoorDate } from './tempCalc'
 
 export interface BatchPlan {
   n:                     number
@@ -72,16 +72,18 @@ export function simulateFermentationDays(
   q10Value:         number,
   heatingBaseTemp:  number,
   indoorDailyRate?: number,  // 10〜5月の暖房レート（常温→暖房の季節切り替え用）
+  heatingStartDate?: string | null,  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'（この日以降は9月でも暖房）
 ): { days: number; completionDate: Date } {
   if (!brewDate || isNaN(brewDate.getTime())) return { days: 0, completionDate: new Date() }
   let accumulated = 0
   let current = new Date(brewDate)
   for (let i = 0; i < 730; i++) {
     const month = current.getMonth() + 1
-    const isOutdoorMonth = month >= 6 && month <= 9
+    const outdoor = isOutdoorDate(current, heatingStartDate)
     let daily: number
-    if (indoorDailyRate !== undefined && !isOutdoorMonth) {
-      // 10〜5月: 暖房レートに実データ較正済みの月別補正係数を適用（Q10補正は対象外）
+    if (indoorDailyRate !== undefined && !outdoor) {
+      // 暖房期（10〜5月・前倒し稼働日以降）: 暖房レートに実データ較正済みの月別補正係数を
+      // 適用（Q10補正は対象外）。前倒しした月（9月など）は実績が無いので係数1.0で積む
       daily = indoorDailyRate * (HEATING_MONTHLY_FACTOR[month] ?? 1)
     } else {
       const key = format(current, 'MM-dd')

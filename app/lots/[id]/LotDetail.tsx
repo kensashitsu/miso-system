@@ -104,6 +104,8 @@ export interface LotDetailProps {
   q10Value:        number
   weatherAvg:      Record<string, number>
   heatingBaseTemp: number
+  heatingRoomTemp: number
+  heatingStartDate: string | null
   fridgeTemp:      number
   locationPeriods: LocationPeriod[]
   agingNotes: AgingNoteItem[]
@@ -289,6 +291,8 @@ export default function LotDetail({
   q10Value,
   weatherAvg,
   heatingBaseTemp,
+  heatingRoomTemp,
+  heatingStartDate,
   fridgeTemp,
   locationPeriods,
   agingNotes: initialNotes,
@@ -987,6 +991,8 @@ export default function LotDetail({
             targetTempSum={targetTempSum}
             weatherAvg={weatherAvg}
             heatingBaseTemp={heatingBaseTemp}
+            heatingRoomTemp={heatingRoomTemp}
+            heatingStartDate={heatingStartDate}
             q10Value={q10Value}
             fridgeTemp={fridgeTemp}
             locationPeriods={locationPeriods}

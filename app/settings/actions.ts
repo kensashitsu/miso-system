@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { startOfDay } from 'date-fns'
 import { revalidatePath } from 'next/cache'
-import { saveMoistureSettings, saveBucketUsageOptions } from '@/lib/settings'
+import { saveHeatingStartDate, saveMoistureSettings, saveBucketUsageOptions } from '@/lib/settings'
 import { prisma } from '@/lib/prisma'
 
 const pct     = z.number({ error: '0〜100の数値を入力してください' }).min(0).max(100)
@@ -26,6 +26,7 @@ const schema = z.object({
   room2Temp:          roomTemp,
   fridgeTemp:         fridgeTemp,
   heatingDefaultTemp: roomTemp,
+  q10BaseTemp:        roomTemp,
   coolingDefaultTemp: roomTemp,
   q10Value:           z.number({ error: 'Q10値を入力してください' }).min(1.0).max(10.0),
   brewBufferDays:     z.number({ error: 'バッファ日数を入力してください' }).int().min(0).max(60),
@@ -159,6 +160,25 @@ export async function updateBucketUsageOptions(input: unknown): Promise<Settings
   }
 }
 
+// ── 暖房室の稼働開始日 ────────────────────────────────────────
+// 通常は10月から暖房室へ移すが、熟成が遅れた年は前倒しで稼働させる。
+// 空文字を渡すと従来どおり「10〜5月＝暖房室」だけの判定に戻る
+export async function updateHeatingStartDate(value: string): Promise<SettingsResult> {
+  const v = value.trim()
+  if (v !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return { errors: { heatingStartDate: '日付を正しく入力してください' } }
+  }
+  try {
+    await saveHeatingStartDate(v)
+    revalidatePath('/')
+    revalidatePath('/planning')
+    return { success: true }
+  } catch (e) {
+    console.error('暖房開始日の保存エラー:', e)
+    return { globalError: '暖房室の稼働開始日の保存中にエラーが発生しました。' }
+  }
+}
+
 // ── 含水量・温度設定 ──────────────────────────────────────────
 
 export async function updateMoistureSettings(input: unknown): Promise<SettingsResult> {
@@ -188,6 +208,7 @@ export async function updateMoistureSettings(input: unknown): Promise<SettingsRe
       room2Temp:          d.room2Temp,
       fridgeTemp:         d.fridgeTemp,
       heatingDefaultTemp: d.heatingDefaultTemp,
+      q10BaseTemp:        d.q10BaseTemp,
       coolingDefaultTemp: d.coolingDefaultTemp,
       q10Value:           d.q10Value,
       brewBufferDays:     d.brewBufferDays,

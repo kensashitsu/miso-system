@@ -3,7 +3,7 @@
 import { addDays, format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
-import { getMoistureSettings } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings } from '@/lib/settings'
 import {
   simulateFermentationDays, getDailyAccum, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
 } from '@/lib/brewPlanCalc'
@@ -108,8 +108,9 @@ export async function updateBrewPlanBrewDate(
   const brewDate = new Date(brewDateISO)
   if (isNaN(brewDate.getTime())) return { ok: false, error: '日付が正しくありません' }
 
-  const [moisture, recipe, weather] = await Promise.all([
+  const [moisture, heatingStartDate, recipe, weather] = await Promise.all([
     getMoistureSettings(),
+    getHeatingStartDate(),
     prisma.misoRecipe.findUnique({ where: { name: plan.misoType } }),
     prisma.weatherCache.findMany({ select: { date: true, effectiveTemp: true } }),
   ])
@@ -137,15 +138,15 @@ export async function updateBrewPlanBrewDate(
       : 14
     const r = simulateFermentationDays(
       brewDate, recipe.targetTempSum, weatherAvg, fallback,
-      moisture.q10Value, moisture.heatingDefaultTemp,
-      Math.max(moisture.heatingDefaultTemp - 10, 0),
+      moisture.q10Value, moisture.q10BaseTemp,
+      Math.max(moisture.heatingDefaultTemp - 10, 0), heatingStartDate,
     )
     fermentationDays = r.days
     completionDate   = r.completionDate
   } else {
     const dailyAccum = getDailyAccum(
       plan.location, moisture.fridgeTemp, weatherAvgValues,
-      moisture.q10Value, moisture.heatingDefaultTemp,
+      moisture.q10Value, moisture.q10BaseTemp,
     )
     if (dailyAccum <= 0) return { ok: false, error: `${plan.location}では熟成が進まないため完成予定日を出せません` }
     fermentationDays = Math.ceil(recipe.targetTempSum / dailyAccum)

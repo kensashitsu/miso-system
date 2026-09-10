@@ -1,6 +1,6 @@
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
-import { getMoistureSettings } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings } from '@/lib/settings'
 import { getMisoRecipes } from '@/lib/recipes'
 import { fetchAgedStock, fetchMonthlySales } from '@/lib/externalApi'
 import { calcCompletionFromBrew } from '@/lib/brewSimulation'
@@ -91,8 +91,9 @@ function enrichShipmentMap(
 }
 
 export default async function PlanningPage() {
-  const [moisture, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount, largeOrderSetting, blockedWeekSetting] = await Promise.all([
+  const [moisture, heatingStartDate, recipes, shipmentHistory, weatherData, fermentingLotRows, apiSales, apiStock, forecastRows, mapeRows, brewPlans, snapshotCount, largeOrderSetting, blockedWeekSetting] = await Promise.all([
     getMoistureSettings(),
+    getHeatingStartDate(),
     getMisoRecipes(),
     prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
     prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
@@ -177,7 +178,7 @@ export default async function PlanningPage() {
     room1Temp:       moisture.room1Temp,
     room2Temp:       moisture.room2Temp,
     fridgeTemp:      moisture.fridgeTemp,
-    heatingBaseTemp: moisture.heatingDefaultTemp,
+    heatingBaseTemp: moisture.q10BaseTemp,
     q10Value:        moisture.q10Value,
   }
 
@@ -201,9 +202,10 @@ export default async function PlanningPage() {
       weatherAvg,
       dailyRoomAccum,
       moisture.q10Value,
-      moisture.heatingDefaultTemp,
+      moisture.q10BaseTemp,
       moisture.fridgeTemp,
       accumulatedTemp,
+      heatingStartDate,
     )
     if (!completionDate) continue
 
@@ -366,7 +368,9 @@ export default async function PlanningPage() {
           recipes={recipeList}
           weatherAvg={weatherAvg}
           q10Value={moisture.q10Value}
-          heatingBaseTemp={moisture.heatingDefaultTemp}
+          heatingBaseTemp={moisture.q10BaseTemp}
+          heatingRoomTemp={moisture.heatingDefaultTemp}
+          heatingStartDate={heatingStartDate}
           coolingDefaultTemp={moisture.coolingDefaultTemp}
           fridgeTemp={moisture.fridgeTemp}
         />
@@ -382,6 +386,8 @@ export default async function PlanningPage() {
         recipes={recipeList}
         shipmentMap={baseShipmentMap}
         heatingDefaultTemp={moisture.heatingDefaultTemp}
+        heatingStartDate={heatingStartDate}
+        q10BaseTemp={moisture.q10BaseTemp}
         coolingDefaultTemp={moisture.coolingDefaultTemp}
         fridgeTemp={moisture.fridgeTemp}
         q10Value={moisture.q10Value}

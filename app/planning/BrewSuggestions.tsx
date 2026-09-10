@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/select'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { holtWinters, getTimeSeries } from '@/lib/forecast'
-import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
+import { HEATING_MONTHLY_FACTOR, isHeatingDate } from '@/lib/tempCalc'
 import {
   type BatchPlan, simulateFermentationDays, ORDER_LEAD_DAYS, DEFAULT_ORDER_LEAD_DAYS,
   snapToBrewDay, nextWeekMonday, findStockOutDate, computeConsumed, computeSupplyReceived,
@@ -77,6 +77,9 @@ interface Props {
   recipes:          Recipe[]
   shipmentMap:      Record<string, Record<string, number>>
   heatingDefaultTemp: number
+  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'（この日以降は夏でも暖房室）
+  heatingStartDate:   string | null
+  q10BaseTemp:        number
   coolingDefaultTemp: number
   fridgeTemp:       number
   q10Value:         number
@@ -369,10 +372,10 @@ function generateCSV(plans: RecipePlan[], maxBatches: number, today: Date): stri
   return lines.join('\n')
 }
 
-// 現在月から季節に合った仕込み場所のデフォルトを返す（6〜9月:常温 / 10〜5月:暖房）
-function getSeasonalDefaultLocation(heatingDefaultTemp: number): string {
-  const month = new Date().getMonth() + 1
-  return (month >= 6 && month <= 9) ? '常温' : `暖房${heatingDefaultTemp}℃`
+// 今日の季節に合った仕込み場所のデフォルトを返す（夏:常温 / 暖房期:暖房。
+// 暖房室を前倒しで稼働させた年はその日以降も暖房）
+function getSeasonalDefaultLocation(heatingDefaultTemp: number, heatingStartDate: string | null): string {
+  return isHeatingDate(new Date(), heatingStartDate) ? `暖房${heatingDefaultTemp}℃` : '常温'
 }
 
 function downloadCSV(content: string, filename: string) {
@@ -424,10 +427,10 @@ function WhatIfStepper({ value, onChange, step, min, max, signed, suffix }: {
   )
 }
 
-export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks }: Props) {
+export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTemp, heatingStartDate, q10BaseTemp, coolingDefaultTemp, fridgeTemp, q10Value, brewBufferDays, weatherAvg, fermentingByType, apiStockByType, sarimaxForecast, sarimaxMape, autoMethodByType, fermentingScheduleByType, existingBrewPlanKeys, initialManualBrewDates, registeredPlansByType, registeredDoneDatesByType, initialBlockedWeeks }: Props) {
   const [stocks,          setStocks]         = useState<Record<string, string>>({})
   const [locations,       setLocations]      = useState<Record<string, string>>(() => {
-    const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
+    const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp, heatingStartDate)
     return Object.fromEntries(recipes.map(r => [r.name, seasonal]))
   })
   const [maxBatches,      setMaxBatches]     = useState<number>(1)
@@ -516,7 +519,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     for (const r of recipes) {
       savedStocks[r.name]  = localStorage.getItem(`planning_stock_${r.name}`) ?? ''
       const stored   = localStorage.getItem(`planning_location_${r.name}`)
-      const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp)
+      const seasonal = getSeasonalDefaultLocation(heatingDefaultTemp, heatingStartDate)
       savedLocations[r.name] = stored && locationOptions.includes(stored) ? stored : seasonal
       // 本登録済み（ロット化済み）と同じ日付の手動調整ピンは実現済みなので自動解除する。
       // これがないと本登録後もその回が古い日付に固定表示され続ける。
@@ -565,8 +568,8 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     for (const plan of plans) {
       if (!plan.canCalc || plan.batches.length === 0) continue
       if (localStorage.getItem(`planning_location_${plan.name}`)) continue
-      const brewMonth = plan.batches[0].brewDate.getMonth() + 1
-      const targetLoc = (brewMonth >= 6 && brewMonth <= 9) ? '常温' : `暖房${heatingDefaultTemp}℃`
+      const targetLoc = isHeatingDate(plan.batches[0].brewDate, heatingStartDate)
+        ? `暖房${heatingDefaultTemp}℃` : '常温'
       if (plan.location !== targetLoc) updates[plan.name] = targetLoc
     }
     if (Object.keys(updates).length > 0) setLocations(prev => ({ ...prev, ...updates }))
@@ -791,18 +794,19 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
     const weatherFallback = weatherAvgValues.length > 0
       ? weatherAvgValues.reduce((a, b) => a + b, 0) / weatherAvgValues.length
       : 14
-    // 常温→暖房の季節切り替えレート（6〜9月:常温, 10〜5月:暖房heatingDefaultTemp℃）
+    // 常温→暖房の季節切り替えレート（夏:常温, 暖房期:暖房heatingDefaultTemp℃。
+    // 暖房室を前倒し稼働させた年は heatingStartDate 以降も暖房）
     const outdoorToIndoorRate = selectedLocation === '常温'
       ? Math.max(heatingDefaultTemp - 10, 0)
       : undefined
 
     const getCompletion = selectedLocation === '常温'
-      ? (brewDate: Date) => simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg ?? {}, weatherFallback, q10Value, heatingDefaultTemp, outdoorToIndoorRate)
+      ? (brewDate: Date) => simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg ?? {}, weatherFallback, q10Value, q10BaseTemp, outdoorToIndoorRate, heatingStartDate)
       : undefined
 
     // 補正なし完成日（q10≠1のときのみ生成）
     const getCompletionRaw = (selectedLocation === '常温' && q10Value !== 1)
-      ? (brewDate: Date) => simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg ?? {}, weatherFallback, 1, heatingDefaultTemp, outdoorToIndoorRate)
+      ? (brewDate: Date) => simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg ?? {}, weatherFallback, 1, q10BaseTemp, outdoorToIndoorRate, heatingStartDate)
       : undefined
 
     const bufferDays    = bufferEnabled ? brewBufferDays : 0
@@ -1043,7 +1047,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       for (const k in (weatherAvg ?? {})) adjWeather[k] = Math.max((weatherAvg ?? {})[k] + wifTemp, 0)
       const adjFallback = Math.max(weatherFallback + wifTemp, 0)
       tempBatches = shownNew.map((b, i) => {
-        const adjR = simulateFermentationDays(b.brewDate, recipe.targetTempSum, adjWeather, adjFallback, q10Value, heatingDefaultTemp, outdoorToIndoorRate)
+        const adjR = simulateFermentationDays(b.brewDate, recipe.targetTempSum, adjWeather, adjFallback, q10Value, q10BaseTemp, outdoorToIndoorRate, heatingStartDate)
         return { n: i + 1, newDays: adjR.days, dayDelta: adjR.days - b.fermentationDays, newCompletion: adjR.completionDate }
       })
     }

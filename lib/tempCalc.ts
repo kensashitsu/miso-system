@@ -56,6 +56,24 @@ export const HEATING_MONTHLY_FACTOR: Record<number, number> = {
   10: 1.07, 11: 0.95, 12: 0.86,
 }
 
+// 暖房室を稼働させる日かどうか。通常は10〜5月（6〜9月は常温＝外気）だが、熟成が遅れた年は
+// 前倒しで稼働させることがある（2026年は9/9から28℃で稼働・以降の仕込みは全て暖房室）。
+// heatingStartDate（'yyyy-MM-dd'）が入っている年は、その日から9/30までも暖房として扱う。
+// 前倒し月（9月など）はHEATING_MONTHLY_FACTORに実績が無いので補正なし（=1.0）で積む。
+export function isHeatingDate(date: Date, heatingStartDate?: string | null): boolean {
+  const month = date.getMonth() + 1
+  if (month >= 10 || month <= 5) return true
+  if (!heatingStartDate) return false
+  const start = startOfDay(new Date(heatingStartDate + 'T00:00:00'))
+  if (isNaN(start.getTime())) return false
+  // 前倒し稼働はその年の6〜9月のあいだだけ有効（10月からは通常どおり暖房期になる）
+  if (date.getFullYear() !== start.getFullYear()) return false
+  return startOfDay(date).getTime() >= start.getTime()
+}
+
+export const isOutdoorDate = (date: Date, heatingStartDate?: string | null) =>
+  !isHeatingDate(date, heatingStartDate)
+
 // 常温の有効積算温度にQ10補正を適用する
 // effectiveTemp = max(avgTempC - 10, 0) を受け取り、Q10補正後の値を返す
 // effectiveTemp > 0 のとき avgTempC = effectiveTemp + BASE_TEMP として逆算

@@ -34,12 +34,15 @@ const [recipes, snaps, shipments, lots, moistureRows, weatherData] = await Promi
   prisma.monthlyInventorySnapshot.findMany({ where: { yearMonth: baseYm } }),
   prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
   prisma.lot.findMany({ orderBy: { brewedAt: 'asc' } }),
-  prisma.systemSetting.findMany({ where: { key: { startsWith: 'moisture_' } } }),
+  prisma.systemSetting.findMany({ where: { OR: [{ key: { startsWith: 'moisture_' } }, { key: 'aging_heatingStartDate' }] } }),
   prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
 ])
 const yieldRate = Number(moistureRows.find(m => m.key === 'moisture_yieldRate')?.value ?? 0.95)
 const q10Value  = Number(moistureRows.find(m => m.key === 'moisture_q10Value')?.value ?? 2)
 const heatTemp  = Number(moistureRows.find(m => m.key === 'moisture_heatingDefaultTemp')?.value ?? 25)
+const q10Base   = Number(moistureRows.find(m => m.key === 'moisture_q10BaseTemp')?.value ?? 25)
+const heatStartRaw = moistureRows.find(m => m.key === 'aging_heatingStartDate')?.value?.trim() ?? ''
+const heatStartDate = /^\d{4}-\d{2}-\d{2}$/.test(heatStartRaw) ? heatStartRaw : null
 
 // MM-dd別の有効積算温度平均（他の画面・スクリプトと同じ作り方）
 const wm = new Map<string, { sum: number; count: number }>()
@@ -123,7 +126,7 @@ for (const recipe of recipes) {
   // （実データで95日などと出る）。他の画面と同じ simulateFermentationDays を使う
   const fermentDaysAt = (brewDate: Date) =>
     simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg, wFallback,
-      q10Value, heatTemp, Math.max(heatTemp - 10, 0)).days
+      q10Value, q10Base, Math.max(heatTemp - 10, 0), heatStartDate).days
   console.log(' 仕込んでおくべきだった日（不足の入口から実熟成日数を遡る／水・木に丸める）:')
   for (const r of runs) {
     const entry = new Date(r.from + 'T00:00:00')

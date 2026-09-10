@@ -9,7 +9,7 @@
  */
 
 import { addDays, format, startOfDay } from 'date-fns'
-import { HEATING_MONTHLY_FACTOR } from './tempCalc'
+import { HEATING_MONTHLY_FACTOR, isOutdoorDate } from './tempCalc'
 
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
 
@@ -43,10 +43,11 @@ export type ModalSimDay = {
   simplePct:   number  // 単純積算 ÷ 目標 × 100（%）
 }
 
-// 常温の扱いは月で変わる。6〜9月は外気（weatherAvg）、10〜5月は暖房室
-// （10月に入ったら暖房室へ移す運用のため）。熟成シミュレーターも同じ判定を使う
-export const isOutdoorMonth = (m: number) => m >= 6 && m <= 9
-const isOutdoor = isOutdoorMonth
+// 常温の扱いは日付で変わる。6〜9月は外気（weatherAvg）、10〜5月は暖房室
+// （10月に入ったら暖房室へ移す運用のため）。ただし暖房室を前倒しで稼働させた年は
+// heatingStartDate 以降も暖房室（lib/tempCalc の isHeatingDate が一元管理）。
+// 熟成シミュレーターもAI仕込み提案も同じ判定を使う
+const isOutdoor = isOutdoorDate
 
 /**
  * 仕込み日から完成日まで両線をシミュレーション。
@@ -70,6 +71,7 @@ export function simulateLotForModal(
   futureFixedRate?: number,    // 今日以降の固定レート（undefined = 常温ロジック継続）
   futureIsHeating?: boolean,   // futureFixedRateが暖房のときtrue（月別補正係数の対象）
   actualAccumToday?: number,   // 今日時点の実績積算温度（℃・日）。渡すと今日で実績に合わせて較正する
+  heatingStartDate?: string | null,  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'（無ければ10〜5月のみ暖房）
 ): ModalSimDay[] {
   const today = startOfDay(new Date())
   // brewedAt はUTC midnight（= JST 9:00）で渡ってくることがあり、そのままだと
@@ -96,7 +98,7 @@ export function simulateLotForModal(
       // （2026-09-02。以前は常温だけ全期間weatherAvgで、冬に線が寝たまま完成予定が
       //  実際より遅く出ていた）。仕込み計画のAI提案（simulateFermentationDays の
       //  outdoorToIndoorRate）と同じ考え方で、画面ごとの完成予定日のズレも無くなる
-      eff = isOutdoor(month)
+      eff = isOutdoor(curr, heatingStartDate)
         ? (weatherAvg[format(curr, 'MM-dd')] ?? 0)
         : dailyRoomAccum * heatFactor
     }
@@ -109,8 +111,8 @@ export function simulateLotForModal(
     // （仕込み計画の simulateFermentationDays・ロット詳細の LotSimChart と同じ扱い。
     //  以前は全期間に掛けており、同じ仕込み日でも画面によって完成予定が4日ズレていた）
     const isOutdoorDay = futureFixedRate === undefined
-      ? isOutdoor(month)
-      : (!isAfterToday && isOutdoor(month))
+      ? isOutdoor(curr, heatingStartDate)
+      : (!isAfterToday && isOutdoor(curr, heatingStartDate))
     const corrected = (isOutdoorDay && eff > 0 && q10Value !== 1)
       ? eff * Math.pow(q10Value, (eff + 10 - heatingBaseTemp) / 10)
       : eff
@@ -162,6 +164,7 @@ export function calcCompletionFromBrew(
   heatingBaseTemp: number,
   fridgeTemp:      number,
   actualAccumToday?: number,   // 今日時点の実績積算温度。渡すと実績に合わせて較正した完成予定日になる
+  heatingStartDate?: string | null,  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'
 ): Date | null {
   if (targetTempSum <= 0) return null
 
@@ -173,7 +176,7 @@ export function calcCompletionFromBrew(
 
   const simDays = simulateLotForModal(
     brewDate, targetTempSum, weatherAvg, dailyRoomAccum, q10Value, heatingBaseTemp, futureFixedRate, futureIsHeating,
-    actualAccumToday,
+    actualAccumToday, heatingStartDate,
   )
 
   const day = simDays.find(d => d.maturityPct >= 100)

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input }  from '@/components/ui/input'
 import { Label }  from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
-import { updateMoistureSettings } from './actions'
+import { updateHeatingStartDate, updateMoistureSettings } from './actions'
 import {
   type MoistureSettings,
   DEFAULT_MOISTURE,
@@ -13,7 +13,7 @@ import {
 } from '@/lib/settings'
 
 // 比率・温度フィールドは % 変換しない
-const RATIO_KEYS = new Set<keyof MoistureSettings>(['kojiRatio', 'komeKojiRatio', 'soybeanRatio', 'room1Temp', 'room2Temp', 'fridgeTemp', 'heatingDefaultTemp', 'coolingDefaultTemp', 'q10Value', 'brewBufferDays'])
+const RATIO_KEYS = new Set<keyof MoistureSettings>(['kojiRatio', 'komeKojiRatio', 'soybeanRatio', 'room1Temp', 'room2Temp', 'fridgeTemp', 'heatingDefaultTemp', 'q10BaseTemp', 'coolingDefaultTemp', 'q10Value', 'brewBufferDays'])
 
 type FormState = Record<keyof MoistureSettings, string>
 
@@ -132,8 +132,14 @@ function TheoryField({ value, formula }: { value: number; formula: string }) {
 }
 
 // ────────────────────────────────────────────────────────────
-export default function MoistureSettingsForm({ moisture }: { moisture: MoistureSettings }) {
+export default function MoistureSettingsForm({
+  moisture, heatingStartDate,
+}: { moisture: MoistureSettings; heatingStartDate: string | null }) {
   const [form, setForm]     = useState<FormState>(toForm(moisture))
+  // 暖房室の稼働開始日は日付なので MoistureSettings（数値のみ）とは別に持つ
+  const [heatStart, setHeatStart]   = useState(heatingStartDate ?? '')
+  const [heatStartSaved, setHeatStartSaved] = useState(false)
+  const [heatStartError, setHeatStartError] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saved, setSaved]   = useState(false)
   const [globalError, setGlobalError] = useState('')
@@ -182,6 +188,11 @@ export default function MoistureSettingsForm({ moisture }: { moisture: MoistureS
       const result = await updateMoistureSettings(data)
       if (result.errors)      setErrors(result.errors)
       if (result.globalError) setGlobalError(result.globalError)
+      // 暖房室の稼働開始日も一緒に保存する（別テーブルの設定キーなので保存先が違う）
+      const heatResult = await updateHeatingStartDate(heatStart)
+      if (heatResult.errors?.heatingStartDate) setHeatStartError(heatResult.errors.heatingStartDate)
+      else setHeatStartError('')
+      setHeatStartSaved(!heatResult.errors && !heatResult.globalError)
       if (result.success)     setSaved(true)
     })
   }
@@ -336,7 +347,7 @@ export default function MoistureSettingsForm({ moisture }: { moisture: MoistureS
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {([
-              { key: 'heatingDefaultTemp' as const, label: '暖房デフォルト温度', min: 10, max: 40 },
+              { key: 'heatingDefaultTemp' as const, label: '暖房室の設定温度', min: 10, max: 40 },
               { key: 'coolingDefaultTemp' as const, label: '冷房デフォルト温度', min: 10, max: 40 },
               { key: 'fridgeTemp'         as const, label: '冷蔵庫温度',         min: 1,  max: 15 },
             ]).map(({ key, label, min, max }) => {
@@ -371,6 +382,58 @@ export default function MoistureSettingsForm({ moisture }: { moisture: MoistureS
                 </div>
               )
             })}
+          </div>
+
+          {/* 暖房室の稼働開始日（前倒し稼働の年だけ入れる） */}
+          <div className="space-y-1">
+            <Label htmlFor="heatingStartDate">暖房室の稼働開始日（前倒しした年だけ）</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="heatingStartDate"
+                type="date"
+                value={heatStart}
+                onChange={e => { setHeatStart(e.target.value); setHeatStartSaved(false) }}
+                className="min-h-[44px] w-44"
+              />
+              {heatStart && (
+                <Button type="button" variant="outline" size="sm"
+                  onClick={() => { setHeatStart(''); setHeatStartSaved(false) }}>
+                  空にする
+                </Button>
+              )}
+            </div>
+            {heatStartError && <p className="text-xs text-red-500">{heatStartError}</p>}
+            {heatStartSaved && <p className="text-xs text-green-700">保存しました。</p>}
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              通常は10月から暖房室へ移す運用なので<span className="font-medium text-foreground">空欄</span>のままで構いません。
+              熟成が遅れて暖房室を早めに稼働させた年だけ、その日付を入れてください。
+              入れた日以降に仕込む分・常温のまま置いている分は、夏でも暖房室（上の設定温度）として
+              完成予定日を計算します（10月からは毎年どのみち暖房室扱いです）。
+            </p>
+          </div>
+
+          {/* Q10の基準温度 */}
+          <div className="space-y-1">
+            <Label htmlFor="q10BaseTemp">Q10の基準温度</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="q10BaseTemp"
+                type="number"
+                step="1"
+                min="10"
+                max="40"
+                inputMode="numeric"
+                value={form.q10BaseTemp}
+                onChange={set('q10BaseTemp')}
+                className="min-h-[44px] w-28"
+              />
+              <span className="text-sm text-muted-foreground shrink-0">℃</span>
+            </div>
+            {errors.q10BaseTemp && <p className="text-xs text-red-500">{errors.q10BaseTemp}</p>}
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              常温のQ10補正が1.0になる温度。実績で較正した計算上の基準値なので、
+              暖房室の設定温度を変えてもここは動かさないでください（推奨 <span className="font-medium text-foreground">25</span>℃）。
+            </p>
           </div>
 
           {/* Q10補正係数 */}

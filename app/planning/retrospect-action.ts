@@ -2,7 +2,7 @@
 
 import { addMonths, format, getDaysInMonth, startOfDay } from 'date-fns'
 import { prisma } from '@/lib/prisma'
-import { getMoistureSettings } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings } from '@/lib/settings'
 import { simulateFermentationDays, makeSafetyLineFn } from '@/lib/brewPlanCalc'
 import { computeRetrospect, type RetrospectResult } from '@/lib/retrospect'
 
@@ -19,12 +19,13 @@ export interface RetrospectData {
 }
 
 export async function getRetrospect(baseYearMonth?: string): Promise<RetrospectData> {
-  const [recipes, allSnaps, shipments, lots, moisture, weather] = await Promise.all([
+  const [recipes, allSnaps, shipments, lots, moisture, heatingStartDate, weather] = await Promise.all([
     prisma.misoRecipe.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
     prisma.monthlyInventorySnapshot.findMany({ orderBy: { yearMonth: 'asc' } }),
     prisma.shipmentHistory.findMany({ orderBy: { yearMonth: 'asc' } }),
     prisma.lot.findMany({ orderBy: { brewedAt: 'asc' } }),
     getMoistureSettings(),
+    getHeatingStartDate(),
     prisma.weatherCache.findMany({ select: { date: true, effectiveTemp: true } }),
   ])
 
@@ -112,8 +113,8 @@ export async function getRetrospect(baseYearMonth?: string): Promise<RetrospectD
       fermentDaysAt: (brewDate: Date) =>
         simulateFermentationDays(
           brewDate, recipe.targetTempSum, weatherAvg, fallback,
-          moisture.q10Value, moisture.heatingDefaultTemp,
-          Math.max(moisture.heatingDefaultTemp - 10, 0),
+          moisture.q10Value, moisture.q10BaseTemp,
+          Math.max(moisture.heatingDefaultTemp - 10, 0), heatingStartDate,
         ).days,
     }))
   }

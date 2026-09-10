@@ -7,7 +7,7 @@ import {
   XAxis, YAxis, CartesianGrid,
   ReferenceLine, ReferenceArea, ResponsiveContainer, Tooltip,
 } from 'recharts'
-import { HEATING_MONTHLY_FACTOR } from '@/lib/tempCalc'
+import { HEATING_MONTHLY_FACTOR, isHeatingDate } from '@/lib/tempCalc'
 
 const TEMP_LOCATION_RE = /^(?:暖房|冷房|温調室)(\d+(?:\.\d+)?)℃$/
 
@@ -27,7 +27,9 @@ interface Props {
   brewedAtISO:     string
   targetTempSum:   number
   weatherAvg:      Record<string, number>
-  heatingBaseTemp: number
+  heatingBaseTemp: number   // Q10補正の基準温度
+  heatingRoomTemp: number   // 暖房室の設定温度（今日以降の季節切替で使う）
+  heatingStartDate: string | null  // 暖房室の前倒し稼働開始日 'yyyy-MM-dd'
   q10Value:        number
   fridgeTemp:      number
   locationPeriods: LocationPeriodItem[]
@@ -195,6 +197,8 @@ function simulateWithHistory(
   locationPeriods: LocationPeriodItem[],
   q10Value:        number,
   heatingBaseTemp: number,
+  heatingRoomTemp: number,
+  heatingStartDate: string | null,
   fridgeTemp:      number,
   actualAccumToday?: number | null,
 ): SimDay[] {
@@ -235,12 +239,13 @@ function simulateWithHistory(
     } else if (loc === '冷蔵庫') {
       eff = Math.max(fridgeTemp - 10, 0)
     } else {
-      // 常温。今日以降の10〜5月は暖房室へ移して熟成させる運用のため、暖房デフォルト温度で積む
-      // （月別補正あり）。過去は実際に常温にいた期間なので気象データのまま（2026-09-02）
+      // 常温。今日以降の暖房期（10〜5月・前倒し稼働日以降）は暖房室へ移して熟成させる運用の
+      // ため、暖房室の設定温度で積む（月別補正あり）。過去は実際に常温にいた期間なので
+      // 気象データのまま（2026-09-02）
       const month = curr.getMonth() + 1
-      const movedToHeating = curr.getTime() > today.getTime() && !(month >= 6 && month <= 9)
+      const movedToHeating = curr.getTime() > today.getTime() && isHeatingDate(curr, heatingStartDate)
       if (movedToHeating) {
-        eff = Math.max(heatingBaseTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
+        eff = Math.max(heatingRoomTemp - 10, 0) * (HEATING_MONTHLY_FACTOR[month] ?? 1)
       } else {
         eff = weatherAvg[mmdd] ?? 0
         isOutdoor = true
@@ -287,7 +292,7 @@ function simulateWithHistory(
 // ── メインコンポーネント ──────────────────────────────────────
 export default function LotSimChart({
   brewedAtISO, targetTempSum, weatherAvg,
-  heatingBaseTemp, q10Value, fridgeTemp,
+  heatingBaseTemp, heatingRoomTemp, heatingStartDate, q10Value, fridgeTemp,
   locationPeriods, completedAtISO, actualAccumToday,
 }: Props) {
   const locationTransitions = useMemo(() =>
@@ -317,7 +322,7 @@ export default function LotSimChart({
 
     const fullData = simulateWithHistory(
       brewDate, targetTempSum, weatherAvg,
-      locationPeriods, q10Value, heatingBaseTemp, fridgeTemp, actualAccumToday,
+      locationPeriods, q10Value, heatingBaseTemp, heatingRoomTemp, heatingStartDate, fridgeTemp, actualAccumToday,
     )
 
     const matCompleteIdx  = fullData.findIndex(d => d.maturityPct >= 100)
@@ -352,7 +357,13 @@ export default function LotSimChart({
       for (let y = brewDate.getFullYear(); y <= displayEnd.getFullYear(); y++) {
         for (const [md, label] of [['10-01', '→暖房（予定）'], ['06-01', '→常温（予定）']] as const) {
           const d = `${y}-${md}`
+          // 前倒し稼働した年は10/1ではなくその日が切り替わり日になる
+          if (md === '10-01' && heatingStartDate?.slice(0, 4) === String(y)) continue
           if (d > todStr && d >= firstStr && d <= displayEndStr) assumed.push({ date: d, label })
+        }
+        if (heatingStartDate && heatingStartDate.slice(0, 4) === String(y)
+            && heatingStartDate > todStr && heatingStartDate >= firstStr && heatingStartDate <= displayEndStr) {
+          assumed.push({ date: heatingStartDate, label: '→暖房（予定）' })
         }
       }
     }
@@ -395,7 +406,8 @@ export default function LotSimChart({
       assumedTransitions:      assumed,
     }
   }, [brewedAtISO, targetTempSum, weatherAvg, locationPeriods,
-      q10Value, heatingBaseTemp, fridgeTemp, locationTransitions, completedAtISO, actualAccumToday])
+      q10Value, heatingBaseTemp, heatingRoomTemp, heatingStartDate, fridgeTemp,
+      locationTransitions, completedAtISO, actualAccumToday])
 
   if (chartData.length === 0) {
     return (
@@ -645,7 +657,8 @@ export default function LotSimChart({
       {/* 注釈 */}
       <p className="text-xs text-muted-foreground leading-relaxed">
         ※ 場所履歴に基づき各期間の温度で積算（暖房・冷房は設定温度固定、常温は気象データ月日平均）。
-        常温のまま今日以降が10〜5月にかかる分は、暖房室（{heatingBaseTemp}℃）へ移す前提で積算しています。
+        常温のまま今日以降が暖房期（10〜5月{heatingStartDate ? `・${heatingStartDate.slice(5).replace('-', '/')}以降` : ''}）に
+        かかる分は、暖房室（{heatingRoomTemp}℃）へ移す前提で積算しています。
         {hasQ10Effect
           ? `常温期間にQ10係数 ${q10Value} で酵素反応速度を補正（青線 vs 点線の差が補正効果）。`
           : '常温期間がないためQ10補正の差異なし。'}

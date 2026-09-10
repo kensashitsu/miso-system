@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { differenceInDays, format, startOfDay } from 'date-fns'
 import { AlertTriangle, Clock, CalendarClock, PackageSearch, CheckCircle2, Truck, FlaskConical } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
-import { getMoistureSettings } from '@/lib/settings'
+import { getHeatingStartDate, getMoistureSettings } from '@/lib/settings'
 import {
   calcAccumulatedTempSplit,
   calcColoringRisk,
@@ -29,8 +29,9 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   // weatherData は全期間取得（oldestBrewDate フィルタだと過去年の夏季データが欠落し
   // weatherAvg が空になるため、ロット積算計算・シミュレーター両方が正常に動作しない）
-  const [moisture, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans] = await Promise.all([
+  const [moisture, heatingStartDate, agedStockData, recipes, weatherData, inventorySnapshots, brewPlans] = await Promise.all([
     getMoistureSettings(),
+    getHeatingStartDate(),
     fetchAgedStock(),
     getMisoRecipes(),
     prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
@@ -61,7 +62,7 @@ export default async function DashboardPage() {
   // 表示する品種はレシピ（有効なもの）から。ハードコードすると品種追加時に
   // サマリー・グラフから無言で抜け落ちる
   const misoTypes = recipes.map(r => r.name)
-  const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value }
+  const roomTemps = { room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp, heatingBaseTemp: moisture.q10BaseTemp, q10Value: moisture.q10Value }
 
   // API在庫を品種別Mapに変換
   const agedStockMap: Record<string, { agedKg: number; packagedKg: number | null }> = {}
@@ -103,7 +104,8 @@ export default async function DashboardPage() {
   const simConfig: LotSimConfig = {
     weatherAvg,
     q10Value:           moisture.q10Value,
-    heatingBaseTemp:    moisture.heatingDefaultTemp,
+    heatingBaseTemp:    moisture.q10BaseTemp,
+    heatingStartDate,
     room1Temp:          moisture.room1Temp,
     heatingDefaultTemp: moisture.heatingDefaultTemp,
     coolingDefaultTemp: moisture.coolingDefaultTemp,
@@ -128,8 +130,8 @@ export default async function DashboardPage() {
       lot.status === '熟成中'
         ? calcCompletionFromBrew(
             lot.brewedAt, targetTempSum, currentLocation,
-            weatherAvg, moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
-            accumulated,
+            weatherAvg, moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.q10BaseTemp, moisture.fridgeTemp,
+            accumulated, heatingStartDate,
           )
         : null
     const elapsedDays = differenceInDays(today, startOfDay(lot.brewedAt))

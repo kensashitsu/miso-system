@@ -51,7 +51,7 @@ const BATCHES_PER_TYPE = Number(process.env.BATCHES ?? 6)
 
 const [recipes, moistureRows, weatherData, lots, actualPlans, forecastRows, blockedRow] = await Promise.all([
   prisma.misoRecipe.findMany({ where: { isActive: true } }),
-  prisma.systemSetting.findMany({ where: { key: { startsWith: 'moisture_' } } }),
+  prisma.systemSetting.findMany({ where: { OR: [{ key: { startsWith: 'moisture_' } }, { key: 'aging_heatingStartDate' }] } }),
   prisma.weatherCache.findMany({ orderBy: { date: 'asc' } }),
   prisma.lot.findMany({ where: { status: '熟成中' }, include: { buckets: true, locationHistory: { orderBy: { startDate: 'desc' } } } }),
   prisma.brewPlan.findMany({ where: { status: '仮登録' }, orderBy: { brewDate: 'asc' } }),
@@ -63,6 +63,9 @@ const setting = (k: string, def: number) =>
   Number(moistureRows.find(m => m.key === `moisture_${k}`)?.value ?? def)
 const q10Value           = setting('q10Value', 2)
 const heatingDefaultTemp = setting('heatingDefaultTemp', 25)
+const q10BaseTemp        = setting('q10BaseTemp', 25)
+const heatingStartRaw = moistureRows.find(m => m.key === 'aging_heatingStartDate')?.value?.trim() ?? ''
+const heatingStartDate = /^\d{4}-\d{2}-\d{2}$/.test(heatingStartRaw) ? heatingStartRaw : null
 const brewBufferDays     = setting('brewBufferDays', 14)
 const yieldRate          = setting('yieldRate', 0.95)
 const fridgeTemp         = setting('fridgeTemp', 6)
@@ -117,10 +120,10 @@ for (const name of CALC_ORDER) {
     const accum = tempCalc.calcAccumulatedTemp(
       lot.brewedAt, lot.locationHistory, weatherMap,
       { room1Temp: setting('room1Temp', 24), room2Temp: setting('room2Temp', 20),
-        fridgeTemp, heatingBaseTemp: heatingDefaultTemp, q10Value })
+        fridgeTemp, heatingBaseTemp: q10BaseTemp, q10Value })
     const comp = brewSim.calcCompletionFromBrew(
       lot.brewedAt, recipe.targetTempSum, tempCalc.getCurrentLocation(lot.locationHistory),
-      weatherAvg, heatingDefaultTemp - 10, q10Value, heatingDefaultTemp, fridgeTemp, accum)
+      weatherAvg, heatingDefaultTemp - 10, q10Value, q10BaseTemp, fridgeTemp, accum, heatingStartDate)
     if (comp) supplyEvents.push({ date: startOfDay(comp), kg })
   }
   supplyEvents.sort((a, b) => +a.date - +b.date)
@@ -135,7 +138,7 @@ for (const name of CALC_ORDER) {
   const location = recipe.defaultLocation
   const getCompletion = (brewDate: Date) =>
     simulateFermentationDays(brewDate, recipe.targetTempSum, weatherAvg, weatherFallback,
-      q10Value, heatingDefaultTemp, Math.max(heatingDefaultTemp - 10, 0))
+      q10Value, q10BaseTemp, Math.max(heatingDefaultTemp - 10, 0), heatingStartDate)
 
   // 山吹は無添加・田舎の翌日にしか仕込めない（画面と同じ制約。両者の提案日から作る）
   const isAllowedBrewDay = name === '山吹みそ' && mugiInakaBrewDateStrs.length > 0

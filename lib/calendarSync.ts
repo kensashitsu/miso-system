@@ -9,7 +9,7 @@
 import { createHash } from 'crypto'
 import { format } from 'date-fns'
 import { prisma } from './prisma'
-import { getMoistureSettings } from './settings'
+import { getHeatingStartDate, getMoistureSettings } from './settings'
 import { calcAccumulatedTemp, getCurrentLocation } from './tempCalc'
 import { calcCompletionFromBrew } from './brewSimulation'
 import { AGING_CALENDAR_ID, BREW_CALENDAR_ID, brewEventTitle, completionEventTitle } from './googleCalendarLink'
@@ -26,8 +26,9 @@ export type SyncResult = {
 }
 
 export async function syncPlansToCalendar(): Promise<SyncResult> {
-  const [moisture, plans, lots, recipes, weather] = await Promise.all([
+  const [moisture, heatingStartDate, plans, lots, recipes, weather] = await Promise.all([
     getMoistureSettings(),
+    getHeatingStartDate(),
     prisma.brewPlan.findMany({ where: { status: '仮登録', lotId: null }, orderBy: { brewDate: 'asc' } }),
     prisma.lot.findMany({
       where: { status: '熟成中' },
@@ -50,7 +51,7 @@ export async function syncPlansToCalendar(): Promise<SyncResult> {
   for (const [k, { sum, count }] of totals) weatherAvg[k] = Math.round((sum / count) * 100) / 100
   const roomTemps = {
     room1Temp: moisture.room1Temp, room2Temp: moisture.room2Temp, fridgeTemp: moisture.fridgeTemp,
-    heatingBaseTemp: moisture.heatingDefaultTemp, q10Value: moisture.q10Value,
+    heatingBaseTemp: moisture.q10BaseTemp, q10Value: moisture.q10Value,
   }
   const targetOf = (misoType: string, fallback: number) =>
     recipes.find(r => r.name === misoType)?.targetTempSum ?? fallback
@@ -86,8 +87,8 @@ export async function syncPlansToCalendar(): Promise<SyncResult> {
     const accum    = calcAccumulatedTemp(lot.brewedAt, lot.locationHistory, weatherMap, roomTemps)
     const completion = calcCompletionFromBrew(
       lot.brewedAt, target, location, weatherAvg,
-      moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.heatingDefaultTemp, moisture.fridgeTemp,
-      accum,
+      moisture.heatingDefaultTemp - 10, moisture.q10Value, moisture.q10BaseTemp, moisture.fridgeTemp,
+      accum, heatingStartDate,
     )
     if (!completion) continue
     agingEvents.push({
