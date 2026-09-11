@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { Plus, Trash2, Save } from 'lucide-react'
+import { Plus, Trash2, Save, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -100,6 +100,61 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
           }))
         : [emptyStep()]
     )
+  }
+
+  // ── これまでの放冷の絞り込み ──
+  const [fGrain, setFGrain] = useState('すべて')
+  const [fType,  setFType]  = useState('すべて')
+  const [fYear,  setFYear]  = useState('すべて')
+  const [fTempMin, setFTempMin] = useState('')
+  const [fTempMax, setFTempMax] = useState('')
+  const [fWord,  setFWord]  = useState('')
+
+  // 絞り込みを変えたら表示件数を最初に戻す（20件だけ見えている状態のままだと結果が隠れる）
+  function changeFilter<T>(set: (v: T) => void) {
+    return (v: T) => { set(v); setVisible(20) }
+  }
+
+  const misoTypes = useMemo(
+    () => [...new Set(runs.map(r => r.lot?.misoType).filter((v): v is string => !!v))],
+    [runs]
+  )
+  const years = useMemo(
+    () => [...new Set(runs.map(r => r.runDateISO.slice(0, 4)))].sort((a, b) => (a < b ? 1 : -1)),
+    [runs]
+  )
+
+  const filtered = useMemo(() => {
+    const min = numOrNull(fTempMin)
+    const max = numOrNull(fTempMax)
+    const word = fWord.trim()
+    return runs.filter(run => {
+      if (fGrain !== 'すべて' && run.grainType !== fGrain) return false
+      if (fType  !== 'すべて' && run.lot?.misoType !== fType) return false
+      if (fYear  !== 'すべて' && !run.runDateISO.startsWith(fYear)) return false
+      if (min !== null && (run.airTemp1FC === null || run.airTemp1FC < min)) return false
+      if (max !== null && (run.airTemp1FC === null || run.airTemp1FC > max)) return false
+      if (word) {
+        // 備考・品温の書き込み・ロット番号を横断で探す
+        const haystack = [
+          run.memo,
+          run.lot?.lotNumber,
+          run.lot?.misoType,
+          ...run.steps.map(st => st.memo),
+          ...run.steps.map(st => st.productTempRaw),
+        ].filter(Boolean).join(' ')
+        if (!haystack.includes(word)) return false
+      }
+      return true
+    })
+  }, [runs, fGrain, fType, fYear, fTempMin, fTempMax, fWord])
+
+  const filterOn = fGrain !== 'すべて' || fType !== 'すべて' || fYear !== 'すべて' || fTempMin !== '' || fTempMax !== '' || fWord !== ''
+
+  function resetFilter() {
+    setFGrain('すべて'); setFType('すべて'); setFYear('すべて')
+    setFTempMin(''); setFTempMax(''); setFWord('')
+    setVisible(20)
   }
 
   // 入力中の気温に近い過去の回。ベルトを何番にするかの当たりを付けるための参照
@@ -317,10 +372,79 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
       {/* ── これまでの記録 ── */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">これまでの放冷（{runs.length}件）</CardTitle>
+          <CardTitle className="text-base">
+            これまでの放冷（{filterOn ? `${filtered.length} / ${runs.length}件` : `${runs.length}件`}）
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {runs.slice(0, visible).map(run => (
+          {/* 絞り込み */}
+          <div className="flex flex-wrap items-end gap-2 pb-1">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">原料</label>
+              <select
+                value={fGrain}
+                onChange={e => changeFilter(setFGrain)(e.target.value)}
+                className="rounded-md border bg-background px-2 py-1.5 text-sm"
+              >
+                {['すべて', ...GRAIN_TYPES].map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">品種</label>
+              <select
+                value={fType}
+                onChange={e => changeFilter(setFType)(e.target.value)}
+                className="rounded-md border bg-background px-2 py-1.5 text-sm"
+              >
+                {['すべて', ...misoTypes].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">年</label>
+              <select
+                value={fYear}
+                onChange={e => changeFilter(setFYear)(e.target.value)}
+                className="rounded-md border bg-background px-2 py-1.5 text-sm"
+              >
+                {['すべて', ...years].map(y => <option key={y} value={y}>{y === 'すべて' ? y : `${y}年`}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">気温（1F）</label>
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number" step="0.5" inputMode="decimal" placeholder="下限"
+                  value={fTempMin} onChange={e => changeFilter(setFTempMin)(e.target.value)}
+                  className="w-20"
+                />
+                <span className="text-xs text-muted-foreground">〜</span>
+                <Input
+                  type="number" step="0.5" inputMode="decimal" placeholder="上限"
+                  value={fTempMax} onChange={e => changeFilter(setFTempMax)(e.target.value)}
+                  className="w-20"
+                />
+              </div>
+            </div>
+            <div className="space-y-1 flex-1 min-w-[12rem]">
+              <label className="text-xs text-muted-foreground">キーワード（備考・品温・ロット番号）</label>
+              <Input
+                value={fWord}
+                onChange={e => changeFilter(setFWord)(e.target.value)}
+                placeholder="会長操作 / かたまり など"
+              />
+            </div>
+            {filterOn && (
+              <Button variant="outline" size="sm" onClick={resetFilter}>
+                <X className="h-4 w-4 mr-1" />絞り込みを解除
+              </Button>
+            )}
+          </div>
+
+          {filtered.length === 0 && (
+            <p className="text-sm text-muted-foreground py-4">条件に当てはまる放冷はありません。</p>
+          )}
+
+          {filtered.slice(0, visible).map(run => (
             <div key={run.id} className="rounded-lg border border-gray-100 px-3 py-2">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <button type="button" onClick={() => pickDate(run.runDateISO)} className="font-medium hover:underline">
@@ -358,9 +482,9 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
               )}
             </div>
           ))}
-          {visible < runs.length && (
+          {visible < filtered.length && (
             <Button variant="outline" size="sm" onClick={() => setVisible(v => v + 20)}>
-              もっと見る（残り{runs.length - visible}件）
+              もっと見る（残り{filtered.length - visible}件）
             </Button>
           )}
         </CardContent>
