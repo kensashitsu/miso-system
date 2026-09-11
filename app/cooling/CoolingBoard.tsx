@@ -46,11 +46,14 @@ function numOrNull(v: string) {
   return Number.isFinite(n) ? n : null
 }
 
-/** ベルト→品温 の一行要約（過去の回を見比べるときはこれだけ読めば足りる） */
+/** ファン・ベルト→品温 の一行要約（過去の回を見比べるときはこれだけ読めば足りる） */
 function stepSummary(step: StepView) {
   const temp = formatProductTemp(step)
-  const belt = step.belt === null ? '—' : String(step.belt)
-  return temp ? `ベルト${belt} → ${temp}℃` : `ベルト${belt}`
+  const setting = [
+    step.fan  === null ? null : `ファン${step.fan}`,
+    step.belt === null ? null : `ベルト${step.belt}`,
+  ].filter(Boolean).join(' ') || '設定なし'
+  return temp ? `${setting} → ${temp}℃` : setting
 }
 
 export default function CoolingBoard({ runs }: { runs: RunView[] }) {
