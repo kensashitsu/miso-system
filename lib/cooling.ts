@@ -7,6 +7,21 @@ export const GRAIN_TYPES = ['麦', '砕米'] as const
 export type GrainType = (typeof GRAIN_TYPES)[number]
 
 /**
+ * 放冷した原料から仕込む品種。同じ日に複数仕込んだ日にどのロットの放冷かを決めるのに使う。
+ * 砕米は全て山吹みそ（2026-09-11 ユーザー確認・実績9回すべて山吹）。白みそは無洗米で
+ * 放冷機を通さないため、麦・砕米のどちらにも含めない。
+ */
+export const MISO_TYPES_BY_GRAIN: Record<string, string[]> = {
+  '麦':   ['無添加麦みそ', '田舎みそ'],
+  '砕米': ['山吹みそ'],
+}
+
+export function matchesGrainType(grainType: string, misoType: string) {
+  const types = MISO_TYPES_BY_GRAIN[grainType]
+  return types ? types.includes(misoType) : true
+}
+
+/**
  * 品温の書き方をそのまま受けて下限・上限に分ける。
  * エクセルでは「37～38」「42~43」「38.5」「30℃以下」「(40?)」のように
  * 幅や但し書きで書かれていたため、数値2つに直しつつ原文も残す。

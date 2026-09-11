@@ -16,6 +16,7 @@ import * as coolingNs from '../lib/cooling'
 // このプロジェクトのスクリプトは lib/* を名前空間importで読む（名前付きexportがそのまま出ない）
 const cooling = { ...(coolingNs as Record<string, any>), ...((coolingNs as any).default ?? {}) }
 const parseProductTemp = cooling.parseProductTemp as typeof coolingNs.parseProductTemp
+const matchesGrainType = cooling.matchesGrainType as typeof coolingNs.matchesGrainType
 const COOLING_TO_BREW_DAYS = cooling.COOLING_TO_BREW_DAYS as number
 
 const prisma = new PrismaClient()
@@ -147,17 +148,13 @@ for (const lot of lots) {
   const key = lot.brewedAt.toISOString().slice(0, 10)
   lotsByDate.set(key, [...(lotsByDate.get(key) ?? []), lot])
 }
-const RICE_TYPES = ['山吹みそ', '白みそ']
-
 function findLot(run: RunInput) {
   const key = new Date(run.runDate.getTime() + COOLING_TO_BREW_DAYS * 86400000).toISOString().slice(0, 10)
   const candidates = lotsByDate.get(key) ?? []
   if (candidates.length === 0) return null
   if (candidates.length === 1) return candidates[0]
-  // 同じ日に複数仕込んだ日は原料で絞る（砕米＝米を使う品種）
-  const byGrain = candidates.filter(l =>
-    run.grainType === '砕米' ? RICE_TYPES.includes(l.misoType) : !RICE_TYPES.includes(l.misoType)
-  )
+  // 同じ日に複数仕込んだ日は原料で絞る（砕米＝山吹みそ）
+  const byGrain = candidates.filter(l => matchesGrainType(run.grainType, l.misoType))
   return (byGrain.length === 1 ? byGrain[0] : null)
 }
 

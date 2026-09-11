@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { prisma } from '@/lib/prisma'
-import { parseProductTemp, COOLING_TO_BREW_DAYS, GRAIN_TYPES } from '@/lib/cooling'
+import { parseProductTemp, COOLING_TO_BREW_DAYS, GRAIN_TYPES, matchesGrainType } from '@/lib/cooling'
 
 const numberOrNull = z.union([z.number(), z.null()]).default(null)
 
@@ -45,11 +45,8 @@ async function findLotForRun(runDate: Date, grainType: string) {
   })
   if (lots.length === 1) return lots[0].id
   if (lots.length === 0) return null
-  // 同じ日に複数仕込んだ日は原料で絞る（砕米＝米を使う品種）
-  const RICE_TYPES = ['山吹みそ', '白みそ']
-  const narrowed = lots.filter(l =>
-    grainType === '砕米' ? RICE_TYPES.includes(l.misoType) : !RICE_TYPES.includes(l.misoType)
-  )
+  // 同じ日に複数仕込んだ日は原料で絞る（砕米＝山吹みそ）
+  const narrowed = lots.filter(l => matchesGrainType(grainType, l.misoType))
   return narrowed.length === 1 ? narrowed[0].id : null
 }
 
