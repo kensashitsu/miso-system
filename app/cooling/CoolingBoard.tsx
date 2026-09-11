@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, useTransition } from 'react'
+import { Fragment, useMemo, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
@@ -46,14 +46,39 @@ function numOrNull(v: string) {
   return Number.isFinite(n) ? n : null
 }
 
-/** ファン・ベルト→品温 の一行要約（過去の回を見比べるときはこれだけ読めば足りる） */
-function stepSummary(step: StepView) {
+const Blank = ({ label }: { label: string }) => (
+  <span className="italic text-gray-400">{label}未記入</span>
+)
+
+/**
+ * ファン・ベルト→品温 の一行要約（過去の回を見比べるときはこれだけ読めば足りる）。
+ * 未記入の項目は「品温未記入」と薄字で出す——空のまま詰めると、設定を何度も変えた日が
+ * 1回しか調整していないように見えてしまうため（2026-09-11 ユーザー指摘）。
+ */
+function StepSummary({ step }: { step: StepView }) {
   const temp = formatProductTemp(step)
-  const setting = [
-    step.fan  === null ? null : `ファン${step.fan}`,
-    step.belt === null ? null : `ベルト${step.belt}`,
-  ].filter(Boolean).join(' ') || '設定なし'
-  return temp ? `${setting} → ${temp}℃` : setting
+  return (
+    <span className="whitespace-nowrap">
+      {step.fan !== null && <>ファン{step.fan} </>}
+      {step.belt !== null ? `ベルト${step.belt}` : <Blank label="ベルト" />}
+      {' → '}
+      {temp ? `${temp}℃` : <Blank label="品温" />}
+    </span>
+  )
+}
+
+/** ／ 区切りで並べる */
+function StepSummaryList({ steps }: { steps: StepView[] }) {
+  return (
+    <>
+      {steps.map((step, i) => (
+        <Fragment key={step.id}>
+          {i > 0 && <span className="text-gray-300"> ／ </span>}
+          <StepSummary step={step} />
+        </Fragment>
+      ))}
+    </>
+  )
 }
 
 export default function CoolingBoard({ runs }: { runs: RunView[] }) {
@@ -361,7 +386,7 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
                   )}
                 </div>
                 <div className="text-muted-foreground text-xs mt-0.5">
-                  {run.steps.map(s => stepSummary(s)).join(' ／ ')}
+                  <StepSummaryList steps={run.steps} />
                 </div>
               </div>
             ))}
@@ -473,7 +498,7 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
                 </button>
               </div>
               <div className="text-xs text-muted-foreground mt-1">
-                {run.steps.map(s => stepSummary(s)).join(' ／ ')}
+                <StepSummaryList steps={run.steps} />
               </div>
               {(run.memo || run.steps.some(s => s.memo)) && (
                 <div className="text-xs text-muted-foreground mt-1">
