@@ -34,6 +34,8 @@ export default async function LotDetailPage({ params }: Props) {
         locationHistory: { orderBy: { startDate: 'asc' } },
         agingNotes:      { orderBy: { recordedAt: 'desc' } },
         brewRecord:      true,
+        // 放冷記録（仕込みの2日前）。取り込み時・登録時に lotId で紐付けている
+        coolingRuns:     { include: { steps: { orderBy: { sortOrder: 'asc' } } }, orderBy: { runDate: 'desc' } },
         buckets: {
           orderBy: { bucketNumber: 'asc' },
           include: { usages: { orderBy: { usedAt: 'desc' } } },
@@ -198,6 +200,25 @@ export default async function LotDetailPage({ params }: Props) {
           steamingPressure:    lot.brewRecord.steamingPressure,
           coolingMin:          lot.brewRecord.coolingMin,
           memo:                lot.brewRecord.memo,
+        }
+      : null,
+    coolingRun: lot.coolingRuns[0]
+      ? {
+          runDateISO: lot.coolingRuns[0].runDate.toISOString(),
+          grainType:  lot.coolingRuns[0].grainType,
+          airTemp1FC: lot.coolingRuns[0].airTemp1FC,
+          airTemp2FC: lot.coolingRuns[0].airTemp2FC,
+          roomTempC:  lot.coolingRuns[0].roomTempC,
+          memo:       lot.coolingRuns[0].memo,
+          steps:      lot.coolingRuns[0].steps.map(s => ({
+            id:             s.id,
+            fan:            s.fan,
+            belt:           s.belt,
+            productTempMin: s.productTempMin,
+            productTempMax: s.productTempMax,
+            productTempRaw: s.productTempRaw,
+            memo:           s.memo,
+          })),
         }
       : null,
   }

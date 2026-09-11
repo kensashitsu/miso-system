@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
+import { relinkCoolingRuns } from '@/app/cooling/actions'
 import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { getMoistureSettings } from '@/lib/settings'
@@ -193,6 +194,9 @@ export async function createLot(input: unknown): Promise<ActionResult> {
     console.error('ロット登録エラー:', e)
     return { globalError: 'データベースへの登録中にエラーが発生しました。もう一度お試しください。' }
   }
+
+  // 2日前の放冷記録をこのロットに紐付ける（放冷の時点ではロットがまだ無いため後追いで結ぶ）
+  await relinkCoolingRuns().catch(() => {})
 
   if (d.brewPlanId) {
     await prisma.brewPlan.update({

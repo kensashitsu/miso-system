@@ -13,6 +13,7 @@ import StockPreviewPanel from '@/components/StockPreviewPanel'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { litersToToText, toToLitersText } from '@/lib/units'
 import { stockSendKg } from '@/lib/stockQty'
+import { formatProductTemp } from '@/lib/cooling'
 
 const BUCKET_PAIRS = Array.from({ length: 15 }, (_, i) => `${i * 2 + 1}・${i * 2 + 2}`)
 
@@ -81,6 +82,25 @@ interface BucketItem {
   usages:            BucketUsageItem[]
 }
 
+// 放冷記録（仕込みの2日前に蒸した麦・砕米を放冷機で冷やした記録）
+export interface CoolingRunView {
+  runDateISO: string
+  grainType:  string
+  airTemp1FC: number | null
+  airTemp2FC: number | null
+  roomTempC:  number | null
+  memo:       string | null
+  steps: {
+    id:             string
+    fan:            number | null
+    belt:           number | null
+    productTempMin: number | null
+    productTempMax: number | null
+    productTempRaw: string | null
+    memo:           string | null
+  }[]
+}
+
 export interface LotDetailProps {
   productNameOptions: string[]
   operatorOptions:    string[]
@@ -112,6 +132,7 @@ export interface LotDetailProps {
   agingNotes: AgingNoteItem[]
   brewStats: { kojiRatio: number; saltPercent: number; moisturePercent: number } | null
   brewRecord: BrewRecordData | null
+  coolingRun: CoolingRunView | null
   buckets:      BucketItem[]
   isPrototype?: boolean
 }
@@ -297,6 +318,7 @@ export default function LotDetail({
   heatingStartDate,
   fridgeTemp,
   locationPeriods,
+  coolingRun,
   agingNotes: initialNotes,
   brewStats,
   brewRecord,
@@ -1835,6 +1857,53 @@ export default function LotDetail({
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* ── 放冷記録（仕込みの2日前） ── */}
+      {coolingRun && (
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-base font-semibold text-gray-900">放冷記録</h2>
+            <Link href="/cooling" className="text-xs text-muted-foreground hover:text-foreground">
+              放冷の一覧へ
+            </Link>
+          </div>
+          <div className="rounded-xl border border-gray-100 px-4 py-3 space-y-3">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="font-medium">
+                {format(new Date(coolingRun.runDateISO), 'M月d日')}
+                <span className="text-muted-foreground ml-1">（仕込みの2日前）</span>
+              </span>
+              <Badge variant="outline" className="text-xs">{coolingRun.grainType}</Badge>
+              <span className="text-muted-foreground">
+                気温 1F {coolingRun.airTemp1FC ?? '—'}℃ ／ 2F {coolingRun.airTemp2FC ?? '—'}℃ ／ 室 {coolingRun.roomTempC ?? '—'}℃
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground border-b">
+                    <th className="text-left font-medium py-1 pr-3">ファン</th>
+                    <th className="text-left font-medium py-1 pr-3">ベルト</th>
+                    <th className="text-left font-medium py-1 pr-3">品温</th>
+                    <th className="text-left font-medium py-1">備考</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coolingRun.steps.map(step => (
+                    <tr key={step.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-1 pr-3 tabular-nums">{step.fan ?? '—'}</td>
+                      <td className="py-1 pr-3 tabular-nums">{step.belt ?? '—'}</td>
+                      <td className="py-1 pr-3 tabular-nums">{formatProductTemp(step) || '—'}</td>
+                      <td className="py-1 text-xs text-muted-foreground">{step.memo ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {coolingRun.memo && <p className="text-xs text-muted-foreground">{coolingRun.memo}</p>}
+          </div>
         </section>
       )}
 

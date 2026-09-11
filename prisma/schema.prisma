@@ -32,6 +32,7 @@ model Lot {
   brewDiaries      BrewDiary[]
   packagingLots    PackagingLot[]
   buckets          Bucket[]
+  coolingRuns      CoolingRun[]                              // 放冷記録（仕込みの2日前）
   seedMisoUsed     SeedMisoUsage[]  @relation("FromLot")  // 種みそ転用元
   seedMisoReceived SeedMisoUsage[]  @relation("ToLot")    // 種みそ受け入れ先
 }
@@ -269,4 +270,37 @@ model CustomerMonthlySales {
   updatedAt DateTime @updatedAt
 
   @@id([yearMonth, misoType, customer])
+}
+
+// 放冷機の記録（蒸した麦・砕米を放冷機で冷やす作業）。作業日1日 = 1件。
+// 仕込みの2日前に行うため、ロットは記録時点ではまだ存在しない。
+// lotId は「放冷日の2日後に仕込まれたロット」をあとから紐付ける（自動・手動どちらも可）
+model CoolingRun {
+  id          String        @id @default(cuid())
+  runDate     DateTime      @unique          // 放冷作業日
+  grainType   String        @default("麦")   // 麦・砕米
+  airTemp1FC  Float?                         // 気温（1F）
+  airTemp2FC  Float?                         // 気温（2F）
+  roomTempC   Float?                         // 室温
+  memo        String?
+  lotId       String?
+  lot         Lot?          @relation(fields: [lotId], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  steps       CoolingStep[]
+}
+
+// 放冷中に設定を変えた都度の記録（エクセルで日付の下にぶら下がっていた行）
+model CoolingStep {
+  id             String     @id @default(cuid())
+  runId          String
+  run            CoolingRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  sortOrder      Int        @default(0)      // その日の中の順番
+  fan            Float?                      // ファン設定
+  belt           Float?                      // ベルト設定
+  productTempMin Float?                      // 品温の下限（単一値なら上限と同じ）
+  productTempMax Float?                      // 品温の上限
+  productTempRaw String?                     // 品温の原文（「30℃以下」「(40?)」等をそのまま残す）
+  memo           String?
 }
