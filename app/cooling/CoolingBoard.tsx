@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { getMisoTypeBadgeStyle } from '@/lib/misoTypeColor'
 import { formatProductTemp, GRAIN_TYPES } from '@/lib/cooling'
+import { type CoolingModel, predictProductTemp, suggestBelt, habitualBelt } from '@/lib/coolingModel'
 import { saveCoolingRun, deleteCoolingRun } from './actions'
 
 export interface StepView {
@@ -81,7 +82,9 @@ function StepSummaryList({ steps }: { steps: StepView[] }) {
   )
 }
 
-export default function CoolingBoard({ runs }: { runs: RunView[] }) {
+const round1 = (n: number) => Math.round(n * 10) / 10
+
+export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: CoolingModel | null }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
@@ -96,6 +99,7 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
   const [message, setMessage] = useState<string | null>(null)
   const [error,   setError]   = useState<string | null>(null)
   const [visible, setVisible] = useState(20)
+  const [targetTemp, setTargetTemp] = useState('')
 
   const runByDate = useMemo(() => new Map(runs.map(r => [r.runDateISO, r])), [runs])
   const editing = runByDate.get(runDate) ?? null
@@ -192,6 +196,32 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
       .sort((a, b) => a.diff - b.diff || (a.run.runDateISO < b.run.runDateISO ? 1 : -1))
       .slice(0, 3)
   }, [runs, t1F, grainType, runDate])
+
+  // ── 予測と提案（麦のみ。砕米は記録が少なくファンも毎回違うので出さない） ──
+  const air = numOrNull(t1F)
+  const canPredict = model !== null && grainType === '麦' && air !== null
+  const habit    = canPredict ? habitualBelt(model, air) : null
+  const target   = numOrNull(targetTemp)
+  const suggested = canPredict && target !== null ? suggestBelt(model, air, target) : null
+  const airOutOfRange = canPredict && (air < model.airMin || air > model.airMax)
+  const beltOutOfRange = (belt: number | null) =>
+    model !== null && belt !== null && (belt < model.beltMin || belt > model.beltMax)
+
+  /** その行のベルト（空欄なら前の行から変えていない）で当てた品温 */
+  function predictedTempForRow(i: number) {
+    if (!canPredict) return null
+    for (let j = i; j >= 0; j--) {
+      const belt = numOrNull(steps[j].belt)
+      if (belt !== null) return predictProductTemp(model, air, belt)
+    }
+    return null
+  }
+
+  function applySuggestedBelt() {
+    if (suggested === null) return
+    const value = String(Math.round(suggested))
+    setSteps(s => s.map((x, j) => (j === 0 ? { ...x, belt: value, fan: x.fan || '50' } : x)))
+  }
 
   // 仕込みは放冷の2日後
   const brewDate = useMemo(() => {
@@ -300,6 +330,60 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
             </p>
           )}
 
+          {/* 予測と提案 */}
+          <div className="rounded-lg border border-sky-100 bg-sky-50/50 px-3 py-3 space-y-2 text-sm">
+            <div className="font-medium text-sky-900">ベルトと品温の目安</div>
+            {grainType !== '麦' ? (
+              <p className="text-xs text-muted-foreground">
+                砕米は記録が少なく、ファンも毎回変えているため予測は出していません。
+              </p>
+            ) : model === null ? (
+              <p className="text-xs text-muted-foreground">記録が足りないため予測を作れません。</p>
+            ) : air === null ? (
+              <p className="text-xs text-muted-foreground">気温（1F）を入れると、ベルトと品温の目安が出ます。</p>
+            ) : (
+              <>
+                {habit !== null && (
+                  <p>
+                    いつもの設定なら <span className="font-semibold">ベルト {Math.round(habit)}</span>
+                    {' → '}品温 約<span className="font-semibold">{round1(predictProductTemp(model, air, habit))}℃</span>
+                    <span className="text-xs text-muted-foreground ml-1">（この気温の日に最初に選んでいたベルト）</span>
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>品温を</span>
+                  <Input
+                    type="number" step="0.5" inputMode="decimal" placeholder="38"
+                    value={targetTemp} onChange={e => setTargetTemp(e.target.value)}
+                    className="w-20 h-8 bg-white"
+                  />
+                  <span>℃にするなら</span>
+                  {suggested !== null ? (
+                    <>
+                      <span className="font-semibold">ベルト {Math.round(suggested)}</span>
+                      <Button type="button" variant="outline" size="sm" className="h-7 bg-white" onClick={applySuggestedBelt}>
+                        1行目に入れる
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </div>
+                {(airOutOfRange || beltOutOfRange(suggested)) && (
+                  <p className="text-xs text-amber-700">
+                    {airOutOfRange
+                      ? `この気温は記録の範囲（${model.airMin}〜${model.airMax}℃）の外なので、目安程度に見てください。`
+                      : `このベルトは記録の範囲（${model.beltMin}〜${model.beltMax}）の外なので、目安程度に見てください。`}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  ベルト1つで品温は約{round1(model.beltCoef)}℃動きます（1℃変えるならベルト約{Math.round(1 / model.beltCoef)}）。
+                  品温の予測は8割が±{round1(model.p80)}℃以内（{model.sinceISO.slice(0, 4)}年以降の{model.days}日・{model.samples}件で検証、ファン50のとき）。
+                </p>
+              </>
+            )}
+          </div>
+
           {/* 設定を変えた都度の行 */}
           <div className="space-y-2">
             <div className="hidden sm:grid grid-cols-[5rem_5rem_7rem_1fr_2rem] gap-2 text-xs text-muted-foreground px-1">
@@ -322,7 +406,10 @@ export default function CoolingBoard({ runs }: { runs: RunView[] }) {
                   onChange={e => setSteps(s => s.map((x, j) => (j === i ? { ...x, belt: e.target.value } : x)))}
                 />
                 <Input
-                  placeholder="37～38"
+                  placeholder={(() => {
+                    const p = predictedTempForRow(i)
+                    return p === null ? '37～38' : `予測 ${round1(p)}`
+                  })()}
                   value={step.productTempRaw}
                   onChange={e => setSteps(s => s.map((x, j) => (j === i ? { ...x, productTempRaw: e.target.value } : x)))}
                 />

@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { format } from 'date-fns'
 import { prisma } from '@/lib/prisma'
 import { COOLING_TO_BREW_DAYS } from '@/lib/cooling'
+import { fitCoolingModel } from '@/lib/coolingModel'
 import CoolingBoard, { type RunView } from './CoolingBoard'
 
 export const dynamic = 'force-dynamic'
@@ -58,6 +59,9 @@ export default async function CoolingPage() {
     }
   })
 
+  // 記録が増えるたびに作り直す（135日×200行程度なので毎回計算しても軽い）
+  const model = fitCoolingModel(runs)
+
   return (
     <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       <div>
@@ -66,7 +70,7 @@ export default async function CoolingPage() {
           蒸した麦・砕米を放冷機で冷やしたときの設定と品温。仕込みはこの2日後で、ロットとは自動で紐付きます。
         </p>
       </div>
-      <CoolingBoard runs={views} />
+      <CoolingBoard runs={views} model={model} />
     </main>
   )
 }
