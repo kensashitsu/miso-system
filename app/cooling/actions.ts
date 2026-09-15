@@ -15,6 +15,7 @@ const stepSchema = z.object({
 })
 
 const schema = z.object({
+  id:         z.string().optional(),       // 既存の記録を編集するとき（日付の変更もできる）
   runDate:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付を入力してください'),
   grainType:  z.enum(GRAIN_TYPES),
   airTemp1FC: numberOrNull,
@@ -59,7 +60,7 @@ export async function saveCoolingRun(input: unknown): Promise<CoolingResult> {
     }
     return { errors }
   }
-  const { runDate, grainType, airTemp1FC, airTemp2FC, roomTempC, memo, steps } = parsed.data
+  const { id, runDate, grainType, airTemp1FC, airTemp2FC, roomTempC, memo, steps } = parsed.data
   const date = toUtcDate(runDate)
 
   // 何も書かれていない行は捨てる（行を足したまま埋めなかった場合）
@@ -69,36 +70,50 @@ export async function saveCoolingRun(input: unknown): Promise<CoolingResult> {
   if (filled.length === 0) return { globalError: 'ファン・ベルト・品温のいずれかを入力してください。' }
 
   try {
+    // 日付を変えて紐付くロットも変わりうるので、保存のたびに引き直す
     const lotId = await findLotForRun(date, grainType)
+    const data = {
+      grainType, airTemp1FC, airTemp2FC, roomTempC,
+      memo: memo?.trim() || null,
+      lotId,
+    }
+    const stepRows = (runId: string) => filled.map((s, i) => {
+      const temp = parseProductTemp(s.productTempRaw ?? null)
+      return {
+        runId,
+        sortOrder:      i,
+        fan:            s.fan,
+        belt:           s.belt,
+        productTempMin: temp.min,
+        productTempMax: temp.max,
+        productTempRaw: temp.raw,
+        memo:           s.memo?.trim() || null,
+      }
+    })
+
+    if (id) {
+      // 既存の記録の編集。日付を動かした先に別の記録があるときは上書きしない
+      const conflict = await prisma.coolingRun.findFirst({ where: { runDate: date, NOT: { id } }, select: { id: true } })
+      if (conflict) return { globalError: `${runDate} の記録は既にあります。先にそちらを編集するか削除してください。` }
+      await prisma.$transaction(async tx => {
+        await tx.coolingStep.deleteMany({ where: { runId: id } })
+        await tx.coolingRun.update({ where: { id }, data: { runDate: date, ...data } })
+        await tx.coolingStep.createMany({ data: stepRows(id) })
+      })
+      revalidatePath('/cooling')
+      return { success: true }
+    }
+
     await prisma.$transaction(async tx => {
       const existing = await tx.coolingRun.findUnique({ where: { runDate: date }, select: { id: true } })
       if (existing) await tx.coolingStep.deleteMany({ where: { runId: existing.id } })
-      const data = {
-        grainType, airTemp1FC, airTemp2FC, roomTempC,
-        memo: memo?.trim() || null,
-        lotId,
-      }
       const saved = await tx.coolingRun.upsert({
         where:  { runDate: date },
         update: data,
         create: { runDate: date, ...data },
         select: { id: true },
       })
-      await tx.coolingStep.createMany({
-        data: filled.map((s, i) => {
-          const temp = parseProductTemp(s.productTempRaw ?? null)
-          return {
-            runId:          saved.id,
-            sortOrder:      i,
-            fan:            s.fan,
-            belt:           s.belt,
-            productTempMin: temp.min,
-            productTempMax: temp.max,
-            productTempRaw: temp.raw,
-            memo:           s.memo?.trim() || null,
-          }
-        }),
-      })
+      await tx.coolingStep.createMany({ data: stepRows(saved.id) })
     })
     revalidatePath('/cooling')
     return { success: true }

@@ -1865,8 +1865,12 @@ export default function LotDetail({
         <section>
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-base font-semibold text-gray-900">放冷記録</h2>
-            <Link href="/cooling" className="text-xs text-muted-foreground hover:text-foreground">
-              放冷の一覧へ
+            <Link
+              href={`/cooling?date=${coolingRun.runDateISO.slice(0, 10)}`}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/60 transition-colors"
+            >
+              <Pencil className="h-3 w-3" />
+              この記録を編集
             </Link>
           </div>
           <div className="rounded-xl border border-gray-100 px-4 py-3 space-y-3">

@@ -1,10 +1,10 @@
 'use client'
 
-import { Fragment, useMemo, useState, useTransition } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { Plus, Trash2, Save, X } from 'lucide-react'
+import { Plus, Trash2, Save, X, Pencil } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -84,7 +84,13 @@ function StepSummaryList({ steps }: { steps: StepView[] }) {
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
-export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: CoolingModel | null }) {
+export default function CoolingBoard({
+  runs, model, initialEditDate,
+}: {
+  runs: RunView[]
+  model: CoolingModel | null
+  initialEditDate?: string   // ロット詳細の「この記録を編集」から ?date= で開いたとき
+}) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
@@ -102,26 +108,21 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
   const [targetTemp, setTargetTemp] = useState('')
 
   const runByDate = useMemo(() => new Map(runs.map(r => [r.runDateISO, r])), [runs])
-  const editing = runByDate.get(runDate) ?? null
+  // 編集中の記録。日付で引くと、編集中に日付を直した瞬間に別の日を読み込んでしまうので id で持つ
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const editing = editingId ? runs.find(r => r.id === editingId) ?? null : null
+  const dateMoved = editing !== null && editing.runDateISO !== runDate
+  const formRef = useRef<HTMLDivElement>(null)
 
-  // 日付を選び直したら、その日の記録があれば読み込んで編集にする
-  function pickDate(next: string) {
-    setRunDate(next)
-    setMessage(null)
-    setError(null)
-    const found = runByDate.get(next)
-    if (!found) {
-      setGrainType('麦'); setT1F(''); setT2F(''); setRoom(''); setMemo(''); setSteps([emptyStep()])
-      return
-    }
-    setGrainType(found.grainType)
-    setT1F(found.airTemp1FC?.toString() ?? '')
-    setT2F(found.airTemp2FC?.toString() ?? '')
-    setRoom(found.roomTempC?.toString() ?? '')
-    setMemo(found.memo ?? '')
+  function fillForm(run: RunView | null) {
+    setGrainType(run?.grainType ?? '麦')
+    setT1F(run?.airTemp1FC?.toString() ?? '')
+    setT2F(run?.airTemp2FC?.toString() ?? '')
+    setRoom(run?.roomTempC?.toString() ?? '')
+    setMemo(run?.memo ?? '')
     setSteps(
-      found.steps.length > 0
-        ? found.steps.map(s => ({
+      run && run.steps.length > 0
+        ? run.steps.map(s => ({
             fan:            s.fan?.toString()  ?? '',
             belt:           s.belt?.toString() ?? '',
             productTempRaw: formatProductTemp(s),
@@ -130,6 +131,42 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
         : [emptyStep()]
     )
   }
+
+  /** 記録を入力欄に読み込んで編集にする。一覧は下の方にあるので入力欄までスクロールする */
+  function loadRun(run: RunView) {
+    setEditingId(run.id)
+    setRunDate(run.runDateISO)
+    fillForm(run)
+    setMessage(null)
+    setError(null)
+    requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  function startNew() {
+    setEditingId(null)
+    setRunDate(today)
+    fillForm(null)
+    setMessage(null)
+    setError(null)
+  }
+
+  // 日付欄を変えたとき：編集中ならその記録の日付を直すだけ。新規入力中にもう記録がある日を選んだら読み込む
+  function pickDate(next: string) {
+    setRunDate(next)
+    setMessage(null)
+    setError(null)
+    if (editingId) return
+    const found = runByDate.get(next)
+    if (found) loadRun(found)
+  }
+
+  useEffect(() => {
+    if (!initialEditDate) return
+    const found = runByDate.get(initialEditDate)
+    if (found) loadRun(found)
+    // 開いたときに一度だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ── これまでの放冷の絞り込み ──
   const [fGrain, setFGrain] = useState('すべて')
@@ -235,6 +272,7 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
     setError(null)
     startTransition(async () => {
       const res = await saveCoolingRun({
+        id: editingId ?? undefined,
         runDate,
         grainType,
         airTemp1FC: numOrNull(t1F),
@@ -261,18 +299,21 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
     if (!confirm('この日の放冷記録を削除します。よろしいですか？')) return
     startTransition(async () => {
       const res = await deleteCoolingRun(id)
-      if (res.success) router.refresh()
-      else setError(res.globalError ?? '削除できませんでした。')
+      if (res.success) {
+        if (id === editingId) startNew()
+        router.refresh()
+      } else setError(res.globalError ?? '削除できませんでした。')
     })
   }
 
   return (
     <div className="space-y-6">
       {/* ── 入力 ── */}
-      <Card>
+      <div ref={formRef} className="scroll-mt-20">
+      <Card className={editing ? 'ring-2 ring-amber-300' : undefined}>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
-            {editing ? `${format(new Date(runDate), 'M月d日')}の記録を編集` : '放冷の記録'}
+            {editing ? `${format(new Date(editing.runDateISO), 'yyyy年M月d日')}の記録を編集中` : '放冷の記録（新規）'}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -322,11 +363,13 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
           {brewDate && (
             <p className="text-xs text-muted-foreground">
               仕込みは2日後の {format(brewDate, 'M月d日')}
-              {editing?.lot
-                ? `（${editing.lot.lotNumber} ${editing.lot.misoType}）`
-                : editing?.plannedLabel
-                  ? `（仮登録：${editing.plannedLabel}）`
-                  : ''}
+              {dateMoved
+                ? '（保存すると日付を移し、2日後に仕込んだロットへ紐付け直します）'
+                : editing?.lot
+                  ? `（${editing.lot.lotNumber} ${editing.lot.misoType}）`
+                  : editing?.plannedLabel
+                    ? `（仮登録：${editing.plannedLabel}）`
+                    : ''}
             </p>
           )}
 
@@ -445,12 +488,20 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
           {error && <p className="text-sm text-red-600">{error}</p>}
           {message && <p className="text-sm text-emerald-700">{message}</p>}
 
-          <Button onClick={handleSave} disabled={pending}>
-            <Save className="h-4 w-4 mr-1" />
-            {pending ? '保存中…' : editing ? '上書き保存' : '保存'}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button onClick={handleSave} disabled={pending}>
+              <Save className="h-4 w-4 mr-1" />
+              {pending ? '保存中…' : editing ? '上書き保存' : '保存'}
+            </Button>
+            {editing && (
+              <Button type="button" variant="outline" onClick={startNew} disabled={pending}>
+                <X className="h-4 w-4 mr-1" />編集をやめて新規入力に戻る
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
+      </div>
 
       {/* ── 気温が近い日の設定 ── */}
       {reference.length > 0 && (
@@ -462,7 +513,7 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
             {reference.map(({ run }) => (
               <div key={run.id} className="text-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={() => pickDate(run.runDateISO)} className="font-medium hover:underline">
+                  <button type="button" onClick={() => loadRun(run)} className="font-medium hover:underline">
                     {format(new Date(run.runDateISO), 'yyyy年M月d日')}
                   </button>
                   <span className="text-muted-foreground text-xs">1F {run.airTemp1FC}℃</span>
@@ -557,9 +608,14 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
           )}
 
           {filtered.slice(0, visible).map(run => (
-            <div key={run.id} className="rounded-lg border border-gray-100 px-3 py-2">
+            <div
+              key={run.id}
+              className={run.id === editingId
+                ? 'rounded-lg border border-amber-300 bg-amber-50/60 px-3 py-2'
+                : 'rounded-lg border border-gray-100 px-3 py-2'}
+            >
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <button type="button" onClick={() => pickDate(run.runDateISO)} className="font-medium hover:underline">
+                <button type="button" onClick={() => loadRun(run)} className="font-medium hover:underline">
                   {format(new Date(run.runDateISO), 'yyyy年M月d日')}
                 </button>
                 <Badge variant="outline" className="text-[10px]">{run.grainType}</Badge>
@@ -577,8 +633,16 @@ export default function CoolingBoard({ runs, model }: { runs: RunView[]; model: 
                 )}
                 <button
                   type="button"
+                  onClick={() => loadRun(run)}
+                  className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/60"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  {run.id === editingId ? '編集中' : '編集'}
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleDelete(run.id)}
-                  className="ml-auto text-muted-foreground hover:text-red-600 p-1 rounded hover:bg-muted/60"
+                  className="text-muted-foreground hover:text-red-600 p-1 rounded hover:bg-muted/60"
                   aria-label="削除"
                 >
                   <Trash2 className="h-3.5 w-3.5" />

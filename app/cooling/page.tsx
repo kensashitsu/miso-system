@@ -11,7 +11,13 @@ export const metadata: Metadata = {
   title: '放冷',
 }
 
-export default async function CoolingPage() {
+export default async function CoolingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string }>
+}) {
+  // ロット詳細の「この記録を編集」から ?date=yyyy-MM-dd で開くと、その日を編集状態で開く
+  const { date: editDate } = await searchParams
   const [runs, plans] = await Promise.all([
     prisma.coolingRun.findMany({
       orderBy: { runDate: 'desc' },
@@ -70,7 +76,7 @@ export default async function CoolingPage() {
           蒸した麦・砕米を放冷機で冷やしたときの設定と品温。仕込みはこの2日後で、ロットとは自動で紐付きます。
         </p>
       </div>
-      <CoolingBoard runs={views} model={model} />
+      <CoolingBoard runs={views} model={model} initialEditDate={editDate} />
     </main>
   )
 }
