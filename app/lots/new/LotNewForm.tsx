@@ -71,6 +71,16 @@ const MOISTURE_SEED_WATER = 1.00
 const MOISTURE_SALT       = 0.00
 
 const LOCATIONS           = ['暖房', '冷房', '常温', '冷蔵庫'] as const
+
+// レシピの既定場所（`MisoRecipe.defaultLocation`）は「暖房24℃」のように温度込みで
+// 保存されており、その温度は設定画面を変えても古いまま残る。画面のボタンと突き合わせる
+// ため種類だけを取り出し、温度は設定の現在値（heatingDefaultTemp/coolingDefaultTemp）で
+// 付け直す（`resolvedLocation`）。旧「温調室」は暖房として扱う
+function locationKind(loc: string): string {
+  const m = loc.match(/^(暖房|冷房|温調室)\d+(?:\.\d+)?℃$/)
+  if (m) return m[1] === '温調室' ? '暖房' : m[1]
+  return loc
+}
 const BUCKET_NUMBERS      = Array.from({ length: 31 }, (_, i) => i)       // 0〜30（白みそ用・単桶選択、0号桶は白みそ専用）
 const SOYBEAN_ORIGIN_OPTIONS = ['山口県産', 'カナダ産', 'アメリカ産'] as const
 
@@ -170,7 +180,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
         base.targetTempSum   = String(recipe.targetTempSum)
         base.soybeanOrigin   = recipe.soybeanOrigin ?? ''
         base.mizuameKg       = String(recipe.mizuameKg)
-        base.initialLocation = recipe.defaultLocation
+        base.initialLocation = locationKind(recipe.defaultLocation)
         base.mugiOrKomeKg    = String(recipe.grainKg)
         base.soybeanKg       = String(recipe.soybeanKg)
         base.saltKg          = String(recipe.saltKg)
@@ -224,7 +234,7 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
       targetTempSum:   String(recipe.targetTempSum),
       soybeanOrigin:   recipe.soybeanOrigin ?? '',
       mizuameKg:       String(recipe.mizuameKg),
-      initialLocation: recipe.defaultLocation,
+      initialLocation: locationKind(recipe.defaultLocation),
       mugiOrKomeKg:    String(recipe.grainKg),
       soybeanKg:       String(recipe.soybeanKg),
       saltKg:          String(recipe.saltKg),
@@ -384,10 +394,14 @@ export default function LotNewForm({ moisture, recipes, weatherAvg, suggestedBuc
     if (loc === '冷蔵庫') return Math.max(moisture.fridgeTemp - 10, 0)
     return 0
   }
-  // 完成予定日計算用に暖房/冷房の場合は設定値で仮決め
+  // 暖房/冷房は設定画面の現在の温度を付ける。
+  // ここは場所履歴に保存される文字列でもあるので、必ず場所移動（/lots/[id]/move）と
+  // 同じ heatingDefaultTemp/coolingDefaultTemp を使う。
+  // ※ room1Temp/room2Temp（仕込み計画用の参照温度）ではない——以前これを使っており、
+  //   暖房室を31℃にしても24℃で計算・記録されていた
   const resolvedLocation =
-    form.initialLocation === '暖房' ? `暖房${moisture.room1Temp}℃` :
-    form.initialLocation === '冷房' ? `冷房${moisture.room2Temp}℃` :
+    form.initialLocation === '暖房' ? `暖房${moisture.heatingDefaultTemp}℃` :
+    form.initialLocation === '冷房' ? `冷房${moisture.coolingDefaultTemp}℃` :
     form.initialLocation
   const dailyTempMap: Record<string, number> = {
     [resolvedLocation]: getNewFormDailyTemp(resolvedLocation),
