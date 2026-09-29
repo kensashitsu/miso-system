@@ -38,7 +38,10 @@ export interface CombineCandidate {
   bucketNumbers?:        string | null
 }
 
-export type PlacedReason = 'fixed' | 'ideal' | 'contention' | 'pair-order' | 'yamabuki-wait'
+export type PlacedReason =
+  | 'fixed' | 'ideal' | 'contention' | 'pair-order' | 'yamabuki-wait'
+  // 以下は週の枠へ直接割り当てる方式（lib/brewSlotPlanner.ts）
+  | 'due' | 'pair-pull' | 'carrier' | 'double'
 
 export interface PlacedBrew {
   misoType:              string
@@ -222,4 +225,8 @@ export const REASON_LABEL: Record<PlacedReason, string> = {
   'contention':    '同じ週が埋まっていたため後ろへ',
   'pair-order':    '水＝田舎／木＝無添加の順で組んだ',
   'yamabuki-wait': '前日に組める品種が無く後ろへ',
+  'due':           'この週に仕込まないと間に合わない',
+  'pair-pull':     'セットにするため前倒し',
+  'carrier':       '山吹の相方として前倒し',
+  'double':        '1本では足りないため2本目',
 }

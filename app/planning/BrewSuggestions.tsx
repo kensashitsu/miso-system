@@ -141,6 +141,7 @@ interface RecipePlan {
   getDailyRateFn:   (date: Date) => number
   safetyLineFn:     ((date: Date) => number) | null
   baseSupplyEvents: { date: Date; kg: number }[]   // 熟成中ロット＋仮登録の完成（新規提案は含まない）
+  orderEvents:      { date: Date; kg: number }[]   // 予定出荷（大口・今日より先）。kg はマイナス
   batchKg:          number
   batches:          BatchPlan[]
   hasData:          boolean
@@ -1138,6 +1139,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
       getDailyRateFn,
       safetyLineFn:     safetyLineAt,
       baseSupplyEvents: baseSupplyEvents.map(e => ({ date: e.date, kg: e.kg })),
+      orderEvents:      futureOrderEvents,
       batchKg:          recipe.totalWeightKg,
       batches, hasData, canCalc,
       isBrewDatePast, overdueDays, unreachableStockOut, earliestCompletion0,
@@ -1571,7 +1573,9 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               getDailyRateFn:   p.getDailyRateFn,
               safetyLineFn:     p.safetyLineFn,
               baseSupplyEvents: p.baseSupplyEvents,
+              orderEvents:      p.orderEvents,
               batchKg:          p.batchKg,
+              fermentationDays: p.fermentationDays,
               monthlyDemand:    p.monthlyDemand,
               batches:       p.batches.map(b => ({
                 brewDate:              b.brewDate,
@@ -1584,6 +1588,7 @@ export default function BrewSuggestions({ recipes, shipmentMap, heatingDefaultTe
               })),
             }))}
           blockedWeeks={blockedWeeks}
+          bufferDays={bufferEnabled ? brewBufferDays : 0}
           savedKeys={savedKeys}
           onSaved={key => setSavedKeys(prev => new Set(prev).add(key))}
         />
