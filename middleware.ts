@@ -46,7 +46,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // 静的ファイル・画像・faviconを除く全パス
-    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // 静的ファイル・画像・favicon・api/aging-lots（factory-planner向け。X-API-Keyで独自認証・
+    // サーバー間の呼び出しでセッションcookieが無いためログイン必須の対象外にする）を除く全パス
+    '/((?!_next/static|_next/image|favicon\\.ico|api/aging-lots|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
