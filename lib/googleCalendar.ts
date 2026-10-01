@@ -57,7 +57,7 @@ async function getAccessToken(): Promise<string> {
   return (await res.json()).access_token as string
 }
 
-type ApiEvent = {
+export type ApiEvent = {
   id: string
   summary?: string
   description?: string
@@ -82,14 +82,15 @@ export class CalendarClient {
 
   // このシステムが作った予定だけを一覧する（他の手入力の予定は触らない）。
   // 目印は拡張プロパティ（private）の misoSystem。
-  async listOwned(calendarId: string, tag: string): Promise<ApiEvent[]> {
+  // showDeleted=true のときは削除済み（status='cancelled'）も含める（消した予定を戻すため）
+  async listOwned(calendarId: string, tag: string, showDeleted = false): Promise<ApiEvent[]> {
     const out: ApiEvent[] = []
     let pageToken: string | undefined
     do {
       const params = new URLSearchParams({
         privateExtendedProperty: `misoSystem=${tag}`,
         maxResults: '250',
-        showDeleted: 'false',
+        showDeleted: showDeleted ? 'true' : 'false',
         singleEvents: 'true',
       })
       if (pageToken) params.set('pageToken', pageToken)
@@ -146,16 +147,20 @@ export class CalendarClient {
   }
 }
 
-// 既存の予定と突き合わせて、作成・更新・削除をまとめて行う
+// 既存の予定と突き合わせて、作成・更新・削除をまとめて行う。
+// keep：システム側に対応が無くなっても消さずに残す予定（例：製造まで終わった依頼の記録）。
+// keep に当たる予定がすでに削除済みなら、元の内容のまま戻す（2026-10-01 factory-planner）。
 export async function syncCalendar(
   calendarId: string,
   tag:        string,
   desired:    CalendarEvent[],
-): Promise<{ total: number; created: number; updated: number; deleted: number }> {
+  opts:       { keep?: (ev: ApiEvent) => boolean } = {},
+): Promise<{ total: number; created: number; updated: number; deleted: number; kept: number; restored: number }> {
   const client   = new CalendarClient()
-  const existing = await client.listOwned(calendarId, tag)
+  const all      = await client.listOwned(calendarId, tag, !!opts.keep)
+  const existing = all.filter(e => e.status !== 'cancelled')
   const byId     = new Map(existing.map(e => [e.id, e]))
-  let created = 0, updated = 0, deleted = 0
+  let created = 0, updated = 0, deleted = 0, kept = 0, restored = 0
 
   for (const ev of desired) {
     const cur = byId.get(ev.id)
@@ -172,12 +177,25 @@ export async function syncCalendar(
     }
     byId.delete(ev.id)
   }
-  // 残ったもの＝システム側に対応が無くなった予定なので消す
-  for (const id of byId.keys()) {
+  // 残ったもの＝システム側に対応が無くなった予定。残すと決めたもの以外は消す
+  for (const [id, ev] of byId) {
+    if (opts.keep?.(ev)) { kept++; continue }
     await client.remove(calendarId, id)
     deleted++
   }
-  // total は同期後にカレンダーへ入っているシステム作成の予定数（＝desiredの件数）。
+  // 残すべきなのに削除済みになっている予定は戻す（keep を入れる前に消してしまった分）
+  if (opts.keep) {
+    const want = new Set(desired.map(d => d.id))
+    for (const ev of all) {
+      if (ev.status !== 'cancelled' || want.has(ev.id) || !opts.keep(ev) || !ev.start?.date) continue
+      await client.update(calendarId, {
+        id: ev.id, summary: ev.summary ?? '', description: ev.description ?? '',
+        date: new Date(`${ev.start.date}T00:00:00`),
+      }, tag)
+      restored++
+    }
+  }
+  // total は同期後にカレンダーへ入っているシステム作成の予定数（＝desiredの件数＋残した分）。
   // 差分だけだと「全部0」で何も起きなかったように見えるため、結果として何件あるかを返す
-  return { total: desired.length, created, updated, deleted }
+  return { total: desired.length + kept + restored, created, updated, deleted, kept, restored }
 }
