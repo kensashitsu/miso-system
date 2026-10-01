@@ -63,6 +63,7 @@ export type ApiEvent = {
   description?: string
   start?: { date?: string }
   status?: string
+  created?: string   // 作られた日時（ISO）。同じ予定が複数のカレンダーにあるとき今の振り分け先を見分ける
 }
 
 export class CalendarClient {
